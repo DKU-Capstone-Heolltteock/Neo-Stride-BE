@@ -41,11 +41,11 @@ public class RunningRecordController {
 									{
 									  "user_id": 1,
 									  "plan_id": null,
-									  "total_distance": 3.25, 	(소수점 둘째 자리까지 저장, 단위: km)
-									  "duration": 1240, 		(단위: 초, 예시: 5분 30초 > 330)
-									  "pace": 360,				(단위: 초, 예시: 5분 30초 > 330)
-									  "calories": 235,			(데이터베이스에 정수 단위로 저장, 단위: kcal(킬로칼로리))
-									  "gps_traces": [			(gps_trace 테이블에 저장할 경로 정보의 배열)
+									  "total_distance": 3.25,
+									  "duration": 1240,
+									  "pace": 360,
+									  "calories": 235,
+									  "gps_traces": [
 									    {
 									      "latitude": 37.5665,
 									      "longitude": 126.978,
@@ -53,6 +53,13 @@ public class RunningRecordController {
 									    }
 									  ]
 									}
+									""",
+							description = """
+									  "total_distance": 3.25, 	(소수점 둘째 자리까지 저장, 단위: km)
+									  "duration": 1240, 		(단위: 초, 예시: 5분 30초 > 330)
+									  "pace": 360,				(단위: 초, 예시: 5분 30초 > 330)
+									  "calories": 235,			(데이터베이스에 정수 단위로 저장, 단위: kcal(킬로칼로리))
+									  "gps_traces": [			(gps_trace 테이블에 저장할 경로 정보의 배열)
 									"""
 					)
 			)
