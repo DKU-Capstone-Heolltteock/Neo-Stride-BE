@@ -1,0 +1,86 @@
+# Neo-Stride Backend .gitignore
+
+### Maven / Java build outputs ###
+target/
+*.class
+*.jar
+*.war
+*.ear
+*.nar
+*.log
+hs_err_pid*
+replay_pid*
+
+# Keep Maven wrapper jar if wrapper files are added later
+!.mvn/wrapper/maven-wrapper.jar
+!**/src/main/**/target/
+!**/src/test/**/target/
+
+### Spring Boot / local runtime ###
+application-local.properties
+application-local.yml
+application-secret.properties
+application-secret.yml
+*.pid
+
+### Environment / secrets ###
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.jks
+*.keystore
+secrets/
+
+### Docker / local deploy artifacts ###
+docker-compose.override.yml
+compose.override.yml
+
+### IDE - IntelliJ IDEA ###
+.idea/
+*.iws
+*.iml
+*.ipr
+out/
+
+### IDE - Eclipse / STS ###
+.apt_generated
+.classpath
+.factorypath
+.project
+.settings/
+.springBeans
+.sts4-cache/
+bin/
+
+### IDE - VS Code ###
+.vscode/
+
+### NetBeans ###
+/nbproject/private/
+/nbbuild/
+/dist/
+/nbdist/
+/.nb-gradle/
+
+### Gradle, if added later ###
+.gradle/
+build/
+!**/src/main/**/build/
+!**/src/test/**/build/
+
+### OS files ###
+.DS_Store
+.AppleDouble
+.LSOverride
+Thumbs.db
+desktop.ini
+
+### Temporary files ###
+*.tmp
+*.temp
+*.swp
+*.swo
+*~
