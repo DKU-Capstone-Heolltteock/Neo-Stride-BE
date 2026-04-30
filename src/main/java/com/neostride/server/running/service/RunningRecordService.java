@@ -2,11 +2,14 @@ package com.neostride.server.running.service;
 
 import com.neostride.server.running.dto.GpsTraceRequest;
 import com.neostride.server.running.dto.RunningRecordRequest;
+import com.neostride.server.running.dto.RunningRecordResponse;
 import com.neostride.server.running.repository.RunningRecordRepository;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
+import java.util.List;
+import java.util.Optional;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -28,6 +31,33 @@ public class RunningRecordService {
 		long runRecordId = runningRecordRepository.insertRunningRecord(request);
 		runningRecordRepository.insertGpsTraces(runRecordId, request.gpsTraces());
 		return runRecordId;
+	}
+
+	@Transactional(readOnly = true)
+	public List<RunningRecordResponse> findByUserId(long userId) {
+		if (userId <= 0) {
+			throw new IllegalArgumentException("user_id는 1 이상의 값이어야 합니다.");
+		}
+		return runningRecordRepository.findByUserId(userId);
+	}
+
+	@Transactional(readOnly = true)
+	public List<RunningRecordResponse> findByMonth(int year, int month) {
+		if (year <= 0) {
+			throw new IllegalArgumentException("year는 1 이상의 값이어야 합니다.");
+		}
+		if (month < 1 || month > 12) {
+			throw new IllegalArgumentException("month는 1 이상 12 이하의 값이어야 합니다.");
+		}
+		return runningRecordRepository.findByMonth(year, month);
+	}
+
+	@Transactional(readOnly = true)
+	public Optional<RunningRecordResponse> findByRecordId(long recordId) {
+		if (recordId <= 0) {
+			throw new IllegalArgumentException("record_id는 1 이상의 값이어야 합니다.");
+		}
+		return Optional.ofNullable(runningRecordRepository.findByRecordId(recordId));
 	}
 
 	private void validate(RunningRecordRequest request) {
