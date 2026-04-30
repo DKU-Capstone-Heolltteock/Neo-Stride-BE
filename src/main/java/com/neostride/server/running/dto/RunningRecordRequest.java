@@ -32,6 +32,10 @@ public record RunningRecordRequest(
 		@JsonProperty("calories")
 		BigDecimal calories,
 
+		@Schema(description = "경로 상세 설명", example = "", nullable = true)
+		@JsonProperty("route_detail")
+		String routeDetail,
+
 		@ArraySchema(schema = @Schema(implementation = GpsTraceRequest.class), minItems = 1)
 		@JsonProperty("gps_traces")
 		List<GpsTraceRequest> gpsTraces

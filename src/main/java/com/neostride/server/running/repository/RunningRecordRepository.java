@@ -2,6 +2,7 @@ package com.neostride.server.running.repository;
 
 import com.neostride.server.running.dto.GpsTraceRequest;
 import com.neostride.server.running.dto.RunningRecordRequest;
+import com.neostride.server.running.dto.RunningRecordResponse;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.sql.PreparedStatement;
@@ -10,6 +11,7 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.core.RowMapper;
 import org.springframework.jdbc.support.GeneratedKeyHolder;
 import org.springframework.jdbc.support.KeyHolder;
 import org.springframework.stereotype.Repository;
@@ -18,8 +20,20 @@ import org.springframework.stereotype.Repository;
 public class RunningRecordRepository {
 
 	private static final DateTimeFormatter TRACE_TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+	private static final DateTimeFormatter RESPONSE_TIME_FORMATTER = DateTimeFormatter.ISO_LOCAL_DATE_TIME;
 
 	private final JdbcTemplate jdbcTemplate;
+
+	private final RowMapper<RunningRecordResponse> runningRecordRowMapper = (rs, rowNum) -> RunningRecordResponse.record(
+			rs.getLong("run_record_id"),
+			rs.getTimestamp("created_at").toLocalDateTime().format(RESPONSE_TIME_FORMATTER),
+			rs.getBigDecimal("total_distance"),
+			nullableInt(rs.getObject("duration")),
+			nullableInt(rs.getObject("pace")),
+			nullableInt(rs.getObject("calories")),
+			findGpsTracesByRecordId(rs.getLong("run_record_id")),
+			List.of()
+	);
 
 	public RunningRecordRepository(JdbcTemplate jdbcTemplate) {
 		this.jdbcTemplate = jdbcTemplate;
@@ -30,8 +44,8 @@ public class RunningRecordRepository {
 		jdbcTemplate.update(connection -> {
 			PreparedStatement ps = connection.prepareStatement("""
 					INSERT INTO running_records
-						(user_id, plan_id, total_distance, duration, pace, calories)
-					VALUES (?, ?, ?, ?, ?, ?)
+						(user_id, plan_id, total_distance, duration, pace, calories, route_detail)
+					VALUES (?, ?, ?, ?, ?, ?, ?)
 					""", Statement.RETURN_GENERATED_KEYS);
 			ps.setLong(1, request.userId());
 			if (request.planId() == null) {
@@ -43,6 +57,7 @@ public class RunningRecordRepository {
 			ps.setInt(4, roundedInt(request.duration()));
 			ps.setInt(5, roundedInt(request.pace()));
 			ps.setInt(6, roundedInt(request.calories()));
+			ps.setString(7, request.routeDetail());
 			return ps;
 		}, keyHolder);
 
@@ -66,11 +81,55 @@ public class RunningRecordRepository {
 		});
 	}
 
+	public List<RunningRecordResponse> findByUserId(long userId) {
+		return jdbcTemplate.query("""
+				SELECT run_record_id, created_at, total_distance, duration, pace, calories
+				FROM running_records
+				WHERE user_id = ?
+				ORDER BY created_at DESC, run_record_id DESC
+				""", runningRecordRowMapper, userId);
+	}
+
+	public List<RunningRecordResponse> findByMonth(int year, int month) {
+		return jdbcTemplate.query("""
+				SELECT run_record_id, created_at, total_distance, duration, pace, calories
+				FROM running_records
+				WHERE YEAR(created_at) = ? AND MONTH(created_at) = ?
+				ORDER BY created_at DESC, run_record_id DESC
+				""", runningRecordRowMapper, year, month);
+	}
+
+	public RunningRecordResponse findByRecordId(long recordId) {
+		List<RunningRecordResponse> records = jdbcTemplate.query("""
+				SELECT run_record_id, created_at, total_distance, duration, pace, calories
+				FROM running_records
+				WHERE run_record_id = ?
+				""", runningRecordRowMapper, recordId);
+		return records.isEmpty() ? null : records.getFirst();
+	}
+
+	private List<GpsTraceRequest> findGpsTracesByRecordId(long recordId) {
+		return jdbcTemplate.query("""
+				SELECT latitude, longitude, recorded_time
+				FROM gps_traces
+				WHERE run_record_id = ?
+				ORDER BY recorded_time ASC, trace_id ASC
+				""", (rs, rowNum) -> new GpsTraceRequest(
+				rs.getDouble("latitude"),
+				rs.getDouble("longitude"),
+				rs.getTimestamp("recorded_time").toLocalDateTime().format(TRACE_TIME_FORMATTER)
+		), recordId);
+	}
+
 	private LocalDateTime parseTraceTime(String time) {
 		return LocalDateTime.parse(time, TRACE_TIME_FORMATTER);
 	}
 
 	private int roundedInt(BigDecimal value) {
 		return value.setScale(0, RoundingMode.HALF_UP).intValueExact();
+	}
+
+	private static Integer nullableInt(Object value) {
+		return value == null ? null : ((Number) value).intValue();
 	}
 }

@@ -10,11 +10,15 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import java.util.List;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 @Tag(name = "Running Records", description = "러닝 기록 API")
@@ -43,8 +47,9 @@ public class RunningRecordController {
 									  "plan_id": null,
 									  "total_distance": 3.25,
 									  "duration": 1240,
-									  "pace": 360,
-									  "calories": 235,
+									  "pace": 6.36,
+									  "calories": 235.69,
+									  "route_detail": "",
 									  "gps_traces": [
 									    {
 									      "latitude": 37.5665,
@@ -53,13 +58,6 @@ public class RunningRecordController {
 									    }
 									  ]
 									}
-									""",
-							description = """
-									  "total_distance": 3.25, 	(소수점 둘째 자리까지 저장, 단위: km)
-									  "duration": 1240, 		(단위: 초, 예시: 5분 30초 > 330)
-									  "pace": 360,				(단위: 초, 예시: 5분 30초 > 330)
-									  "calories": 235,			(데이터베이스에 정수 단위로 저장, 단위: kcal(킬로칼로리))
-									  "gps_traces": [			(gps_trace 테이블에 저장할 경로 정보의 배열)
 									"""
 					)
 			)
@@ -91,5 +89,31 @@ public class RunningRecordController {
 		long runRecordId = runningRecordService.save(request);
 		return ResponseEntity.status(HttpStatus.CREATED)
 				.body(RunningRecordResponse.success("러닝 기록이 저장되었습니다.", runRecordId));
+	}
+
+	@Operation(summary = "유저별 전체 러닝 기록 조회", description = "특정 유저의 전체 러닝 기록 목록을 조회합니다.")
+	@ApiResponse(responseCode = "200", description = "조회 성공")
+	@GetMapping("/user/{user_id}")
+	public ResponseEntity<List<RunningRecordResponse>> fetchUserRecords(@PathVariable("user_id") long userId) {
+		return ResponseEntity.ok(runningRecordService.findByUserId(userId));
+	}
+
+	@Operation(summary = "월별 러닝 기록 조회", description = "특정 연/월의 러닝 기록 목록을 조회합니다.")
+	@ApiResponse(responseCode = "200", description = "조회 성공")
+	@GetMapping
+	public ResponseEntity<List<RunningRecordResponse>> getMonthlyRecords(@RequestParam int year, @RequestParam int month) {
+		return ResponseEntity.ok(runningRecordService.findByMonth(year, month));
+	}
+
+	@Operation(summary = "러닝 기록 상세 조회", description = "특정 러닝 기록의 상세 정보와 GPS 경로를 조회합니다.")
+	@ApiResponses({
+			@ApiResponse(responseCode = "200", description = "조회 성공"),
+			@ApiResponse(responseCode = "404", description = "러닝 기록 없음", content = @Content)
+	})
+	@GetMapping("/{record_id}")
+	public ResponseEntity<RunningRecordResponse> getRecordDetail(@PathVariable("record_id") long recordId) {
+		return runningRecordService.findByRecordId(recordId)
+				.map(ResponseEntity::ok)
+				.orElseGet(() -> ResponseEntity.notFound().build());
 	}
 }
