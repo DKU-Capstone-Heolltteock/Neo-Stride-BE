@@ -5,6 +5,7 @@ import com.neostride.server.auth.dto.SignupResponse;
 import com.neostride.server.auth.exception.DuplicateEmailException;
 import com.neostride.server.auth.exception.InvalidCredentialsException;
 import com.neostride.server.running.dto.RunningRecordResponse;
+import java.util.Map;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -20,6 +21,9 @@ public class ApiExceptionHandler {
 	public ResponseEntity<?> handleInvalidRequest(IllegalArgumentException exception, WebRequest request) {
 		if (isAuthRequest(request)) {
 			return ResponseEntity.badRequest().body(SignupResponse.error(exception.getMessage()));
+		}
+		if (isCoachingRequest(request)) {
+			return ResponseEntity.badRequest().body(Map.of("status", "error", "message", exception.getMessage()));
 		}
 		return ResponseEntity.badRequest().body(RunningRecordResponse.error(exception.getMessage()));
 	}
@@ -40,6 +44,10 @@ public class ApiExceptionHandler {
 		if (isAuthRequest(request)) {
 			return ResponseEntity.status(HttpStatus.CONFLICT).body(SignupResponse.error("이미 가입된 이메일입니다."));
 		}
+		if (isCoachingRequest(request)) {
+			return ResponseEntity.status(HttpStatus.CONFLICT)
+					.body(Map.of("status", "error", "message", "사용자 또는 목표 정보를 확인할 수 없습니다."));
+		}
 		return ResponseEntity.status(HttpStatus.CONFLICT)
 				.body(RunningRecordResponse.error("사용자 또는 플랜 정보를 확인할 수 없습니다."));
 	}
@@ -47,5 +55,10 @@ public class ApiExceptionHandler {
 	private boolean isAuthRequest(WebRequest request) {
 		return request instanceof ServletWebRequest servletWebRequest
 				&& servletWebRequest.getRequest().getRequestURI().startsWith("/api/auth");
+	}
+
+	private boolean isCoachingRequest(WebRequest request) {
+		return request instanceof ServletWebRequest servletWebRequest
+				&& servletWebRequest.getRequest().getRequestURI().startsWith("/api/coaching");
 	}
 }
