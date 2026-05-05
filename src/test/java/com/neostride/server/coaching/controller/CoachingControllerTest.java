@@ -4,6 +4,7 @@ import com.neostride.server.coaching.dto.FeedbackRequest;
 import com.neostride.server.coaching.dto.FeedbackResponse;
 import com.neostride.server.coaching.dto.GoalRequest;
 import com.neostride.server.coaching.dto.GoalResponse;
+import com.neostride.server.coaching.dto.GoalStatusUpdateRequest;
 import com.neostride.server.coaching.dto.TodayPlanResponse;
 import com.neostride.server.coaching.service.CoachingService;
 import java.math.BigDecimal;
@@ -75,5 +76,17 @@ class CoachingControllerTest {
 
 		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
 		assertThat(response.getBody()).containsEntry("status", "success");
+	}
+
+	@Test
+	void updateGoalStatus_returnsUpdatedGoal() {
+		GoalStatusUpdateRequest request = new GoalStatusUpdateRequest(false, true);
+		GoalResponse responseBody = GoalResponse.of(10L, false, "completed", null, List.of());
+		when(service.updateGoalStatus(10L, request)).thenReturn(responseBody);
+
+		var response = controller.updateGoalStatus(10L, request);
+
+		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+		assertThat(response.getBody()).isSameAs(responseBody);
 	}
 }

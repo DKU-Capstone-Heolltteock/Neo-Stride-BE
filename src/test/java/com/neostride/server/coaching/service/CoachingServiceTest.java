@@ -2,8 +2,12 @@ package com.neostride.server.coaching.service;
 
 import com.neostride.server.coaching.dto.FeedbackRequest;
 import com.neostride.server.coaching.dto.GoalRequest;
+import com.neostride.server.coaching.dto.GoalStatusUpdateRequest;
 import com.neostride.server.coaching.repository.CoachingRepository;
+import com.neostride.server.coaching.repository.GoalRow;
 import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 
@@ -66,5 +70,25 @@ class CoachingServiceTest {
 		assertThat(response.planDayId()).isEqualTo(20L);
 		assertThat(response.completed()).isTrue();
 		assertThat(response.aiFeedbackComment()).isNotBlank();
+	}
+
+	@Test
+	void updateGoalStatus_updatesGoalFlagsAndReturnsCurrentGoalShape() {
+		GoalStatusUpdateRequest request = new GoalStatusUpdateRequest(false, true);
+		GoalRow completedGoal = new GoalRow(10L, 1L, 4, 3, new BigDecimal("5.00"), 6,
+				LocalDateTime.parse("2026-05-01T09:00:00"), false, true,
+				LocalDate.parse("2026-05-01"), LocalDate.parse("2026-05-29"), List.of("mon", "wed", "fri"));
+		when(repository.updateGoalStatus(10L, false, true)).thenReturn(true);
+		when(repository.findGoalById(10L)).thenReturn(completedGoal);
+		when(repository.findPlanDaysByGoalId(10L)).thenReturn(List.of());
+
+		var response = service.updateGoalStatus(10L, request);
+
+		assertThat(response.goalId()).isEqualTo(10L);
+		assertThat(response.hasActiveGoal()).isFalse();
+		assertThat(response.status()).isEqualTo("completed");
+		assertThat(response.goal().active()).isFalse();
+		assertThat(response.goal().achieved()).isTrue();
+		verify(repository).updateGoalStatus(10L, false, true);
 	}
 }

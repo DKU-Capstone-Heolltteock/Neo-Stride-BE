@@ -4,6 +4,7 @@ import com.neostride.server.coaching.dto.FeedbackRequest;
 import com.neostride.server.coaching.dto.FeedbackResponse;
 import com.neostride.server.coaching.dto.GoalRequest;
 import com.neostride.server.coaching.dto.GoalResponse;
+import com.neostride.server.coaching.dto.GoalStatusUpdateRequest;
 import com.neostride.server.coaching.dto.PlanDayResponse;
 import com.neostride.server.coaching.dto.TodayPlanResponse;
 import com.neostride.server.coaching.repository.CoachingRepository;
@@ -109,6 +110,20 @@ public class CoachingService {
 		return Map.of("status", "success", "message", "삭제 완료");
 	}
 
+	@Transactional
+	public GoalResponse updateGoalStatus(long goalId, GoalStatusUpdateRequest request) {
+		validatePositive(goalId, "goal_id");
+		validateGoalStatusUpdateRequest(request);
+		if (!coachingRepository.updateGoalStatus(goalId, request.active(), request.achieved())) {
+			throw new IllegalArgumentException("goal_id에 해당하는 목표가 없습니다.");
+		}
+		GoalRow goal = coachingRepository.findGoalById(goalId);
+		if (goal == null) {
+			throw new IllegalArgumentException("goal_id에 해당하는 목표가 없습니다.");
+		}
+		return toGoalResponse(goal, periodType(goal.durationWeeks()), customWeeks(goal.durationWeeks()), goal.runningDays(), coachingRepository.findPlanDaysByGoalId(goalId));
+	}
+
 	private void validateGoalRequest(GoalRequest request) {
 		if (request == null) {
 			throw new IllegalArgumentException("요청 본문이 필요합니다.");
@@ -134,6 +149,18 @@ public class CoachingService {
 			throw new IllegalArgumentException("actual_time_sec는 1 이상의 값이어야 합니다.");
 		}
 		requirePositive(request.actualPaceMinPerKm(), "actual_pace_min_per_km");
+	}
+
+	private void validateGoalStatusUpdateRequest(GoalStatusUpdateRequest request) {
+		if (request == null) {
+			throw new IllegalArgumentException("요청 본문이 필요합니다.");
+		}
+		if (request.active() == null) {
+			throw new IllegalArgumentException("is_active는 필수입니다.");
+		}
+		if (request.achieved() == null) {
+			throw new IllegalArgumentException("is_achieved는 필수입니다.");
+		}
 	}
 
 	private List<PlanDayInsertCommand> generatePlanDays(LocalDate startDate, int durationWeeks, Set<DayOfWeek> runningDays,
@@ -162,7 +189,9 @@ public class CoachingService {
 				goal.targetPace() == null ? null : BigDecimal.valueOf(goal.targetPace()),
 				goal.startDate() == null ? null : goal.startDate().format(DATE_FORMATTER),
 				goal.endDate() == null ? null : goal.endDate().format(DATE_FORMATTER),
-				goal.createdAt() == null ? null : goal.createdAt().format(DATE_TIME_FORMATTER)
+				goal.createdAt() == null ? null : goal.createdAt().format(DATE_TIME_FORMATTER),
+				Boolean.TRUE.equals(goal.active()),
+				Boolean.TRUE.equals(goal.achieved())
 		);
 	}
 
@@ -186,10 +215,13 @@ public class CoachingService {
 	}
 
 	private String status(GoalRow goal) {
+		if (Boolean.TRUE.equals(goal.achieved())) {
+			return "completed";
+		}
 		if (!Boolean.TRUE.equals(goal.active())) {
 			return "deleted";
 		}
-		return Boolean.TRUE.equals(goal.achieved()) ? "completed" : "active";
+		return "active";
 	}
 
 	private int durationWeeks(String periodType, Integer customWeeks) {

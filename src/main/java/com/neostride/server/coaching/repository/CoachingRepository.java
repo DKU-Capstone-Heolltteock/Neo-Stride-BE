@@ -151,6 +151,15 @@ public class CoachingRepository {
 		return updated > 0;
 	}
 
+	public boolean updateGoalStatus(long goalId, boolean active, boolean achieved) {
+		int updated = jdbcTemplate.update("""
+				UPDATE goals
+				SET is_active = ?, is_achieved = ?
+				WHERE goal_id = ?
+				""", active, achieved, goalId);
+		return updated > 0;
+	}
+
 	private RowMapper<GoalRow> goalRowMapper() {
 		return (rs, rowNum) -> new GoalRow(
 				rs.getLong("goal_id"),

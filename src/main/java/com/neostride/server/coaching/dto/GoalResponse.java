@@ -34,7 +34,9 @@ public record GoalResponse(
 			@JsonProperty("goal_pace_min_per_km") BigDecimal goalPaceMinPerKm,
 			@JsonProperty("start_date") String startDate,
 			@JsonProperty("end_date") String endDate,
-			@JsonProperty("created_at") String createdAt
+			@JsonProperty("created_at") String createdAt,
+			@JsonProperty("is_active") Boolean active,
+			@JsonProperty("is_achieved") Boolean achieved
 	) {
 	}
 }
