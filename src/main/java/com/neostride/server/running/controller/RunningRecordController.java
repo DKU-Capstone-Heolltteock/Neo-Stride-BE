@@ -54,7 +54,9 @@ public class RunningRecordController {
 									    {
 									      "latitude": 37.5665,
 									      "longitude": 126.978,
-									      "time": "2026-04-28 09:30:12"
+									      "time": "2026-04-28 09:30:12",
+									      "heart_rate": 150.0,
+									      "cadence": 171.0
 									    }
 									  ]
 									}

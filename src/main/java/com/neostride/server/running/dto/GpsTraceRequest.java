@@ -15,6 +15,14 @@ public record GpsTraceRequest(
 
 		@Schema(description = "좌표 기록 시각", example = "2026-04-28 09:30:12", pattern = "yyyy-MM-dd HH:mm:ss")
 		@JsonProperty("time")
-		String time
+		String time,
+
+		@Schema(description = "트레이스 시점 심박수. 단위: bpm", example = "150.0", nullable = true)
+		@JsonProperty("heart_rate")
+		Double heartRate,
+
+		@Schema(description = "트레이스 시점 케이던스. 단위: spm", example = "171.0", nullable = true)
+		@JsonProperty("cadence")
+		Double cadence
 ) {
 }

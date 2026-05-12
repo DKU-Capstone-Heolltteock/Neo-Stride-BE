@@ -71,13 +71,15 @@ public class RunningRecordRepository {
 	public void insertGpsTraces(long runRecordId, List<GpsTraceRequest> gpsTraces) {
 		jdbcTemplate.batchUpdate("""
 				INSERT INTO gps_traces
-					(run_record_id, longitude, latitude, recorded_time)
-				VALUES (?, ?, ?, ?)
+					(run_record_id, longitude, latitude, recorded_time, heart_rate, cadence)
+				VALUES (?, ?, ?, ?, ?, ?)
 				""", gpsTraces, gpsTraces.size(), (ps, trace) -> {
 			ps.setLong(1, runRecordId);
 			ps.setBigDecimal(2, BigDecimal.valueOf(trace.longitude()).setScale(7, RoundingMode.HALF_UP));
 			ps.setBigDecimal(3, BigDecimal.valueOf(trace.latitude()).setScale(7, RoundingMode.HALF_UP));
 			ps.setObject(4, parseTraceTime(trace.time()));
+			ps.setObject(5, nullableDecimal(trace.heartRate()));
+			ps.setObject(6, nullableDecimal(trace.cadence()));
 		});
 	}
 
@@ -110,14 +112,16 @@ public class RunningRecordRepository {
 
 	private List<GpsTraceRequest> findGpsTracesByRecordId(long recordId) {
 		return jdbcTemplate.query("""
-				SELECT latitude, longitude, recorded_time
+				SELECT latitude, longitude, recorded_time, heart_rate, cadence
 				FROM gps_traces
 				WHERE run_record_id = ?
 				ORDER BY recorded_time ASC, trace_id ASC
 				""", (rs, rowNum) -> new GpsTraceRequest(
 				rs.getDouble("latitude"),
 				rs.getDouble("longitude"),
-				rs.getTimestamp("recorded_time").toLocalDateTime().format(TRACE_TIME_FORMATTER)
+				rs.getTimestamp("recorded_time").toLocalDateTime().format(TRACE_TIME_FORMATTER),
+				nullableDouble(rs.getObject("heart_rate")),
+				nullableDouble(rs.getObject("cadence"))
 		), recordId);
 	}
 
@@ -127,6 +131,14 @@ public class RunningRecordRepository {
 
 	private int roundedInt(BigDecimal value) {
 		return value.setScale(0, RoundingMode.HALF_UP).intValueExact();
+	}
+
+	private static BigDecimal nullableDecimal(Double value) {
+		return value == null ? null : BigDecimal.valueOf(value);
+	}
+
+	private static Double nullableDouble(Object value) {
+		return value == null ? null : ((Number) value).doubleValue();
 	}
 
 	private static Integer nullableInt(Object value) {
