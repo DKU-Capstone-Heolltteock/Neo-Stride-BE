@@ -1,5 +1,9 @@
 package com.neostride.server.coaching.service;
 
+import com.neostride.server.coaching.ai.AiCoachingClient;
+import com.neostride.server.coaching.ai.AiCoachingFeedbackRequest;
+import com.neostride.server.coaching.ai.AiCoachingPlan;
+import com.neostride.server.coaching.ai.AiCoachingPlanDay;
 import com.neostride.server.coaching.dto.FeedbackRequest;
 import com.neostride.server.coaching.dto.FeedbackResponse;
 import com.neostride.server.coaching.dto.GoalRequest;
@@ -34,9 +38,11 @@ public class CoachingService {
 	private static final DateTimeFormatter DATE_TIME_FORMATTER = DateTimeFormatter.ISO_LOCAL_DATE_TIME;
 
 	private final CoachingRepository coachingRepository;
+	private final AiCoachingClient aiCoachingClient;
 
-	public CoachingService(CoachingRepository coachingRepository) {
+	public CoachingService(CoachingRepository coachingRepository, AiCoachingClient aiCoachingClient) {
 		this.coachingRepository = coachingRepository;
+		this.aiCoachingClient = aiCoachingClient;
 	}
 
 	@Transactional
@@ -58,7 +64,7 @@ public class CoachingService {
 		coachingRepository.insertPlanDays(
 				request.userId(),
 				goalId,
-				generatePlanDays(startDate, durationWeeks, runningDays, request.goalDistanceKm(), targetPace)
+				generatePlanDaysWithAiFallback(request, startDate, durationWeeks, runningDays, targetPace)
 		);
 
 		GoalRow persisted = coachingRepository.findGoalById(goalId);
@@ -94,7 +100,7 @@ public class CoachingService {
 	public FeedbackResponse requestFeedback(long planDayId, FeedbackRequest request) {
 		validatePositive(planDayId, "plan_day_id");
 		validateFeedbackRequest(planDayId, request);
-		String feedback = buildFeedback(request);
+		String feedback = buildFeedbackWithAiFallback(planDayId, request);
 		if (!coachingRepository.updateFeedback(planDayId, feedback)) {
 			throw new IllegalArgumentException("plan_day_id에 해당하는 플랜이 없습니다.");
 		}
@@ -163,6 +169,41 @@ public class CoachingService {
 		}
 	}
 
+	private List<PlanDayInsertCommand> generatePlanDaysWithAiFallback(GoalRequest request, LocalDate startDate, int durationWeeks,
+			Set<DayOfWeek> runningDays, int targetPace) {
+		AiCoachingPlan aiPlan = aiCoachingClient.generatePlan(request, durationWeeks, startDate);
+		List<PlanDayInsertCommand> aiPlanDays = toSafePlanDayCommands(aiPlan, startDate, durationWeeks, runningDays);
+		if (!aiPlanDays.isEmpty()) {
+			return aiPlanDays;
+		}
+		return generatePlanDays(startDate, durationWeeks, runningDays, request.goalDistanceKm(), targetPace);
+	}
+
+	private List<PlanDayInsertCommand> toSafePlanDayCommands(AiCoachingPlan aiPlan, LocalDate startDate, int durationWeeks,
+			Set<DayOfWeek> runningDays) {
+		if (aiPlan == null || aiPlan.planDays() == null || aiPlan.planDays().isEmpty()) {
+			return List.of();
+		}
+		LocalDate endExclusive = startDate.plusWeeks(durationWeeks);
+		List<PlanDayInsertCommand> commands = new ArrayList<>();
+		for (AiCoachingPlanDay day : aiPlan.planDays()) {
+			if (day == null || day.planDate() == null || day.dayDistanceKm() == null || day.dayPaceMinPerKm() == null) {
+				return List.of();
+			}
+			if (day.planDate().isBefore(startDate) || !day.planDate().isBefore(endExclusive)) {
+				return List.of();
+			}
+			if (!runningDays.contains(day.planDate().getDayOfWeek())) {
+				return List.of();
+			}
+			if (day.dayDistanceKm().compareTo(BigDecimal.ZERO) <= 0 || day.dayPaceMinPerKm() <= 0) {
+				return List.of();
+			}
+			commands.add(new PlanDayInsertCommand(day.planDate(), day.dayDistanceKm().setScale(2, RoundingMode.HALF_UP), day.dayPaceMinPerKm()));
+		}
+		return commands;
+	}
+
 	private List<PlanDayInsertCommand> generatePlanDays(LocalDate startDate, int durationWeeks, Set<DayOfWeek> runningDays,
 			BigDecimal targetDistance, int targetPace) {
 		List<PlanDayInsertCommand> planDays = new ArrayList<>();
@@ -206,6 +247,14 @@ public class CoachingService {
 				row.feedback(),
 				row.feedback() == null ? null : row.updatedAt().format(DATE_TIME_FORMATTER)
 		);
+	}
+
+	private String buildFeedbackWithAiFallback(long planDayId, FeedbackRequest request) {
+		String aiFeedback = aiCoachingClient.generateFeedback(new AiCoachingFeedbackRequest(planDayId, request));
+		if (aiFeedback != null && !aiFeedback.isBlank()) {
+			return aiFeedback.trim();
+		}
+		return buildFeedback(request);
 	}
 
 	private String buildFeedback(FeedbackRequest request) {

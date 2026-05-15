@@ -91,4 +91,47 @@ class CommunityControllerTest {
 		assertThat(controller.uploadFeed(1L, request).getStatusCode()).isEqualTo(HttpStatus.CREATED);
 		assertThat(controller.getFeedList(1L).getBody()).containsExactly(uploaded);
 	}
+
+	@Test
+	void accountApis_supportCurrentUserAccountNicknameAndDeletion() {
+		var account = new com.neostride.server.community.dto.AccountInfoResponse("runner@example.com", "neo", "photo.png");
+		when(service.getAccountInfo(1L)).thenReturn(account);
+
+		assertThat(controller.getAccountInfo(1L).getBody()).isSameAs(account);
+		assertThat(controller.updateNickname(1L, Map.of("nickname", "neo2")).getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
+		assertThat(controller.deleteAccount(1L).getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
+	}
+
+	@Test
+	void runnerPageApis_returnOtherUserProfileBadgeFeedsAndFriends() {
+		UserProfileResponse profile = new UserProfileResponse("runner", "photo.png", "ready", 2, 3, 0, 0, 0, 0);
+		BadgeDetailResponse badge = new BadgeDetailResponse("GOLD", 11L, new BigDecimal("10.0"), "5", "2026-05-11T00:00:00");
+		List<CommunityContentResponse> feeds = List.of(new CommunityContentResponse(10L, "text", new BigDecimal("3.2"), 1200, 6, "2026-05-11T00:00:00"));
+		List<FriendResponse> friends = List.of(new FriendResponse(3L, "friend", "SILVER", 4, "friend.png", "friends"));
+		when(service.getUserProfile(2L)).thenReturn(profile);
+		when(service.getBadgeDetail(2L)).thenReturn(badge);
+		when(service.getUserFeeds(2L)).thenReturn(feeds);
+		when(service.getUserFriendList(2L)).thenReturn(friends);
+
+		assertThat(controller.getRunnerProfile(2L).getBody()).isSameAs(profile);
+		assertThat(controller.getUserBadgeDetail(2L).getBody()).isSameAs(badge);
+		assertThat(controller.getRunnerFeeds(2L).getBody()).isSameAs(feeds);
+		assertThat(controller.getUserFriendList(2L).getBody()).isSameAs(friends);
+	}
+
+	@Test
+	void bookmarkAndTipApis_supportAndroidContracts() {
+		var bookmark = Map.of("status", "success", "bookmarked", "true");
+		var tipRequest = new com.neostride.server.community.dto.TipUploadRequest("COURSE", "title", "content", true, "route.png", List.of("tip.png"));
+		var tip = new com.neostride.server.community.dto.TipUploadResponse(7L, "neo", "photo.png", true, "COURSE", "title", "content", true, "route.png", List.of("tip.png"), 1, 2, "2026-05-11T00:00:00");
+		var tipList = new com.neostride.server.community.dto.TipListResponse(List.of(tip));
+		when(service.toggleBookmark(1L, 10L)).thenReturn(bookmark);
+		when(service.uploadTip(1L, tipRequest)).thenReturn(tip);
+		when(service.getTips()).thenReturn(tipList);
+
+		assertThat(controller.toggleBookmark(1L, 10L).getBody()).isSameAs(bookmark);
+		assertThat(controller.uploadTip(1L, tipRequest).getStatusCode()).isEqualTo(HttpStatus.CREATED);
+		assertThat(controller.uploadTip(1L, tipRequest).getBody()).isSameAs(tip);
+		assertThat(controller.getTips().getBody()).isSameAs(tipList);
+	}
 }

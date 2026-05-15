@@ -23,6 +23,7 @@ public class RunningRecordRepository {
 	private static final DateTimeFormatter RESPONSE_TIME_FORMATTER = DateTimeFormatter.ISO_LOCAL_DATE_TIME;
 
 	private final JdbcTemplate jdbcTemplate;
+	private volatile Boolean watchMetricColumnsAvailable;
 
 	private final RowMapper<RunningRecordResponse> runningRecordRowMapper = (rs, rowNum) -> RunningRecordResponse.record(
 			rs.getLong("run_record_id"),
@@ -69,17 +70,31 @@ public class RunningRecordRepository {
 	}
 
 	public void insertGpsTraces(long runRecordId, List<GpsTraceRequest> gpsTraces) {
+		if (supportsWatchMetricColumns()) {
+			jdbcTemplate.batchUpdate("""
+					INSERT INTO gps_traces
+						(run_record_id, longitude, latitude, recorded_time, heart_rate, cadence)
+					VALUES (?, ?, ?, ?, ?, ?)
+					""", gpsTraces, gpsTraces.size(), (ps, trace) -> {
+				ps.setLong(1, runRecordId);
+				ps.setBigDecimal(2, BigDecimal.valueOf(trace.longitude()).setScale(7, RoundingMode.HALF_UP));
+				ps.setBigDecimal(3, BigDecimal.valueOf(trace.latitude()).setScale(7, RoundingMode.HALF_UP));
+				ps.setObject(4, parseTraceTime(trace.time()));
+				ps.setObject(5, nullableDecimal(trace.heartRate()));
+				ps.setObject(6, nullableDecimal(trace.cadence()));
+			});
+			return;
+		}
+
 		jdbcTemplate.batchUpdate("""
 				INSERT INTO gps_traces
-					(run_record_id, longitude, latitude, recorded_time, heart_rate, cadence)
-				VALUES (?, ?, ?, ?, ?, ?)
+					(run_record_id, longitude, latitude, recorded_time)
+				VALUES (?, ?, ?, ?)
 				""", gpsTraces, gpsTraces.size(), (ps, trace) -> {
 			ps.setLong(1, runRecordId);
 			ps.setBigDecimal(2, BigDecimal.valueOf(trace.longitude()).setScale(7, RoundingMode.HALF_UP));
 			ps.setBigDecimal(3, BigDecimal.valueOf(trace.latitude()).setScale(7, RoundingMode.HALF_UP));
 			ps.setObject(4, parseTraceTime(trace.time()));
-			ps.setObject(5, nullableDecimal(trace.heartRate()));
-			ps.setObject(6, nullableDecimal(trace.cadence()));
 		});
 	}
 
@@ -111,8 +126,23 @@ public class RunningRecordRepository {
 	}
 
 	private List<GpsTraceRequest> findGpsTracesByRecordId(long recordId) {
+		if (supportsWatchMetricColumns()) {
+			return jdbcTemplate.query("""
+					SELECT latitude, longitude, recorded_time, heart_rate, cadence
+					FROM gps_traces
+					WHERE run_record_id = ?
+					ORDER BY recorded_time ASC, trace_id ASC
+					""", (rs, rowNum) -> new GpsTraceRequest(
+					rs.getDouble("latitude"),
+					rs.getDouble("longitude"),
+					rs.getTimestamp("recorded_time").toLocalDateTime().format(TRACE_TIME_FORMATTER),
+					nullableDouble(rs.getObject("heart_rate")),
+					nullableDouble(rs.getObject("cadence"))
+			), recordId);
+		}
+
 		return jdbcTemplate.query("""
-				SELECT latitude, longitude, recorded_time, heart_rate, cadence
+				SELECT latitude, longitude, recorded_time
 				FROM gps_traces
 				WHERE run_record_id = ?
 				ORDER BY recorded_time ASC, trace_id ASC
@@ -120,13 +150,31 @@ public class RunningRecordRepository {
 				rs.getDouble("latitude"),
 				rs.getDouble("longitude"),
 				rs.getTimestamp("recorded_time").toLocalDateTime().format(TRACE_TIME_FORMATTER),
-				nullableDouble(rs.getObject("heart_rate")),
-				nullableDouble(rs.getObject("cadence"))
+				null,
+				null
 		), recordId);
 	}
 
 	private LocalDateTime parseTraceTime(String time) {
 		return LocalDateTime.parse(time, TRACE_TIME_FORMATTER);
+	}
+
+	private boolean supportsWatchMetricColumns() {
+		Boolean cached = watchMetricColumnsAvailable;
+		if (cached != null) {
+			return cached;
+		}
+
+		Integer columnCount = jdbcTemplate.queryForObject("""
+				SELECT COUNT(*)
+				FROM information_schema.columns
+				WHERE table_schema = DATABASE()
+					AND table_name = 'gps_traces'
+					AND column_name IN ('heart_rate', 'cadence')
+				""", Integer.class);
+		boolean available = columnCount != null && columnCount == 2;
+		watchMetricColumnsAvailable = available;
+		return available;
 	}
 
 	private int roundedInt(BigDecimal value) {

@@ -6,6 +6,10 @@ import com.neostride.server.community.dto.FeedUploadRequest;
 import com.neostride.server.community.dto.FeedUploadResponse;
 import com.neostride.server.community.dto.FriendRequest;
 import com.neostride.server.community.dto.FriendResponse;
+import com.neostride.server.community.dto.AccountInfoResponse;
+import com.neostride.server.community.dto.TipListResponse;
+import com.neostride.server.community.dto.TipUploadRequest;
+import com.neostride.server.community.dto.TipUploadResponse;
 import com.neostride.server.community.dto.UserProfileResponse;
 import com.neostride.server.community.service.CommunityService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -14,6 +18,7 @@ import java.util.List;
 import java.util.Map;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -33,10 +38,18 @@ public class CommunityController {
 	@Operation(summary = "내 프로필 조회")
 	@GetMapping("/users/me/profile")
 	public ResponseEntity<UserProfileResponse> getUserProfile(@RequestHeader(value = "X-User-Id", defaultValue = "1") long userId) { return ResponseEntity.ok(service.getUserProfile(userId)); }
+	@GetMapping("/users/{userId}/profile")
+	public ResponseEntity<UserProfileResponse> getRunnerProfile(@org.springframework.web.bind.annotation.PathVariable long userId) { return ResponseEntity.ok(service.getUserProfile(userId)); }
+	@GetMapping("/users/me/account")
+	public ResponseEntity<AccountInfoResponse> getAccountInfo(@RequestHeader(value = "X-User-Id", defaultValue = "1") long userId) { return ResponseEntity.ok(service.getAccountInfo(userId)); }
 
 	@Operation(summary = "내 상태 메시지 변경")
 	@PatchMapping("/users/me/status")
 	public ResponseEntity<Void> updateStatusMessage(@RequestHeader(value = "X-User-Id", defaultValue = "1") long userId, @RequestBody Map<String, String> body) { service.updateStatusMessage(userId, body); return ResponseEntity.noContent().build(); }
+	@PatchMapping("/users/me/nickname")
+	public ResponseEntity<Void> updateNickname(@RequestHeader(value = "X-User-Id", defaultValue = "1") long userId, @RequestBody Map<String, String> body) { service.updateNickname(userId, body); return ResponseEntity.noContent().build(); }
+	@DeleteMapping("/users/me")
+	public ResponseEntity<Void> deleteAccount(@RequestHeader(value = "X-User-Id", defaultValue = "1") long userId) { service.deleteAccount(userId); return ResponseEntity.noContent().build(); }
 
 	@Operation(summary = "내 프로필 이미지 변경")
 	@PatchMapping("/users/me/profile-image")
@@ -63,12 +76,20 @@ public class CommunityController {
 	public ResponseEntity<List<CommunityContentResponse>> getLikedFeeds(@RequestHeader(value = "X-User-Id", defaultValue = "1") long userId) { return ResponseEntity.ok(service.getLikedFeeds(userId)); }
 	@GetMapping("/community/contents/bookmarks")
 	public ResponseEntity<List<CommunityContentResponse>> getBookmarkedFeeds(@RequestHeader(value = "X-User-Id", defaultValue = "1") long userId) { return ResponseEntity.ok(service.getBookmarkedFeeds(userId)); }
+	@GetMapping("/community/contents/user/{userId}")
+	public ResponseEntity<List<CommunityContentResponse>> getRunnerFeeds(@org.springframework.web.bind.annotation.PathVariable long userId) { return ResponseEntity.ok(service.getUserFeeds(userId)); }
+	@PostMapping("/community/bookmark/{contentId}")
+	public ResponseEntity<Map<String, String>> toggleBookmark(@RequestHeader(value = "X-User-Id", defaultValue = "1") long userId, @org.springframework.web.bind.annotation.PathVariable long contentId) { return ResponseEntity.ok(service.toggleBookmark(userId, contentId)); }
 
 	@GetMapping("/users/me/badge")
 	public ResponseEntity<BadgeDetailResponse> getBadgeDetail(@RequestHeader(value = "X-User-Id", defaultValue = "1") long userId) { return ResponseEntity.ok(service.getBadgeDetail(userId)); }
+	@GetMapping("/users/{userId}/badge")
+	public ResponseEntity<BadgeDetailResponse> getUserBadgeDetail(@org.springframework.web.bind.annotation.PathVariable long userId) { return ResponseEntity.ok(service.getBadgeDetail(userId)); }
 
 	@GetMapping("/community/friends")
 	public ResponseEntity<List<FriendResponse>> getCommunityFriends(@RequestHeader(value = "X-User-Id", defaultValue = "1") long userId, @RequestParam String status) { return ResponseEntity.ok(service.getFriendList(userId, status)); }
+	@GetMapping("/community/friends/user/{userId}")
+	public ResponseEntity<List<FriendResponse>> getUserFriendList(@org.springframework.web.bind.annotation.PathVariable long userId) { return ResponseEntity.ok(service.getUserFriendList(userId)); }
 	@PostMapping("/community/friends/action")
 	public ResponseEntity<Map<String, String>> updateCommunityRelationship(@RequestHeader(value = "X-User-Id", defaultValue = "1") long userId, @RequestBody FriendRequest request) { return ResponseEntity.ok(service.updateRelationship(userId, request)); }
 	@GetMapping("/api/relationships")
@@ -80,4 +101,8 @@ public class CommunityController {
 	public ResponseEntity<FeedUploadResponse> uploadFeed(@RequestHeader(value = "X-User-Id", defaultValue = "1") long userId, @RequestBody FeedUploadRequest request) { return ResponseEntity.status(HttpStatus.CREATED).body(service.uploadFeed(userId, request)); }
 	@GetMapping("/feeds")
 	public ResponseEntity<List<FeedUploadResponse>> getFeedList(@RequestHeader(value = "X-User-Id", defaultValue = "1") long userId) { return ResponseEntity.ok(service.getFeedList(userId)); }
+	@PostMapping("/api/tips")
+	public ResponseEntity<TipUploadResponse> uploadTip(@RequestHeader(value = "X-User-Id", defaultValue = "1") long userId, @RequestBody TipUploadRequest request) { return ResponseEntity.status(HttpStatus.CREATED).body(service.uploadTip(userId, request)); }
+	@GetMapping("/api/tips")
+	public ResponseEntity<TipListResponse> getTips() { return ResponseEntity.ok(service.getTips()); }
 }

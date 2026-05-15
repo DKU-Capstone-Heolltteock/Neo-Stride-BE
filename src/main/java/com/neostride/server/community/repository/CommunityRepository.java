@@ -6,6 +6,9 @@ import com.neostride.server.community.dto.FeedUploadRequest;
 import com.neostride.server.community.dto.FeedUploadResponse;
 import com.neostride.server.community.dto.FriendRequest;
 import com.neostride.server.community.dto.FriendResponse;
+import com.neostride.server.community.dto.AccountInfoResponse;
+import com.neostride.server.community.dto.TipUploadRequest;
+import com.neostride.server.community.dto.TipUploadResponse;
 import com.neostride.server.community.dto.UserProfileResponse;
 import java.math.BigDecimal;
 import java.sql.PreparedStatement;
@@ -41,12 +44,34 @@ public class CommunityRepository {
 		return rows.isEmpty() ? new UserProfileResponse(null, null, null, 0, 0, 0, 0, 0, 0) : rows.getFirst();
 	}
 
+	public AccountInfoResponse getAccountInfo(long userId) {
+		List<AccountInfoResponse> rows = jdbcTemplate.query("""
+			SELECT email, COALESCE(cu.community_profile_name, u.community_profile_name, u.name) AS nickname,
+			       COALESCE(cu.profile_photo, u.profile_photo) AS profile_photo
+			FROM users u LEFT JOIN community_users cu ON cu.user_id = u.user_id WHERE u.user_id = ?
+			""", (rs, n) -> new AccountInfoResponse(rs.getString("email"), rs.getString("nickname"), rs.getString("profile_photo")), userId);
+		return rows.isEmpty() ? new AccountInfoResponse(null, null, null) : rows.getFirst();
+	}
+
 	public void updateStatusMessage(long userId, String statusMessage) {
 		jdbcTemplate.update("""
 			INSERT INTO community_users (user_id, community_profile_name, profile_photo, status_message)
 			SELECT user_id, COALESCE(community_profile_name, name), profile_photo, ? FROM users WHERE user_id = ?
 			ON DUPLICATE KEY UPDATE status_message = VALUES(status_message)
 			""", statusMessage, userId);
+	}
+
+	public void updateNickname(long userId, String nickname) {
+		jdbcTemplate.update("UPDATE users SET community_profile_name = ? WHERE user_id = ?", nickname, userId);
+		jdbcTemplate.update("""
+			INSERT INTO community_users (user_id, community_profile_name, profile_photo, status_message)
+			SELECT user_id, COALESCE(?, community_profile_name, name), profile_photo, NULL FROM users WHERE user_id = ?
+			ON DUPLICATE KEY UPDATE community_profile_name = VALUES(community_profile_name)
+			""", nickname, userId);
+	}
+
+	public void deleteAccount(long userId) {
+		jdbcTemplate.update("DELETE FROM users WHERE user_id = ?", userId);
 	}
 
 	public void updateProfileImage(long userId, String profileImageUrl) {
@@ -66,8 +91,18 @@ public class CommunityRepository {
 		return jdbcTemplate.query("""
 			SELECT cc.content_id, cc.content_text, COALESCE(rr.total_distance, 0) AS total_distance, rr.duration, rr.pace, cc.created_at
 			FROM community_contents cc LEFT JOIN running_records rr ON rr.run_record_id = cc.running_record_id
-			WHERE 
+			WHERE
 			""" + predicate + " ORDER BY cc.created_at DESC, cc.content_id DESC", (rs, n) -> new CommunityContentResponse(rs.getLong("content_id"), rs.getString("content_text"), rs.getBigDecimal("total_distance"), nullableInt(rs.getObject("duration")), nullableInt(rs.getObject("pace")), rs.getTimestamp("created_at").toLocalDateTime().format(ISO)), userId);
+	}
+
+	public boolean toggleBookmark(long userId, long contentId) {
+		Integer existing = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM community_interactions WHERE user_id=? AND content_id=? AND interaction_type='BOOKMARK'", Integer.class, userId, contentId);
+		if (existing != null && existing > 0) {
+			jdbcTemplate.update("DELETE FROM community_interactions WHERE user_id=? AND content_id=? AND interaction_type='BOOKMARK'", userId, contentId);
+			return false;
+		}
+		jdbcTemplate.update("INSERT INTO community_interactions (user_id, content_id, interaction_type) VALUES (?, ?, 'BOOKMARK')", userId, contentId);
+		return true;
 	}
 
 	public BadgeDetailResponse getBadgeDetail(long userId) {
@@ -124,6 +159,26 @@ public class CommunityRepository {
 	public FeedUploadResponse findFeed(long feedId) { return feedQuery("cc.content_id = ?", feedId).stream().findFirst().orElse(null); }
 	public List<FeedUploadResponse> listFeeds() { return feedQuery("cc.feed_scope <> 'PRIVATE'", null); }
 
+	public long insertTip(long userId, TipUploadRequest request) {
+		KeyHolder kh = new GeneratedKeyHolder();
+		jdbcTemplate.update(con -> {
+			PreparedStatement ps = con.prepareStatement("""
+				INSERT INTO community_contents (author_user_id, include_route_detail, content_type, tip_type, feed_scope, content_text, image)
+				VALUES (?, ?, 'TIP', ?, 'PUBLIC', ?, ?)
+				""", Statement.RETURN_GENERATED_KEYS);
+			ps.setLong(1, userId);
+			ps.setBoolean(2, request != null && request.gpsVisible());
+			ps.setString(3, normalizeTipType(request == null ? null : request.category()));
+			ps.setString(4, encodeTipContent(request == null ? null : request.title(), request == null ? null : request.content(), request == null ? null : request.routeMapImageUrl()));
+			ps.setString(5, firstImage(request == null ? null : request.imageUrls()));
+			return ps;
+		}, kh);
+		return kh.getKey().longValue();
+	}
+
+	public TipUploadResponse findTip(long tipId) { return tipQuery("cc.content_id = ?", tipId).stream().findFirst().orElse(null); }
+	public List<TipUploadResponse> listTips() { return tipQuery("cc.content_type = 'TIP'", null); }
+
 	private List<FeedUploadResponse> feedQuery(String predicate, Long id) {
 		Object[] args = id == null ? new Object[]{} : new Object[]{id};
 		return jdbcTemplate.query("""
@@ -135,12 +190,32 @@ public class CommunityRepository {
 			       (SELECT COUNT(*) FROM community_interactions ci WHERE ci.content_id=cc.content_id AND ci.interaction_type='LIKE') AS like_count,
 			       (SELECT COUNT(*) FROM community_interactions ci WHERE ci.content_id=cc.content_id AND ci.interaction_type='COMMENT') AS comment_count
 			FROM community_contents cc JOIN users u ON u.user_id=cc.author_user_id LEFT JOIN community_users cu ON cu.user_id=u.user_id
-			LEFT JOIN running_records rr ON rr.run_record_id=cc.running_record_id WHERE 
+			LEFT JOIN running_records rr ON rr.run_record_id=cc.running_record_id WHERE
 			""" + predicate + " ORDER BY cc.created_at DESC, cc.content_id DESC", (rs, n) -> new FeedUploadResponse(rs.getLong("content_id"), rs.getString("profile_image_url"), rs.getString("nickname"), rs.getTimestamp("created_at").toLocalDateTime().format(ISO), null, rs.getString("content_text"), rs.getInt("tagged_count"), rs.getInt("like_count"), rs.getInt("comment_count"), String.format(Locale.KOREA, "%.2f km", rs.getBigDecimal("total_distance")), rs.getObject("duration") == null ? null : String.valueOf(rs.getInt("duration")), rs.getObject("pace") == null ? null : String.valueOf(rs.getInt("pace")), rs.getBoolean("include_route_detail"), null, rs.getString("image") == null ? List.of() : List.of(rs.getString("image"))), args);
+	}
+
+	private List<TipUploadResponse> tipQuery(String predicate, Long id) {
+		Object[] args = id == null ? new Object[]{} : new Object[]{id};
+		return jdbcTemplate.query("""
+			SELECT cc.content_id, COALESCE(cu.community_profile_name, u.community_profile_name, u.name) AS nickname,
+			       COALESCE(cu.profile_photo, u.profile_photo) AS profile_image_url, COALESCE(cu.badge, 'NONE') AS badge,
+			       cc.tip_type, cc.content_text, cc.include_route_detail, cc.image, cc.created_at,
+			       (SELECT COUNT(*) FROM community_interactions ci WHERE ci.content_id=cc.content_id AND ci.interaction_type='LIKE') AS like_count,
+			       (SELECT COUNT(*) FROM community_interactions ci WHERE ci.content_id=cc.content_id AND ci.interaction_type='COMMENT') AS comment_count
+			FROM community_contents cc JOIN users u ON u.user_id=cc.author_user_id LEFT JOIN community_users cu ON cu.user_id=u.user_id
+			WHERE
+			""" + predicate + " ORDER BY cc.created_at DESC, cc.content_id DESC", (rs, n) -> {
+				String[] parts = decodeTipContent(rs.getString("content_text"));
+				return new TipUploadResponse(rs.getLong("content_id"), rs.getString("nickname"), rs.getString("profile_image_url"), !"NONE".equalsIgnoreCase(rs.getString("badge")), fromTipType(rs.getString("tip_type")), parts[0], parts[1], rs.getBoolean("include_route_detail"), parts[2], rs.getString("image") == null ? List.of() : List.of(rs.getString("image")), rs.getInt("like_count"), rs.getInt("comment_count"), rs.getTimestamp("created_at").toLocalDateTime().format(ISO));
+			}, args);
 	}
 
 	private static String toRelationshipStatus(String status) { return switch ((status == null ? "friends" : status).toLowerCase(Locale.ROOT)) { case "sent", "received" -> "REQUESTED"; case "blocked" -> "BLOCKED"; default -> "ACCEPTED"; }; }
 	private static String normalizeScope(String privacy) { return switch ((privacy == null ? "PUBLIC" : privacy).toUpperCase(Locale.ROOT)) { case "FRIENDS" -> "FRIENDS"; case "PRIVATE" -> "PRIVATE"; default -> "PUBLIC"; }; }
+	private static String normalizeTipType(String category) { return switch ((category == null ? "ETC" : category).toUpperCase(Locale.ROOT)) { case "TRAINING" -> "TRAINING"; case "COURSE", "코스" -> "COURSE"; case "GEAR", "장비" -> "GEAR"; default -> "ETC"; }; }
+	private static String fromTipType(String tipType) { return tipType == null ? "ETC" : tipType; }
+	private static String encodeTipContent(String title, String content, String routeMapImageUrl) { return (title == null ? "" : title) + "\n---NEOSTRIDE-TIP---\n" + (content == null ? "" : content) + "\n---NEOSTRIDE-ROUTE---\n" + (routeMapImageUrl == null ? "" : routeMapImageUrl); }
+	private static String[] decodeTipContent(String raw) { String[] first = (raw == null ? "" : raw).split("\\n---NEOSTRIDE-TIP---\\n", 2); String title = first.length > 0 ? first[0] : ""; String rest = first.length > 1 ? first[1] : ""; String[] second = rest.split("\\n---NEOSTRIDE-ROUTE---\\n", 2); return new String[]{title, second.length > 0 ? second[0] : rest, second.length > 1 && !second[1].isBlank() ? second[1] : null}; }
 	private static String firstImage(List<String> images) { return images == null || images.isEmpty() ? null : images.getFirst(); }
 	private static Integer nullableInt(Object value) { return value == null ? null : ((Number) value).intValue(); }
 	private static Long nullableLong(Object value) { return value == null ? null : ((Number) value).longValue(); }
