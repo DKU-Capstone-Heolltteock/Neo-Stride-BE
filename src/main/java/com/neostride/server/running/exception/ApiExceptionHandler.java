@@ -6,6 +6,7 @@ import com.neostride.server.auth.exception.DuplicateEmailException;
 import com.neostride.server.auth.exception.InvalidCredentialsException;
 import com.neostride.server.running.dto.RunningRecordResponse;
 import java.util.Map;
+import org.springframework.dao.DataAccessException;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -19,13 +20,7 @@ public class ApiExceptionHandler {
 
 	@ExceptionHandler(IllegalArgumentException.class)
 	public ResponseEntity<?> handleInvalidRequest(IllegalArgumentException exception, WebRequest request) {
-		if (isAuthRequest(request)) {
-			return ResponseEntity.badRequest().body(SignupResponse.error(exception.getMessage()));
-		}
-		if (isCoachingRequest(request)) {
-			return ResponseEntity.badRequest().body(Map.of("status", "error", "message", exception.getMessage()));
-		}
-		return ResponseEntity.badRequest().body(RunningRecordResponse.error(exception.getMessage()));
+		return ResponseEntity.badRequest().body(errorBody(request, exception.getMessage()));
 	}
 
 	@ExceptionHandler(DuplicateEmailException.class)
@@ -48,17 +43,63 @@ public class ApiExceptionHandler {
 			return ResponseEntity.status(HttpStatus.CONFLICT)
 					.body(Map.of("status", "error", "message", "사용자 또는 목표 정보를 확인할 수 없습니다."));
 		}
+		if (isCommunityRequest(request)) {
+			return ResponseEntity.status(HttpStatus.CONFLICT)
+					.body(Map.of("status", "error", "message", "사용자 또는 커뮤니티 정보를 확인할 수 없습니다."));
+		}
 		return ResponseEntity.status(HttpStatus.CONFLICT)
 				.body(RunningRecordResponse.error("사용자 또는 플랜 정보를 확인할 수 없습니다."));
 	}
 
+	@ExceptionHandler(DataAccessException.class)
+	public ResponseEntity<?> handleDataAccessException(DataAccessException exception, WebRequest request) {
+		return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+				.body(errorBody(request, "데이터베이스 작업을 완료할 수 없습니다."));
+	}
+
+	@ExceptionHandler(IllegalStateException.class)
+	public ResponseEntity<?> handleIllegalStateException(IllegalStateException exception, WebRequest request) {
+		return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+				.body(errorBody(request, "서버 처리 중 오류가 발생했습니다."));
+	}
+
+	private Object errorBody(WebRequest request, String message) {
+		if (isAuthLoginRequest(request)) {
+			return LoginResponse.error(message);
+		}
+		if (isAuthRequest(request)) {
+			return SignupResponse.error(message);
+		}
+		if (isRunningRequest(request)) {
+			return RunningRecordResponse.error(message);
+		}
+		return Map.of("status", "error", "message", message);
+	}
+
+	private boolean isAuthLoginRequest(WebRequest request) {
+		return requestUri(request).startsWith("/api/auth/login");
+	}
+
 	private boolean isAuthRequest(WebRequest request) {
-		return request instanceof ServletWebRequest servletWebRequest
-				&& servletWebRequest.getRequest().getRequestURI().startsWith("/api/auth");
+		return requestUri(request).startsWith("/api/auth");
 	}
 
 	private boolean isCoachingRequest(WebRequest request) {
-		return request instanceof ServletWebRequest servletWebRequest
-				&& servletWebRequest.getRequest().getRequestURI().startsWith("/api/coaching");
+		return requestUri(request).startsWith("/api/coaching");
+	}
+
+	private boolean isCommunityRequest(WebRequest request) {
+		return requestUri(request).startsWith("/api/community");
+	}
+
+	private boolean isRunningRequest(WebRequest request) {
+		return requestUri(request).startsWith("/api/running");
+	}
+
+	private String requestUri(WebRequest request) {
+		if (request instanceof ServletWebRequest servletWebRequest) {
+			return servletWebRequest.getRequest().getRequestURI();
+		}
+		return "";
 	}
 }

@@ -131,7 +131,8 @@ public class CommunityRepository {
 	}
 
 	public void updateRelationship(long userId, FriendRequest request) {
-		if (request.targetId() == null || request.targetId() == userId) throw new IllegalArgumentException("target_id가 올바르지 않습니다.");
+		if (request == null) throw new IllegalArgumentException("요청 본문이 필요합니다.");
+		if (request.targetId() == null || request.targetId() <= 0 || request.targetId() == userId) throw new IllegalArgumentException("target_id가 올바르지 않습니다.");
 		switch ((request.action() == null ? "" : request.action()).toLowerCase(Locale.ROOT)) {
 			case "request" -> jdbcTemplate.update("INSERT INTO relationships (user1_id, user2_id, status) VALUES (?, ?, 'REQUESTED') ON DUPLICATE KEY UPDATE status = 'REQUESTED'", userId, request.targetId());
 			case "accept" -> jdbcTemplate.update("UPDATE relationships SET status='ACCEPTED' WHERE user1_id=? AND user2_id=?", request.targetId(), userId);
@@ -151,7 +152,7 @@ public class CommunityRepository {
 				""", Statement.RETURN_GENERATED_KEYS);
 			ps.setLong(1, userId); ps.setBoolean(2, request.mapVisible()); ps.setString(3, normalizeScope(request.privacy())); ps.setString(4, request.content()); ps.setString(5, firstImage(request.imageUrls())); return ps;
 		}, kh);
-		long contentId = kh.getKey().longValue();
+		long contentId = generatedKey(kh, "피드 ID를 생성하지 못했습니다.");
 		if (request.taggedUserIds() != null) for (Long tagged : request.taggedUserIds()) if (tagged != null) jdbcTemplate.update("INSERT INTO community_interactions (user_id, content_id, interaction_type, tagged_user_id) VALUES (?, ?, 'TAG', ?)", userId, contentId, tagged);
 		return contentId;
 	}
@@ -173,7 +174,7 @@ public class CommunityRepository {
 			ps.setString(5, firstImage(request == null ? null : request.imageUrls()));
 			return ps;
 		}, kh);
-		return kh.getKey().longValue();
+		return generatedKey(kh, "팁 ID를 생성하지 못했습니다.");
 	}
 
 	public TipUploadResponse findTip(long tipId) { return tipQuery("cc.content_id = ?", tipId).stream().findFirst().orElse(null); }
@@ -220,4 +221,5 @@ public class CommunityRepository {
 	private static Integer nullableInt(Object value) { return value == null ? null : ((Number) value).intValue(); }
 	private static Long nullableLong(Object value) { return value == null ? null : ((Number) value).longValue(); }
 	private static BigDecimal nullToZero(BigDecimal value) { return value == null ? BigDecimal.ZERO : value; }
+	private static long generatedKey(KeyHolder keyHolder, String message) { Number key = keyHolder.getKey(); if (key == null) throw new IllegalStateException(message); return key.longValue(); }
 }
