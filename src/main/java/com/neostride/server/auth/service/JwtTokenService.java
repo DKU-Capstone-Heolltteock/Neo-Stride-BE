@@ -20,17 +20,25 @@ public class JwtTokenService {
 	private static final String HMAC_ALGORITHM = "HmacSHA256";
 	private static final Base64.Encoder URL_ENCODER = Base64.getUrlEncoder().withoutPadding();
 	private static final Base64.Decoder URL_DECODER = Base64.getUrlDecoder();
+	private static final int MIN_SECRET_LENGTH = 32;
 
 	private final String secret;
 	private final long accessTokenTtlSeconds;
 	private final long refreshTokenTtlSeconds;
 
 	public JwtTokenService(
-			@Value("${jwt.secret:${JWT_SECRET:dev-only-change-this-secret}}") String secret,
+			@Value("${jwt.secret:${JWT_SECRET:}}") String secret,
 			@Value("${jwt.access-token-ttl-seconds:${JWT_ACCESS_TOKEN_TTL_SECONDS:3600}}") long accessTokenTtlSeconds,
 			@Value("${jwt.refresh-token-ttl-seconds:${JWT_REFRESH_TOKEN_TTL_SECONDS:1209600}}") long refreshTokenTtlSeconds
 	) {
-		this.secret = secret;
+		String normalizedSecret = secret == null ? "" : secret.trim();
+		if (normalizedSecret.length() < MIN_SECRET_LENGTH) {
+			throw new IllegalStateException("JWT_SECRET must be configured with at least 32 characters.");
+		}
+		if (accessTokenTtlSeconds <= 0 || refreshTokenTtlSeconds <= 0) {
+			throw new IllegalStateException("JWT token TTL values must be positive.");
+		}
+		this.secret = normalizedSecret;
 		this.accessTokenTtlSeconds = accessTokenTtlSeconds;
 		this.refreshTokenTtlSeconds = refreshTokenTtlSeconds;
 	}
