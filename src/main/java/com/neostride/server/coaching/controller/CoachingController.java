@@ -1,5 +1,6 @@
 package com.neostride.server.coaching.controller;
 
+import com.neostride.server.auth.service.AuthenticatedUserService;
 import com.neostride.server.coaching.dto.FeedbackRequest;
 import com.neostride.server.coaching.dto.FeedbackResponse;
 import com.neostride.server.coaching.dto.GoalRequest;
@@ -18,6 +19,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -28,50 +30,75 @@ import org.springframework.web.bind.annotation.RestController;
 public class CoachingController {
 
 	private final CoachingService coachingService;
+	private final AuthenticatedUserService authenticatedUserService;
 
-	public CoachingController(CoachingService coachingService) {
+	public CoachingController(CoachingService coachingService, AuthenticatedUserService authenticatedUserService) {
 		this.coachingService = coachingService;
+		this.authenticatedUserService = authenticatedUserService;
 	}
 
 	@Operation(summary = "코칭 목표 생성", description = "사용자의 코칭 목표를 생성하고 날짜별 플랜을 생성합니다.")
 	@PostMapping("/goals")
-	public ResponseEntity<GoalResponse> createGoal(@RequestBody GoalRequest request) {
+	public ResponseEntity<GoalResponse> createGoal(
+			@RequestHeader(value = "Authorization", required = false) String authorization,
+			@RequestBody GoalRequest request
+	) {
+		long authenticatedUserId = authenticatedUserService.requireUserId(authorization);
+		authenticatedUserService.requireSameUser(authenticatedUserId, request == null ? null : request.userId(), "user_id");
 		return ResponseEntity.status(HttpStatus.CREATED).body(coachingService.createGoal(request));
 	}
 
 	@Operation(summary = "현재 활성 목표 조회", description = "사용자의 현재 활성 목표와 플랜 목록을 조회합니다.")
 	@GetMapping("/goals/active")
-	public ResponseEntity<GoalResponse> getActiveGoal(@RequestParam("user_id") long userId) {
+	public ResponseEntity<GoalResponse> getActiveGoal(
+			@RequestHeader(value = "Authorization", required = false) String authorization,
+			@RequestParam("user_id") long userId
+	) {
+		long authenticatedUserId = authenticatedUserService.requireUserId(authorization);
+		authenticatedUserService.requireSameUser(authenticatedUserId, userId, "user_id");
 		return ResponseEntity.ok(coachingService.getActiveGoal(userId));
 	}
 
 	@Operation(summary = "오늘 플랜 조회", description = "사용자의 오늘 코칭 플랜을 조회합니다.")
 	@GetMapping("/plans/today")
-	public ResponseEntity<TodayPlanResponse> getTodayPlan(@RequestParam("user_id") long userId) {
+	public ResponseEntity<TodayPlanResponse> getTodayPlan(
+			@RequestHeader(value = "Authorization", required = false) String authorization,
+			@RequestParam("user_id") long userId
+	) {
+		long authenticatedUserId = authenticatedUserService.requireUserId(authorization);
+		authenticatedUserService.requireSameUser(authenticatedUserId, userId, "user_id");
 		return ResponseEntity.ok(coachingService.getTodayPlan(userId));
 	}
 
 	@Operation(summary = "AI 피드백 요청", description = "러닝 완료 후 플랜 일자에 피드백을 저장합니다.")
 	@PostMapping("/plans/{plan_day_id}/feedback")
 	public ResponseEntity<FeedbackResponse> requestFeedback(
+			@RequestHeader(value = "Authorization", required = false) String authorization,
 			@PathVariable("plan_day_id") long planDayId,
 			@RequestBody FeedbackRequest request
 	) {
-		return ResponseEntity.ok(coachingService.requestFeedback(planDayId, request));
+		long authenticatedUserId = authenticatedUserService.requireUserId(authorization);
+		return ResponseEntity.ok(coachingService.requestFeedback(authenticatedUserId, planDayId, request));
 	}
 
 	@Operation(summary = "코칭 목표 삭제", description = "목표를 비활성화합니다.")
 	@DeleteMapping("/goals/{goal_id}")
-	public ResponseEntity<Map<String, String>> deleteGoal(@PathVariable("goal_id") long goalId) {
-		return ResponseEntity.ok(coachingService.deleteGoal(goalId));
+	public ResponseEntity<Map<String, String>> deleteGoal(
+			@RequestHeader(value = "Authorization", required = false) String authorization,
+			@PathVariable("goal_id") long goalId
+	) {
+		long authenticatedUserId = authenticatedUserService.requireUserId(authorization);
+		return ResponseEntity.ok(coachingService.deleteGoal(authenticatedUserId, goalId));
 	}
 
 	@Operation(summary = "코칭 목표 상태 변경", description = "목표의 활성/달성 상태를 갱신합니다.")
 	@PatchMapping("/goals/{goal_id}/status")
 	public ResponseEntity<GoalResponse> updateGoalStatus(
+			@RequestHeader(value = "Authorization", required = false) String authorization,
 			@PathVariable("goal_id") long goalId,
 			@RequestBody GoalStatusUpdateRequest request
 	) {
-		return ResponseEntity.ok(coachingService.updateGoalStatus(goalId, request));
+		long authenticatedUserId = authenticatedUserService.requireUserId(authorization);
+		return ResponseEntity.ok(coachingService.updateGoalStatus(authenticatedUserId, goalId, request));
 	}
 }

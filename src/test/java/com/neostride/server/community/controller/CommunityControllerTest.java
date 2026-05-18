@@ -1,5 +1,6 @@
 package com.neostride.server.community.controller;
 
+import com.neostride.server.auth.service.AuthenticatedUserService;
 import com.neostride.server.community.dto.BadgeDetailResponse;
 import com.neostride.server.community.dto.CommunityContentResponse;
 import com.neostride.server.community.dto.FeedUploadRequest;
@@ -20,15 +21,19 @@ import static org.mockito.Mockito.when;
 
 class CommunityControllerTest {
 
+	private static final String AUTHORIZATION = "Bearer access-token";
+
 	private final CommunityService service = mock(CommunityService.class);
-	private final CommunityController controller = new CommunityController(service);
+	private final AuthenticatedUserService authenticatedUserService = mock(AuthenticatedUserService.class);
+	private final CommunityController controller = new CommunityController(service, authenticatedUserService);
 
 	@Test
 	void getUserProfile_returnsAuthenticatedUserProfile() {
 		UserProfileResponse body = new UserProfileResponse("neo", "photo.png", "running", 2, 3, 4, 5, 6, 7);
+		authenticate();
 		when(service.getUserProfile(1L)).thenReturn(body);
 
-		var response = controller.getUserProfile(1L);
+		var response = controller.getUserProfile(AUTHORIZATION, 1L);
 
 		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
 		assertThat(response.getBody()).isSameAs(body);
@@ -36,7 +41,9 @@ class CommunityControllerTest {
 
 	@Test
 	void updateStatusMessage_returnsNoContent() {
-		var response = controller.updateStatusMessage(1L, Map.of("status_message", "ready"));
+		authenticate();
+
+		var response = controller.updateStatusMessage(AUTHORIZATION, 1L, Map.of("status_message", "ready"));
 
 		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
 	}
@@ -49,20 +56,22 @@ class CommunityControllerTest {
 		when(service.getCommentedFeeds(1L)).thenReturn(body);
 		when(service.getLikedFeeds(1L)).thenReturn(body);
 		when(service.getBookmarkedFeeds(1L)).thenReturn(body);
+		authenticate();
 
-		assertThat(controller.getMyFeeds(1L).getBody()).isSameAs(body);
-		assertThat(controller.getTaggedFeeds(1L).getBody()).isSameAs(body);
-		assertThat(controller.getCommentedFeeds(1L).getBody()).isSameAs(body);
-		assertThat(controller.getLikedFeeds(1L).getBody()).isSameAs(body);
-		assertThat(controller.getBookmarkedFeeds(1L).getBody()).isSameAs(body);
+		assertThat(controller.getMyFeeds(AUTHORIZATION, 1L).getBody()).isSameAs(body);
+		assertThat(controller.getTaggedFeeds(AUTHORIZATION, 1L).getBody()).isSameAs(body);
+		assertThat(controller.getCommentedFeeds(AUTHORIZATION, 1L).getBody()).isSameAs(body);
+		assertThat(controller.getLikedFeeds(AUTHORIZATION, 1L).getBody()).isSameAs(body);
+		assertThat(controller.getBookmarkedFeeds(AUTHORIZATION, 1L).getBody()).isSameAs(body);
 	}
 
 	@Test
 	void getBadgeDetail_returnsOkBadge() {
 		BadgeDetailResponse body = new BadgeDetailResponse("GOLD", 11L, new BigDecimal("10.0"), "5'30\"", "2026-05-11T00:00:00");
+		authenticate();
 		when(service.getBadgeDetail(1L)).thenReturn(body);
 
-		var response = controller.getBadgeDetail(1L);
+		var response = controller.getBadgeDetail(AUTHORIZATION, 1L);
 
 		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
 		assertThat(response.getBody()).isSameAs(body);
@@ -74,11 +83,12 @@ class CommunityControllerTest {
 		FriendRequest request = new FriendRequest(2L, "accept");
 		when(service.getFriendList(1L, "friends")).thenReturn(friends);
 		when(service.updateRelationship(1L, request)).thenReturn(Map.of("status", "success"));
+		authenticate();
 
-		assertThat(controller.getCommunityFriends(1L, "friends").getBody()).isSameAs(friends);
-		assertThat(controller.getLegacyRelationships(1L, "friends").getBody()).isSameAs(friends);
-		assertThat(controller.updateCommunityRelationship(1L, request).getBody()).containsEntry("status", "success");
-		assertThat(controller.updateLegacyRelationship(1L, request).getBody()).containsEntry("status", "success");
+		assertThat(controller.getCommunityFriends(AUTHORIZATION, 1L, "friends").getBody()).isSameAs(friends);
+		assertThat(controller.getLegacyRelationships(AUTHORIZATION, 1L, "friends").getBody()).isSameAs(friends);
+		assertThat(controller.updateCommunityRelationship(AUTHORIZATION, 1L, request).getBody()).containsEntry("status", "success");
+		assertThat(controller.updateLegacyRelationship(AUTHORIZATION, 1L, request).getBody()).containsEntry("status", "success");
 	}
 
 	@Test
@@ -86,20 +96,22 @@ class CommunityControllerTest {
 		FeedUploadRequest request = new FeedUploadRequest("title", "content", "PUBLIC", true, "route.png", List.of(2L), List.of("image.png"), new BigDecimal("3.2"), "20:00", "6'15\"", 1);
 		FeedUploadResponse uploaded = new FeedUploadResponse(99L, null, "neo", "2026-05-11T00:00:00", "title", "content", 1, 0, 0, "3.20 km", "20:00", "6'15\"", true, "route.png", List.of("image.png"));
 		when(service.uploadFeed(1L, request)).thenReturn(uploaded);
-		when(service.getFeedList(1L)).thenReturn(List.of(uploaded));
+		when(service.getFeedList()).thenReturn(List.of(uploaded));
+		authenticate();
 
-		assertThat(controller.uploadFeed(1L, request).getStatusCode()).isEqualTo(HttpStatus.CREATED);
-		assertThat(controller.getFeedList(1L).getBody()).containsExactly(uploaded);
+		assertThat(controller.uploadFeed(AUTHORIZATION, 1L, request).getStatusCode()).isEqualTo(HttpStatus.CREATED);
+		assertThat(controller.getFeedList().getBody()).containsExactly(uploaded);
 	}
 
 	@Test
 	void accountApis_supportCurrentUserAccountNicknameAndDeletion() {
 		var account = new com.neostride.server.community.dto.AccountInfoResponse("runner@example.com", "neo", "photo.png");
+		authenticate();
 		when(service.getAccountInfo(1L)).thenReturn(account);
 
-		assertThat(controller.getAccountInfo(1L).getBody()).isSameAs(account);
-		assertThat(controller.updateNickname(1L, Map.of("nickname", "neo2")).getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
-		assertThat(controller.deleteAccount(1L).getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
+		assertThat(controller.getAccountInfo(AUTHORIZATION, 1L).getBody()).isSameAs(account);
+		assertThat(controller.updateNickname(AUTHORIZATION, 1L, Map.of("nickname", "neo2")).getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
+		assertThat(controller.deleteAccount(AUTHORIZATION, 1L).getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
 	}
 
 	@Test
@@ -128,10 +140,15 @@ class CommunityControllerTest {
 		when(service.toggleBookmark(1L, 10L)).thenReturn(bookmark);
 		when(service.uploadTip(1L, tipRequest)).thenReturn(tip);
 		when(service.getTips()).thenReturn(tipList);
+		authenticate();
 
-		assertThat(controller.toggleBookmark(1L, 10L).getBody()).isSameAs(bookmark);
-		assertThat(controller.uploadTip(1L, tipRequest).getStatusCode()).isEqualTo(HttpStatus.CREATED);
-		assertThat(controller.uploadTip(1L, tipRequest).getBody()).isSameAs(tip);
+		assertThat(controller.toggleBookmark(AUTHORIZATION, 1L, 10L).getBody()).isSameAs(bookmark);
+		assertThat(controller.uploadTip(AUTHORIZATION, 1L, tipRequest).getStatusCode()).isEqualTo(HttpStatus.CREATED);
+		assertThat(controller.uploadTip(AUTHORIZATION, 1L, tipRequest).getBody()).isSameAs(tip);
 		assertThat(controller.getTips().getBody()).isSameAs(tipList);
+	}
+
+	private void authenticate() {
+		when(authenticatedUserService.requireUserId(AUTHORIZATION)).thenReturn(1L);
 	}
 }

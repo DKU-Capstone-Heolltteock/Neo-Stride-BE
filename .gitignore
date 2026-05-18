@@ -9,6 +9,7 @@ target.root-owned-*/
 *.ear
 *.nar
 *.log
+*.yml
 hs_err_pid*
 replay_pid*
 

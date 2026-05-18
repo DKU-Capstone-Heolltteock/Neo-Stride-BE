@@ -2,7 +2,9 @@ package com.neostride.server.running.exception;
 
 import com.neostride.server.auth.dto.LoginResponse;
 import com.neostride.server.auth.dto.SignupResponse;
+import com.neostride.server.auth.exception.AuthenticationRequiredException;
 import com.neostride.server.auth.exception.DuplicateEmailException;
+import com.neostride.server.auth.exception.ForbiddenException;
 import com.neostride.server.auth.exception.InvalidCredentialsException;
 import com.neostride.server.running.dto.RunningRecordResponse;
 import java.util.Map;
@@ -32,6 +34,16 @@ public class ApiExceptionHandler {
 	public ResponseEntity<LoginResponse> handleInvalidCredentials(InvalidCredentialsException exception) {
 		return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
 				.body(LoginResponse.error(exception.getMessage()));
+	}
+
+	@ExceptionHandler(AuthenticationRequiredException.class)
+	public ResponseEntity<?> handleAuthenticationRequired(AuthenticationRequiredException exception, WebRequest request) {
+		return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(errorBody(request, exception.getMessage()));
+	}
+
+	@ExceptionHandler(ForbiddenException.class)
+	public ResponseEntity<?> handleForbidden(ForbiddenException exception, WebRequest request) {
+		return ResponseEntity.status(HttpStatus.FORBIDDEN).body(errorBody(request, exception.getMessage()));
 	}
 
 	@ExceptionHandler(DataIntegrityViolationException.class)

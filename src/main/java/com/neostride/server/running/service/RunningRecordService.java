@@ -42,22 +42,28 @@ public class RunningRecordService {
 	}
 
 	@Transactional(readOnly = true)
-	public List<RunningRecordResponse> findByMonth(int year, int month) {
+	public List<RunningRecordResponse> findByUserIdAndMonth(long userId, int year, int month) {
+		if (userId <= 0) {
+			throw new IllegalArgumentException("user_id는 1 이상의 값이어야 합니다.");
+		}
 		if (year <= 0) {
 			throw new IllegalArgumentException("year는 1 이상의 값이어야 합니다.");
 		}
 		if (month < 1 || month > 12) {
 			throw new IllegalArgumentException("month는 1 이상 12 이하의 값이어야 합니다.");
 		}
-		return runningRecordRepository.findByMonth(year, month);
+		return runningRecordRepository.findByUserIdAndMonth(userId, year, month);
 	}
 
 	@Transactional(readOnly = true)
-	public Optional<RunningRecordResponse> findByRecordId(long recordId) {
+	public Optional<RunningRecordResponse> findByRecordIdForUser(long userId, long recordId) {
+		if (userId <= 0) {
+			throw new IllegalArgumentException("user_id는 1 이상의 값이어야 합니다.");
+		}
 		if (recordId <= 0) {
 			throw new IllegalArgumentException("record_id는 1 이상의 값이어야 합니다.");
 		}
-		return Optional.ofNullable(runningRecordRepository.findByRecordId(recordId));
+		return Optional.ofNullable(runningRecordRepository.findByRecordIdForUser(userId, recordId));
 	}
 
 	private void validate(RunningRecordRequest request) {

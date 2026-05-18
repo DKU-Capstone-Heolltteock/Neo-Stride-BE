@@ -38,7 +38,7 @@ public class CommunityService {
 	public List<FriendResponse> getUserFriendList(long userId) { validatePositive(userId, "user_id"); return repository.getFriendList(userId, "friends"); }
 	public Map<String, String> updateRelationship(long userId, FriendRequest request) { validatePositive(userId, "user_id"); requireBody(request); repository.updateRelationship(userId, request); return Map.of("status", "success", "message", "관계 상태가 변경되었습니다."); }
 	public FeedUploadResponse uploadFeed(long userId, FeedUploadRequest request) { validatePositive(userId, "user_id"); requireBody(request); long id = repository.insertFeed(userId, request); return repository.findFeed(id); }
-	public List<FeedUploadResponse> getFeedList(long userId) { validatePositive(userId, "user_id"); return repository.listFeeds(); }
+	public List<FeedUploadResponse> getFeedList() { return repository.listFeeds(); }
 	public TipUploadResponse uploadTip(long userId, TipUploadRequest request) { validatePositive(userId, "user_id"); requireBody(request); long id = repository.insertTip(userId, request); return repository.findTip(id); }
 	public TipListResponse getTips() { return new TipListResponse(repository.listTips()); }
 

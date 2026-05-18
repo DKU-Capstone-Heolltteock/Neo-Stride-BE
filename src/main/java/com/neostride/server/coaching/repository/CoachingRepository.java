@@ -112,6 +112,22 @@ public class CoachingRepository {
 		return rows.isEmpty() ? null : rows.getFirst();
 	}
 
+	public GoalRow findGoalByIdForUser(long goalId, long userId) {
+		List<GoalRow> rows = jdbcTemplate.query("""
+				SELECT
+					g.goal_id, g.user_id, g.duration_weeks, g.running_day, g.target_distance, g.target_pace,
+					g.created_at, g.is_active, g.is_achieved,
+					MIN(p.plan_date) AS start_date,
+					MAX(p.plan_date) AS end_date
+				FROM goals g
+				LEFT JOIN plans p ON p.goal_id = g.goal_id
+				WHERE g.goal_id = ? AND g.user_id = ?
+				GROUP BY g.goal_id, g.user_id, g.duration_weeks, g.running_day, g.target_distance, g.target_pace,
+					g.created_at, g.is_active, g.is_achieved
+				""", goalRowMapper(), goalId, userId);
+		return rows.isEmpty() ? null : rows.getFirst();
+	}
+
 	public List<PlanDayRow> findPlanDaysByGoalId(long goalId) {
 		return jdbcTemplate.query("""
 				SELECT plan_id, user_id, goal_id, plan_date, target_distance, target_pace, is_completed, feedback, updated_at
@@ -133,30 +149,30 @@ public class CoachingRepository {
 		return rows.isEmpty() ? null : rows.getFirst();
 	}
 
-	public boolean updateFeedback(long planDayId, String feedback) {
+	public boolean updateFeedbackForUser(long userId, long planDayId, String feedback) {
 		int updated = jdbcTemplate.update("""
 				UPDATE plans
 				SET is_completed = TRUE, feedback = ?
-				WHERE plan_id = ?
-				""", feedback, planDayId);
+				WHERE plan_id = ? AND user_id = ?
+				""", feedback, planDayId, userId);
 		return updated > 0;
 	}
 
-	public boolean deleteGoal(long goalId) {
+	public boolean deleteGoalForUser(long userId, long goalId) {
 		int updated = jdbcTemplate.update("""
 				UPDATE goals
 				SET is_active = FALSE
-				WHERE goal_id = ?
-				""", goalId);
+				WHERE goal_id = ? AND user_id = ?
+				""", goalId, userId);
 		return updated > 0;
 	}
 
-	public boolean updateGoalStatus(long goalId, boolean active, boolean achieved) {
+	public boolean updateGoalStatusForUser(long userId, long goalId, boolean active, boolean achieved) {
 		int updated = jdbcTemplate.update("""
 				UPDATE goals
 				SET is_active = ?, is_achieved = ?
-				WHERE goal_id = ?
-				""", active, achieved, goalId);
+				WHERE goal_id = ? AND user_id = ?
+				""", active, achieved, goalId, userId);
 		return updated > 0;
 	}
 

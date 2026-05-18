@@ -83,7 +83,7 @@ class CoachingServiceTest {
 	void requestFeedback_rejectsPathBodyMismatch() {
 		FeedbackRequest request = new FeedbackRequest(21L, new BigDecimal("3.2"), 1240, new BigDecimal("6.45"));
 
-		assertThatThrownBy(() -> service.requestFeedback(20L, request))
+		assertThatThrownBy(() -> service.requestFeedback(1L, 20L, request))
 				.isInstanceOf(IllegalArgumentException.class)
 				.hasMessageContaining("plan_day_id");
 	}
@@ -91,9 +91,9 @@ class CoachingServiceTest {
 	@Test
 	void requestFeedback_marksPlanCompletedAndReturnsFeedback() {
 		FeedbackRequest request = new FeedbackRequest(20L, new BigDecimal("3.2"), 1240, new BigDecimal("6.45"));
-		when(repository.updateFeedback(eq(20L), any())).thenReturn(true);
+		when(repository.updateFeedbackForUser(eq(1L), eq(20L), any())).thenReturn(true);
 
-		var response = service.requestFeedback(20L, request);
+		var response = service.requestFeedback(1L, 20L, request);
 
 		assertThat(response.planDayId()).isEqualTo(20L);
 		assertThat(response.completed()).isTrue();
@@ -105,12 +105,12 @@ class CoachingServiceTest {
 		FeedbackRequest request = new FeedbackRequest(20L, new BigDecimal("3.2"), 1240, new BigDecimal("6.45"));
 		when(aiCoachingClient.generateFeedback(new AiCoachingFeedbackRequest(20L, request)))
 				.thenReturn("AI 코치: 목표 대비 안정적인 페이스입니다. 다음 러닝은 회복 강도로 진행하세요.");
-		when(repository.updateFeedback(eq(20L), any())).thenReturn(true);
+		when(repository.updateFeedbackForUser(eq(1L), eq(20L), any())).thenReturn(true);
 
-		var response = service.requestFeedback(20L, request);
+		var response = service.requestFeedback(1L, 20L, request);
 
 		assertThat(response.aiFeedbackComment()).contains("AI 코치");
-		verify(repository).updateFeedback(20L, "AI 코치: 목표 대비 안정적인 페이스입니다. 다음 러닝은 회복 강도로 진행하세요.");
+		verify(repository).updateFeedbackForUser(1L, 20L, "AI 코치: 목표 대비 안정적인 페이스입니다. 다음 러닝은 회복 강도로 진행하세요.");
 	}
 
 	@Test
@@ -119,17 +119,17 @@ class CoachingServiceTest {
 		GoalRow completedGoal = new GoalRow(10L, 1L, 4, 3, new BigDecimal("5.00"), 6,
 				LocalDateTime.parse("2026-05-01T09:00:00"), false, true,
 				LocalDate.parse("2026-05-01"), LocalDate.parse("2026-05-29"), List.of("mon", "wed", "fri"));
-		when(repository.updateGoalStatus(10L, false, true)).thenReturn(true);
-		when(repository.findGoalById(10L)).thenReturn(completedGoal);
+		when(repository.updateGoalStatusForUser(1L, 10L, false, true)).thenReturn(true);
+		when(repository.findGoalByIdForUser(10L, 1L)).thenReturn(completedGoal);
 		when(repository.findPlanDaysByGoalId(10L)).thenReturn(List.of());
 
-		var response = service.updateGoalStatus(10L, request);
+		var response = service.updateGoalStatus(1L, 10L, request);
 
 		assertThat(response.goalId()).isEqualTo(10L);
 		assertThat(response.hasActiveGoal()).isFalse();
 		assertThat(response.status()).isEqualTo("completed");
 		assertThat(response.goal().active()).isFalse();
 		assertThat(response.goal().achieved()).isTrue();
-		verify(repository).updateGoalStatus(10L, false, true);
+		verify(repository).updateGoalStatusForUser(1L, 10L, false, true);
 	}
 }

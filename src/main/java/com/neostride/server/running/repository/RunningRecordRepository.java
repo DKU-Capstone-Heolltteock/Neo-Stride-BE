@@ -107,21 +107,21 @@ public class RunningRecordRepository {
 				""", runningRecordRowMapper, userId);
 	}
 
-	public List<RunningRecordResponse> findByMonth(int year, int month) {
+	public List<RunningRecordResponse> findByUserIdAndMonth(long userId, int year, int month) {
 		return jdbcTemplate.query("""
 				SELECT run_record_id, created_at, total_distance, duration, pace, calories
 				FROM running_records
-				WHERE YEAR(created_at) = ? AND MONTH(created_at) = ?
+				WHERE user_id = ? AND YEAR(created_at) = ? AND MONTH(created_at) = ?
 				ORDER BY created_at DESC, run_record_id DESC
-				""", runningRecordRowMapper, year, month);
+				""", runningRecordRowMapper, userId, year, month);
 	}
 
-	public RunningRecordResponse findByRecordId(long recordId) {
+	public RunningRecordResponse findByRecordIdForUser(long userId, long recordId) {
 		List<RunningRecordResponse> records = jdbcTemplate.query("""
 				SELECT run_record_id, created_at, total_distance, duration, pace, calories
 				FROM running_records
-				WHERE run_record_id = ?
-				""", runningRecordRowMapper, recordId);
+				WHERE user_id = ? AND run_record_id = ?
+				""", runningRecordRowMapper, userId, recordId);
 		return records.isEmpty() ? null : records.getFirst();
 	}
 

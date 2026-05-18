@@ -97,33 +97,36 @@ public class CoachingService {
 	}
 
 	@Transactional
-	public FeedbackResponse requestFeedback(long planDayId, FeedbackRequest request) {
+	public FeedbackResponse requestFeedback(long userId, long planDayId, FeedbackRequest request) {
+		validatePositive(userId, "user_id");
 		validatePositive(planDayId, "plan_day_id");
 		validateFeedbackRequest(planDayId, request);
 		String feedback = buildFeedbackWithAiFallback(planDayId, request);
-		if (!coachingRepository.updateFeedback(planDayId, feedback)) {
+		if (!coachingRepository.updateFeedbackForUser(userId, planDayId, feedback)) {
 			throw new IllegalArgumentException("plan_day_id에 해당하는 플랜이 없습니다.");
 		}
 		return new FeedbackResponse(planDayId, true, feedback, LocalDateTime.now().format(DATE_TIME_FORMATTER));
 	}
 
 	@Transactional
-	public Map<String, String> deleteGoal(long goalId) {
+	public Map<String, String> deleteGoal(long userId, long goalId) {
+		validatePositive(userId, "user_id");
 		validatePositive(goalId, "goal_id");
-		if (!coachingRepository.deleteGoal(goalId)) {
+		if (!coachingRepository.deleteGoalForUser(userId, goalId)) {
 			throw new IllegalArgumentException("goal_id에 해당하는 목표가 없습니다.");
 		}
 		return Map.of("status", "success", "message", "삭제 완료");
 	}
 
 	@Transactional
-	public GoalResponse updateGoalStatus(long goalId, GoalStatusUpdateRequest request) {
+	public GoalResponse updateGoalStatus(long userId, long goalId, GoalStatusUpdateRequest request) {
+		validatePositive(userId, "user_id");
 		validatePositive(goalId, "goal_id");
 		validateGoalStatusUpdateRequest(request);
-		if (!coachingRepository.updateGoalStatus(goalId, request.active(), request.achieved())) {
+		if (!coachingRepository.updateGoalStatusForUser(userId, goalId, request.active(), request.achieved())) {
 			throw new IllegalArgumentException("goal_id에 해당하는 목표가 없습니다.");
 		}
-		GoalRow goal = coachingRepository.findGoalById(goalId);
+		GoalRow goal = coachingRepository.findGoalByIdForUser(goalId, userId);
 		if (goal == null) {
 			throw new IllegalArgumentException("goal_id에 해당하는 목표가 없습니다.");
 		}
