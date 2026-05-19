@@ -34,9 +34,9 @@ public record RunningRecordResponse(
 		@JsonProperty("duration")
 		Integer duration,
 
-		@Schema(description = "평균 페이스", example = "6")
+		@Schema(description = "평균 페이스. 단위: minutes/km, 소수점 아래 두 자리는 초 단위(예: 5.77 = 5분 77초가 아니라 기존 앱 표기 5.77)", example = "5.77")
 		@JsonProperty("pace")
-		Integer pace,
+		BigDecimal pace,
 
 		@Schema(description = "소모 칼로리. 단위: kcal", example = "235")
 		@JsonProperty("calories")
@@ -59,13 +59,13 @@ public record RunningRecordResponse(
 	}
 
 	public static RunningRecordResponse record(long runRecordId, String createdAt, BigDecimal totalDistance,
-			Integer duration, Integer pace, Integer calories,
+			Integer duration, BigDecimal pace, Integer calories,
 			List<GpsTraceRequest> gpsTraces, List<BigDecimal> segmentPaces) {
 		return new RunningRecordResponse(null, null, runRecordId, createdAt, totalDistance, duration, pace, calories, gpsTraces, segmentPaces);
 	}
 
 	public static RunningRecordResponse record(long runRecordId, String createdAt, String totalDistance,
-			Integer duration, Integer pace, Integer calories,
+			Integer duration, BigDecimal pace, Integer calories,
 			List<GpsTraceRequest> gpsTraces, List<BigDecimal> segmentPaces) {
 		return record(runRecordId, createdAt, new BigDecimal(totalDistance), duration, pace, calories, gpsTraces, segmentPaces);
 	}

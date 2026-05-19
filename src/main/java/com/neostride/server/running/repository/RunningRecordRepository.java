@@ -30,7 +30,7 @@ public class RunningRecordRepository {
 			rs.getTimestamp("created_at").toLocalDateTime().format(RESPONSE_TIME_FORMATTER),
 			rs.getBigDecimal("total_distance"),
 			nullableInt(rs.getObject("duration")),
-			nullableInt(rs.getObject("pace")),
+			rs.getBigDecimal("pace"),
 			nullableInt(rs.getObject("calories")),
 			findGpsTracesByRecordId(rs.getLong("run_record_id")),
 			List.of()
@@ -56,7 +56,7 @@ public class RunningRecordRepository {
 			}
 			ps.setBigDecimal(3, request.totalDistance().setScale(2, RoundingMode.HALF_UP));
 			ps.setInt(4, roundedInt(request.duration()));
-			ps.setInt(5, roundedInt(request.pace()));
+			ps.setBigDecimal(5, request.pace().setScale(2, RoundingMode.HALF_UP));
 			ps.setInt(6, roundedInt(request.calories()));
 			ps.setString(7, request.routeDetail());
 			return ps;
