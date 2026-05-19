@@ -21,7 +21,7 @@ public class CoachingRepository {
 			rs.getLong("goal_id"),
 			rs.getDate("plan_date").toLocalDate(),
 			rs.getBigDecimal("target_distance"),
-			nullableInt(rs.getObject("target_pace")),
+			rs.getBigDecimal("target_pace"),
 			rs.getBoolean("is_completed"),
 			rs.getString("feedback"),
 			rs.getTimestamp("updated_at").toLocalDateTime()
@@ -51,7 +51,7 @@ public class CoachingRepository {
 			ps.setInt(2, command.durationWeeks());
 			ps.setInt(3, command.runningDay());
 			ps.setBigDecimal(4, command.targetDistance());
-			ps.setInt(5, command.targetPace());
+			ps.setBigDecimal(5, command.targetPace());
 			return ps;
 		}, keyHolder);
 		Number generatedId = keyHolder.getKey();
@@ -74,7 +74,7 @@ public class CoachingRepository {
 			ps.setLong(2, goalId);
 			ps.setObject(3, command.planDate());
 			ps.setBigDecimal(4, command.targetDistance());
-			ps.setInt(5, command.targetPace());
+			ps.setBigDecimal(5, command.targetPace());
 		});
 	}
 
@@ -183,7 +183,7 @@ public class CoachingRepository {
 				rs.getInt("duration_weeks"),
 				rs.getInt("running_day"),
 				rs.getBigDecimal("target_distance"),
-				nullableInt(rs.getObject("target_pace")),
+				rs.getBigDecimal("target_pace"),
 				rs.getTimestamp("created_at").toLocalDateTime(),
 				rs.getBoolean("is_active"),
 				rs.getBoolean("is_achieved"),
@@ -191,9 +191,5 @@ public class CoachingRepository {
 				rs.getDate("end_date") == null ? null : rs.getDate("end_date").toLocalDate(),
 				List.of()
 		);
-	}
-
-	private static Integer nullableInt(Object value) {
-		return value == null ? null : ((Number) value).intValue();
 	}
 }

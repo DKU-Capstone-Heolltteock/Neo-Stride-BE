@@ -10,7 +10,7 @@ public record PlanDayRow(
 		Long goalId,
 		LocalDate planDate,
 		BigDecimal targetDistance,
-		Integer targetPace,
+		BigDecimal targetPace,
 		Boolean completed,
 		String feedback,
 		LocalDateTime updatedAt

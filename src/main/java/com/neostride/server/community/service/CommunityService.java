@@ -7,6 +7,7 @@ import com.neostride.server.community.dto.FeedUploadResponse;
 import com.neostride.server.community.dto.FriendRequest;
 import com.neostride.server.community.dto.FriendResponse;
 import com.neostride.server.community.dto.AccountInfoResponse;
+import com.neostride.server.community.dto.SearchUserResponse;
 import com.neostride.server.community.dto.TipListResponse;
 import com.neostride.server.community.dto.TipUploadRequest;
 import com.neostride.server.community.dto.TipUploadResponse;
@@ -41,6 +42,12 @@ public class CommunityService {
 	public List<FeedUploadResponse> getFeedList() { return repository.listFeeds(); }
 	public TipUploadResponse uploadTip(long userId, TipUploadRequest request) { validatePositive(userId, "user_id"); requireBody(request); long id = repository.insertTip(userId, request); return repository.findTip(id); }
 	public TipListResponse getTips() { return new TipListResponse(repository.listTips()); }
+	public List<FeedUploadResponse> searchFeeds(String keyword, int page, int size) { validatePage(page, size); return repository.searchFeeds(keyword, page, size); }
+	public List<TipUploadResponse> searchTips(String keyword, String category, int page, int size) { validatePage(page, size); return repository.searchTips(keyword, category, page, size); }
+	public List<SearchUserResponse> searchProfiles(String keyword, int page, int size) { validatePage(page, size); return repository.searchProfiles(keyword, page, size); }
+	public List<SearchUserResponse> searchFriends(long userId, String keyword) { validatePositive(userId, "user_id"); return repository.searchFriends(userId, keyword); }
+	public List<SearchUserResponse> getTopProfiles(int page, int size) { validatePage(page, size); return repository.getTopProfiles(page, size); }
+	public List<SearchUserResponse> getMyFriends(long userId) { validatePositive(userId, "user_id"); return repository.getMyFriends(userId); }
 
 	private void requireBody(Object body) {
 		if (body == null) {
@@ -51,6 +58,15 @@ public class CommunityService {
 	private void validatePositive(long value, String fieldName) {
 		if (value <= 0) {
 			throw new IllegalArgumentException(fieldName + "는 1 이상의 값이어야 합니다.");
+		}
+	}
+
+	private void validatePage(int page, int size) {
+		if (page < 0) {
+			throw new IllegalArgumentException("page는 0 이상의 값이어야 합니다.");
+		}
+		if (size <= 0 || size > 100) {
+			throw new IllegalArgumentException("size는 1 이상 100 이하이어야 합니다.");
 		}
 	}
 }

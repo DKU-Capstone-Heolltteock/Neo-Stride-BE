@@ -7,6 +7,7 @@ import com.neostride.server.community.dto.FeedUploadResponse;
 import com.neostride.server.community.dto.FriendRequest;
 import com.neostride.server.community.dto.FriendResponse;
 import com.neostride.server.community.dto.AccountInfoResponse;
+import com.neostride.server.community.dto.SearchUserResponse;
 import com.neostride.server.community.dto.TipUploadRequest;
 import com.neostride.server.community.dto.TipUploadResponse;
 import com.neostride.server.community.dto.UserProfileResponse;
@@ -150,7 +151,7 @@ public class CommunityRepository {
 				INSERT INTO community_contents (author_user_id, include_route_detail, content_type, feed_scope, content_text, image)
 				VALUES (?, ?, 'POST', ?, ?, ?)
 				""", Statement.RETURN_GENERATED_KEYS);
-			ps.setLong(1, userId); ps.setBoolean(2, request.mapVisible()); ps.setString(3, normalizeScope(request.privacy())); ps.setString(4, request.content()); ps.setString(5, firstImage(request.imageUrls())); return ps;
+			ps.setLong(1, userId); ps.setBoolean(2, request.mapVisible()); ps.setString(3, normalizeScope(request.privacy())); ps.setString(4, encodeFeedContent(request.title(), request.content(), request.routeMapImageUri())); ps.setString(5, firstImage(request.imageUrls())); return ps;
 		}, kh);
 		long contentId = generatedKey(kh, "피드 ID를 생성하지 못했습니다.");
 		if (request.taggedUserIds() != null) for (Long tagged : request.taggedUserIds()) if (tagged != null) jdbcTemplate.update("INSERT INTO community_interactions (user_id, content_id, interaction_type, tagged_user_id) VALUES (?, ?, 'TAG', ?)", userId, contentId, tagged);
@@ -180,6 +181,63 @@ public class CommunityRepository {
 	public TipUploadResponse findTip(long tipId) { return tipQuery("cc.content_id = ?", tipId).stream().findFirst().orElse(null); }
 	public List<TipUploadResponse> listTips() { return tipQuery("cc.content_type = 'TIP'", null); }
 
+	public List<FeedUploadResponse> searchFeeds(String keyword, int page, int size) {
+		String predicate = "cc.content_type = 'POST' AND cc.feed_scope <> 'PRIVATE'";
+		Object[] args = pageArgs(page, size);
+		if (!blank(keyword)) {
+			predicate += " AND LOWER(cc.content_text) LIKE ?";
+			args = new Object[]{like(keyword), size, offset(page, size)};
+		}
+		return feedQueryPaged(predicate, args);
+	}
+
+	public List<TipUploadResponse> searchTips(String keyword, String category, int page, int size) {
+		String predicate = "cc.content_type = 'TIP'";
+		List<Object> args = new java.util.ArrayList<>();
+		String normalizedCategory = normalizeSearchCategory(category);
+		if (normalizedCategory != null) {
+			predicate += " AND cc.tip_type = ?";
+			args.add(normalizedCategory);
+		}
+		if (!blank(keyword)) {
+			predicate += " AND LOWER(cc.content_text) LIKE ?";
+			args.add(like(keyword));
+		}
+		args.add(size);
+		args.add(offset(page, size));
+		return tipQueryPaged(predicate, args.toArray());
+	}
+
+	public List<SearchUserResponse> searchProfiles(String keyword, int page, int size) {
+		String predicate = "1=1";
+		Object[] args = pageArgs(page, size);
+		if (!blank(keyword)) {
+			predicate = "LOWER(COALESCE(cu.community_profile_name, u.community_profile_name, u.name)) LIKE ?";
+			args = new Object[]{like(keyword), size, offset(page, size)};
+		}
+		return userSearchQuery(predicate, "badge_rank DESC, friend_count DESC, u.user_id ASC", args);
+	}
+
+	public List<SearchUserResponse> searchFriends(long userId, String keyword) {
+		String predicate = "EXISTS (SELECT 1 FROM relationships r WHERE (r.user1_id = ? AND r.user2_id = u.user_id OR r.user2_id = ? AND r.user1_id = u.user_id) AND r.status = 'ACCEPTED')";
+		List<Object> args = new java.util.ArrayList<>(List.of(userId, userId));
+		if (!blank(keyword)) {
+			predicate += " AND LOWER(COALESCE(cu.community_profile_name, u.community_profile_name, u.name)) LIKE ?";
+			args.add(like(keyword));
+		}
+		args.add(1000);
+		args.add(0);
+		return userSearchQuery(predicate, "nickname ASC, u.user_id ASC", args.toArray());
+	}
+
+	public List<SearchUserResponse> getTopProfiles(int page, int size) {
+		return userSearchQuery("1=1", "badge_rank DESC, friend_count DESC, u.user_id ASC", pageArgs(page, size));
+	}
+
+	public List<SearchUserResponse> getMyFriends(long userId) {
+		return searchFriends(userId, null);
+	}
+
 	private List<FeedUploadResponse> feedQuery(String predicate, Long id) {
 		Object[] args = id == null ? new Object[]{} : new Object[]{id};
 		return jdbcTemplate.query("""
@@ -192,7 +250,12 @@ public class CommunityRepository {
 			       (SELECT COUNT(*) FROM community_interactions ci WHERE ci.content_id=cc.content_id AND ci.interaction_type='COMMENT') AS comment_count
 			FROM community_contents cc JOIN users u ON u.user_id=cc.author_user_id LEFT JOIN community_users cu ON cu.user_id=u.user_id
 			LEFT JOIN running_records rr ON rr.run_record_id=cc.running_record_id WHERE
-			""" + predicate + " ORDER BY cc.created_at DESC, cc.content_id DESC", (rs, n) -> new FeedUploadResponse(rs.getLong("content_id"), rs.getString("profile_image_url"), rs.getString("nickname"), rs.getTimestamp("created_at").toLocalDateTime().format(ISO), null, rs.getString("content_text"), rs.getInt("tagged_count"), rs.getInt("like_count"), rs.getInt("comment_count"), String.format(Locale.KOREA, "%.2f km", rs.getBigDecimal("total_distance")), rs.getObject("duration") == null ? null : String.valueOf(rs.getInt("duration")), rs.getObject("pace") == null ? null : String.valueOf(rs.getInt("pace")), rs.getBoolean("include_route_detail"), null, rs.getString("image") == null ? List.of() : List.of(rs.getString("image"))), args);
+			""" + predicate + " ORDER BY cc.created_at DESC, cc.content_id DESC", (rs, n) -> mapFeed(rs), args);
+	}
+
+	private FeedUploadResponse mapFeed(java.sql.ResultSet rs) throws java.sql.SQLException {
+		String[] parts = decodeFeedContent(rs.getString("content_text"));
+		return new FeedUploadResponse(rs.getLong("content_id"), rs.getString("profile_image_url"), rs.getString("nickname"), rs.getTimestamp("created_at").toLocalDateTime().format(ISO), parts[0], parts[1], rs.getInt("tagged_count"), rs.getInt("like_count"), rs.getInt("comment_count"), String.format(Locale.KOREA, "%.2f km", rs.getBigDecimal("total_distance")), rs.getObject("duration") == null ? null : String.valueOf(rs.getInt("duration")), rs.getObject("pace") == null ? null : String.valueOf(rs.getInt("pace")), rs.getBoolean("include_route_detail"), parts[2], rs.getString("image") == null ? List.of() : List.of(rs.getString("image")));
 	}
 
 	private List<TipUploadResponse> tipQuery(String predicate, Long id) {
@@ -205,16 +268,66 @@ public class CommunityRepository {
 			       (SELECT COUNT(*) FROM community_interactions ci WHERE ci.content_id=cc.content_id AND ci.interaction_type='COMMENT') AS comment_count
 			FROM community_contents cc JOIN users u ON u.user_id=cc.author_user_id LEFT JOIN community_users cu ON cu.user_id=u.user_id
 			WHERE
-			""" + predicate + " ORDER BY cc.created_at DESC, cc.content_id DESC", (rs, n) -> {
-				String[] parts = decodeTipContent(rs.getString("content_text"));
-				return new TipUploadResponse(rs.getLong("content_id"), rs.getString("nickname"), rs.getString("profile_image_url"), !"NONE".equalsIgnoreCase(rs.getString("badge")), fromTipType(rs.getString("tip_type")), parts[0], parts[1], rs.getBoolean("include_route_detail"), parts[2], rs.getString("image") == null ? List.of() : List.of(rs.getString("image")), rs.getInt("like_count"), rs.getInt("comment_count"), rs.getTimestamp("created_at").toLocalDateTime().format(ISO));
-			}, args);
+			""" + predicate + " ORDER BY cc.created_at DESC, cc.content_id DESC", this::mapTip, args);
+	}
+
+	private List<FeedUploadResponse> feedQueryPaged(String predicate, Object[] args) {
+		return jdbcTemplate.query("""
+			SELECT cc.content_id, COALESCE(cu.profile_photo, u.profile_photo) AS profile_image_url,
+			       COALESCE(cu.community_profile_name, u.community_profile_name, u.name) AS nickname, cc.created_at,
+			       cc.content_text, cc.include_route_detail, cc.image,
+			       COALESCE(rr.total_distance, 0) AS total_distance, rr.duration, rr.pace,
+			       (SELECT COUNT(*) FROM community_interactions ci WHERE ci.content_id=cc.content_id AND ci.interaction_type='TAG') AS tagged_count,
+			       (SELECT COUNT(*) FROM community_interactions ci WHERE ci.content_id=cc.content_id AND ci.interaction_type='LIKE') AS like_count,
+			       (SELECT COUNT(*) FROM community_interactions ci WHERE ci.content_id=cc.content_id AND ci.interaction_type='COMMENT') AS comment_count
+			FROM community_contents cc JOIN users u ON u.user_id=cc.author_user_id LEFT JOIN community_users cu ON cu.user_id=u.user_id
+			LEFT JOIN running_records rr ON rr.run_record_id=cc.running_record_id WHERE
+			""" + predicate + " ORDER BY cc.created_at DESC, cc.content_id DESC LIMIT ? OFFSET ?", (rs, n) -> mapFeed(rs), args);
+	}
+
+	private List<TipUploadResponse> tipQueryPaged(String predicate, Object[] args) {
+		return jdbcTemplate.query("""
+			SELECT cc.content_id, COALESCE(cu.community_profile_name, u.community_profile_name, u.name) AS nickname,
+			       COALESCE(cu.profile_photo, u.profile_photo) AS profile_image_url, COALESCE(cu.badge, 'NONE') AS badge,
+			       cc.tip_type, cc.content_text, cc.include_route_detail, cc.image, cc.created_at,
+			       (SELECT COUNT(*) FROM community_interactions ci WHERE ci.content_id=cc.content_id AND ci.interaction_type='LIKE') AS like_count,
+			       (SELECT COUNT(*) FROM community_interactions ci WHERE ci.content_id=cc.content_id AND ci.interaction_type='COMMENT') AS comment_count
+			FROM community_contents cc JOIN users u ON u.user_id=cc.author_user_id LEFT JOIN community_users cu ON cu.user_id=u.user_id
+			WHERE
+			""" + predicate + " ORDER BY cc.created_at DESC, cc.content_id DESC LIMIT ? OFFSET ?", this::mapTip, args);
+	}
+
+	private TipUploadResponse mapTip(java.sql.ResultSet rs, int n) throws java.sql.SQLException {
+		String[] parts = decodeTipContent(rs.getString("content_text"));
+		return new TipUploadResponse(rs.getLong("content_id"), rs.getString("nickname"), rs.getString("profile_image_url"), !"NONE".equalsIgnoreCase(rs.getString("badge")), fromTipType(rs.getString("tip_type")), parts[0], parts[1], rs.getBoolean("include_route_detail"), parts[2], rs.getString("image") == null ? List.of() : List.of(rs.getString("image")), rs.getInt("like_count"), rs.getInt("comment_count"), rs.getTimestamp("created_at").toLocalDateTime().format(ISO));
+	}
+
+	private List<SearchUserResponse> userSearchQuery(String predicate, String orderBy, Object[] args) {
+		return jdbcTemplate.query("""
+			SELECT u.user_id, COALESCE(cu.community_profile_name, u.community_profile_name, u.name) AS nickname,
+			       COALESCE(cu.profile_photo, u.profile_photo) AS profile_image_url,
+			       cu.status_message,
+			       COALESCE(cu.badge, 'NONE') AS badge_tier,
+			       CASE UPPER(COALESCE(cu.badge, 'NONE'))
+			           WHEN 'CHALLENGER' THEN 7 WHEN 'MASTER' THEN 6 WHEN 'DIAMOND' THEN 5
+			           WHEN 'PLATINUM' THEN 4 WHEN 'GOLD' THEN 3 WHEN 'SILVER' THEN 2 WHEN 'BRONZE' THEN 1 ELSE 0 END AS badge_rank,
+			       (SELECT COUNT(*) FROM relationships rf WHERE (rf.user1_id = u.user_id OR rf.user2_id = u.user_id) AND rf.status='ACCEPTED') AS friend_count
+			FROM users u LEFT JOIN community_users cu ON cu.user_id = u.user_id
+			WHERE
+			""" + predicate + " ORDER BY " + orderBy + " LIMIT ? OFFSET ?", (rs, n) -> new SearchUserResponse(rs.getLong("user_id"), rs.getString("nickname"), rs.getString("profile_image_url"), rs.getString("status_message"), rs.getInt("friend_count"), rs.getString("badge_tier"), "none"), args);
 	}
 
 	private static String toRelationshipStatus(String status) { return switch ((status == null ? "friends" : status).toLowerCase(Locale.ROOT)) { case "sent", "received" -> "REQUESTED"; case "blocked" -> "BLOCKED"; default -> "ACCEPTED"; }; }
+	private static boolean blank(String value) { return value == null || value.isBlank(); }
+	private static String like(String value) { return "%" + value.trim().toLowerCase(Locale.ROOT) + "%"; }
+	private static int offset(int page, int size) { return page * size; }
+	private static Object[] pageArgs(int page, int size) { return new Object[]{size, offset(page, size)}; }
+	private static String normalizeSearchCategory(String category) { String value = category == null ? "ALL" : category.trim().toUpperCase(Locale.ROOT); return switch (value) { case "", "ALL", "FREE" -> null; case "TRAINING" -> "TRAINING"; case "COURSE", "코스" -> "COURSE"; case "GEAR", "장비" -> "GEAR"; default -> value; }; }
 	private static String normalizeScope(String privacy) { return switch ((privacy == null ? "PUBLIC" : privacy).toUpperCase(Locale.ROOT)) { case "FRIENDS" -> "FRIENDS"; case "PRIVATE" -> "PRIVATE"; default -> "PUBLIC"; }; }
 	private static String normalizeTipType(String category) { return switch ((category == null ? "ETC" : category).toUpperCase(Locale.ROOT)) { case "TRAINING" -> "TRAINING"; case "COURSE", "코스" -> "COURSE"; case "GEAR", "장비" -> "GEAR"; default -> "ETC"; }; }
 	private static String fromTipType(String tipType) { return tipType == null ? "ETC" : tipType; }
+	private static String encodeFeedContent(String title, String content, String routeMapImageUrl) { return (title == null ? "" : title) + "\n---NEOSTRIDE-FEED---\n" + (content == null ? "" : content) + "\n---NEOSTRIDE-ROUTE---\n" + (routeMapImageUrl == null ? "" : routeMapImageUrl); }
+	private static String[] decodeFeedContent(String raw) { String[] first = (raw == null ? "" : raw).split("\\n---NEOSTRIDE-FEED---\\n", 2); if (first.length == 1) return new String[]{null, first[0], null}; String rest = first[1]; String[] second = rest.split("\\n---NEOSTRIDE-ROUTE---\\n", 2); return new String[]{first[0], second.length > 0 ? second[0] : rest, second.length > 1 && !second[1].isBlank() ? second[1] : null}; }
 	private static String encodeTipContent(String title, String content, String routeMapImageUrl) { return (title == null ? "" : title) + "\n---NEOSTRIDE-TIP---\n" + (content == null ? "" : content) + "\n---NEOSTRIDE-ROUTE---\n" + (routeMapImageUrl == null ? "" : routeMapImageUrl); }
 	private static String[] decodeTipContent(String raw) { String[] first = (raw == null ? "" : raw).split("\\n---NEOSTRIDE-TIP---\\n", 2); String title = first.length > 0 ? first[0] : ""; String rest = first.length > 1 ? first[1] : ""; String[] second = rest.split("\\n---NEOSTRIDE-ROUTE---\\n", 2); return new String[]{title, second.length > 0 ? second[0] : rest, second.length > 1 && !second[1].isBlank() ? second[1] : null}; }
 	private static String firstImage(List<String> images) { return images == null || images.isEmpty() ? null : images.getFirst(); }
@@ -223,3 +336,4 @@ public class CommunityRepository {
 	private static BigDecimal nullToZero(BigDecimal value) { return value == null ? BigDecimal.ZERO : value; }
 	private static long generatedKey(KeyHolder keyHolder, String message) { Number key = keyHolder.getKey(); if (key == null) throw new IllegalStateException(message); return key.longValue(); }
 }
+

@@ -7,6 +7,7 @@ import com.neostride.server.community.dto.FeedUploadRequest;
 import com.neostride.server.community.dto.FeedUploadResponse;
 import com.neostride.server.community.dto.FriendRequest;
 import com.neostride.server.community.dto.FriendResponse;
+import com.neostride.server.community.dto.SearchUserResponse;
 import com.neostride.server.community.dto.UserProfileResponse;
 import com.neostride.server.community.service.CommunityService;
 import java.math.BigDecimal;
@@ -146,6 +147,27 @@ class CommunityControllerTest {
 		assertThat(controller.uploadTip(AUTHORIZATION, 1L, tipRequest).getStatusCode()).isEqualTo(HttpStatus.CREATED);
 		assertThat(controller.uploadTip(AUTHORIZATION, 1L, tipRequest).getBody()).isSameAs(tip);
 		assertThat(controller.getTips().getBody()).isSameAs(tipList);
+	}
+
+	@Test
+	void searchApis_supportFeedTipProfileFriendContracts() {
+		FeedUploadResponse feed = new FeedUploadResponse(99L, null, "neo", "2026-05-11T00:00:00", "title", "content", 1, 0, 0, "3.20 km", "20:00", "6'15\"", true, "route.png", List.of("image.png"));
+		var tip = new com.neostride.server.community.dto.TipUploadResponse(7L, "neo", "photo.png", true, "COURSE", "title", "content", true, "route.png", List.of("tip.png"), 1, 2, "2026-05-11T00:00:00");
+		SearchUserResponse user = new SearchUserResponse(2L, "runner", "profile.png", "ready", 3, "GOLD", "friends");
+		when(service.searchFeeds("run", 0, 10)).thenReturn(List.of(feed));
+		when(service.searchTips("pace", "ALL", 0, 10)).thenReturn(List.of(tip));
+		when(service.searchProfiles("neo", 0, 10)).thenReturn(List.of(user));
+		when(service.searchFriends(1L, "neo")).thenReturn(List.of(user));
+		when(service.getTopProfiles(0, 10)).thenReturn(List.of(user));
+		when(service.getMyFriends(1L)).thenReturn(List.of(user));
+		authenticate();
+
+		assertThat(controller.searchFeeds("run", 0, 10).getBody()).containsExactly(feed);
+		assertThat(controller.searchTips("pace", "ALL", 0, 10).getBody()).containsExactly(tip);
+		assertThat(controller.searchProfiles("neo", 0, 10).getBody()).containsExactly(user);
+		assertThat(controller.searchFriends(AUTHORIZATION, 1L, "neo").getBody()).containsExactly(user);
+		assertThat(controller.getTopProfiles(0, 10).getBody()).containsExactly(user);
+		assertThat(controller.getMyFriends(AUTHORIZATION, 1L).getBody()).containsExactly(user);
 	}
 
 	private void authenticate() {

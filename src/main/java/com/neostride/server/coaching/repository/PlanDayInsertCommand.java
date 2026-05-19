@@ -6,6 +6,6 @@ import java.time.LocalDate;
 public record PlanDayInsertCommand(
 		LocalDate planDate,
 		BigDecimal targetDistance,
-		Integer targetPace
+		BigDecimal targetPace
 ) {
 }
