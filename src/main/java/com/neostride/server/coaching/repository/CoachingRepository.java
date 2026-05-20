@@ -149,6 +149,15 @@ public class CoachingRepository {
 		return rows.isEmpty() ? null : rows.getFirst();
 	}
 
+	public PlanDayRow findPlanDayByIdForUser(long planDayId, long userId) {
+		List<PlanDayRow> rows = jdbcTemplate.query("""
+				SELECT plan_id, user_id, goal_id, plan_date, target_distance, target_pace, is_completed, feedback, updated_at
+				FROM plans
+				WHERE plan_id = ? AND user_id = ?
+				""", planDayRowMapper, planDayId, userId);
+		return rows.isEmpty() ? null : rows.getFirst();
+	}
+
 	public boolean updateFeedbackForUser(long userId, long planDayId, String feedback) {
 		int updated = jdbcTemplate.update("""
 				UPDATE plans

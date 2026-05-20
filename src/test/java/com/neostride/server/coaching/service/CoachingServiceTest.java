@@ -9,6 +9,7 @@ import com.neostride.server.coaching.dto.GoalRequest;
 import com.neostride.server.coaching.dto.GoalStatusUpdateRequest;
 import com.neostride.server.coaching.repository.CoachingRepository;
 import com.neostride.server.coaching.repository.GoalRow;
+import com.neostride.server.coaching.repository.PlanDayRow;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -134,7 +135,18 @@ class CoachingServiceTest {
 	@Test
 	void requestFeedback_usesAiFeedbackWhenAiClientReturnsComment() {
 		FeedbackRequest request = new FeedbackRequest(20L, new BigDecimal("3.2"), 1240, new BigDecimal("6.45"));
-		when(aiCoachingClient.generateFeedback(new AiCoachingFeedbackRequest(20L, request)))
+		PlanDayRow planDay = new PlanDayRow(20L, 1L, 10L, LocalDate.parse("2026-05-04"),
+				new BigDecimal("5.00"), new BigDecimal("6.00"), false, null, LocalDateTime.parse("2026-05-01T09:00:00"));
+		when(repository.findPlanDayByIdForUser(20L, 1L)).thenReturn(planDay);
+		when(aiCoachingClient.generateFeedback(new AiCoachingFeedbackRequest(
+				20L,
+				LocalDate.parse("2026-05-04"),
+				new BigDecimal("5.00"),
+				new BigDecimal("6.00"),
+				new BigDecimal("-1.80"),
+				new BigDecimal("0.45"),
+				request
+		)))
 				.thenReturn("AI 코치: 목표 대비 안정적인 페이스입니다. 다음 러닝은 회복 강도로 진행하세요.");
 		when(repository.updateFeedbackForUser(eq(1L), eq(20L), any())).thenReturn(true);
 
@@ -142,6 +154,27 @@ class CoachingServiceTest {
 
 		assertThat(response.aiFeedbackComment()).contains("AI 코치");
 		verify(repository).updateFeedbackForUser(1L, 20L, "AI 코치: 목표 대비 안정적인 페이스입니다. 다음 러닝은 회복 강도로 진행하세요.");
+	}
+
+	@Test
+	void requestFeedback_sendsPlanTargetAndDeltaContextToAiClient() {
+		FeedbackRequest request = new FeedbackRequest(20L, new BigDecimal("3.2"), 1240, new BigDecimal("6.45"));
+		PlanDayRow planDay = new PlanDayRow(20L, 1L, 10L, LocalDate.parse("2026-05-04"),
+				new BigDecimal("5.00"), new BigDecimal("6.00"), false, null, LocalDateTime.parse("2026-05-01T09:00:00"));
+		when(repository.findPlanDayByIdForUser(20L, 1L)).thenReturn(planDay);
+		when(aiCoachingClient.generateFeedback(any())).thenReturn("AI 목표 대비 피드백");
+		when(repository.updateFeedbackForUser(eq(1L), eq(20L), any())).thenReturn(true);
+
+		service.requestFeedback(1L, 20L, request);
+
+		verify(aiCoachingClient).generateFeedback(argThat(aiRequest ->
+				aiRequest.planDayId().equals(20L)
+						&& aiRequest.planDate().equals(LocalDate.parse("2026-05-04"))
+						&& aiRequest.targetDistanceKm().compareTo(new BigDecimal("5.00")) == 0
+						&& aiRequest.targetPaceMinPerKm().compareTo(new BigDecimal("6.00")) == 0
+						&& aiRequest.distanceDeltaKm().compareTo(new BigDecimal("-1.80")) == 0
+						&& aiRequest.paceDeltaMinPerKm().compareTo(new BigDecimal("0.45")) == 0
+		));
 	}
 
 	@Test

@@ -103,7 +103,7 @@ public class CoachingService {
 		validatePositive(userId, "user_id");
 		validatePositive(planDayId, "plan_day_id");
 		validateFeedbackRequest(planDayId, request);
-		String feedback = buildFeedbackWithAiFallback(planDayId, request);
+		String feedback = buildFeedbackWithAiFallback(userId, planDayId, request);
 		if (!coachingRepository.updateFeedbackForUser(userId, planDayId, feedback)) {
 			throw new IllegalArgumentException("plan_day_id에 해당하는 플랜이 없습니다.");
 		}
@@ -255,12 +255,31 @@ public class CoachingService {
 		);
 	}
 
-	private String buildFeedbackWithAiFallback(long planDayId, FeedbackRequest request) {
-		String aiFeedback = aiCoachingClient.generateFeedback(new AiCoachingFeedbackRequest(planDayId, request));
+	private String buildFeedbackWithAiFallback(long userId, long planDayId, FeedbackRequest request) {
+		PlanDayRow planDay = coachingRepository.findPlanDayByIdForUser(planDayId, userId);
+		if (planDay == null) {
+			return buildFeedback(request);
+		}
+		String aiFeedback = aiCoachingClient.generateFeedback(new AiCoachingFeedbackRequest(
+				planDayId,
+				planDay.planDate(),
+				planDay.targetDistance(),
+				planDay.targetPace(),
+				delta(request.actualDistanceKm(), planDay.targetDistance()),
+				delta(request.actualPaceMinPerKm(), planDay.targetPace()),
+				request
+		));
 		if (aiFeedback != null && !aiFeedback.isBlank()) {
 			return aiFeedback.trim();
 		}
 		return buildFeedback(request);
+	}
+
+	private BigDecimal delta(BigDecimal actual, BigDecimal target) {
+		if (actual == null || target == null) {
+			return null;
+		}
+		return actual.subtract(target).setScale(2, RoundingMode.HALF_UP);
 	}
 
 	private String buildFeedback(FeedbackRequest request) {
