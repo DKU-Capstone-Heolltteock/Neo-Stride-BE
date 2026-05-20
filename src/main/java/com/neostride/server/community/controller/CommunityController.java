@@ -8,6 +8,7 @@ import com.neostride.server.community.dto.FeedUploadResponse;
 import com.neostride.server.community.dto.FriendRequest;
 import com.neostride.server.community.dto.FriendResponse;
 import com.neostride.server.community.dto.AccountInfoResponse;
+import com.neostride.server.community.dto.SearchUserResponse;
 import com.neostride.server.community.dto.TipListResponse;
 import com.neostride.server.community.dto.TipUploadRequest;
 import com.neostride.server.community.dto.TipUploadResponse;
@@ -17,7 +18,10 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import java.util.List;
 import java.util.Map;
+import java.util.ArrayList;
+import java.math.BigDecimal;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -165,8 +169,26 @@ public class CommunityController {
 			@RequestHeader(value = "X-User-Id", required = false) Long headerUserId,
 			@RequestBody FeedUploadRequest request
 	) { return ResponseEntity.status(HttpStatus.CREATED).body(service.uploadFeed(authenticatedUserId(authorization, headerUserId), request)); }
+	@PostMapping(value = "/api/community/feeds", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+	public ResponseEntity<FeedUploadResponse> uploadFeedMultipart(
+			@RequestHeader(value = "Authorization", required = false) String authorization,
+			@RequestHeader(value = "X-User-Id", required = false) Long headerUserId,
+			@RequestParam Map<String, String> fields,
+			@RequestPart(value = "images", required = false) List<MultipartFile> images,
+			@RequestPart(value = "route_image", required = false) MultipartFile routeImage,
+			@RequestPart(value = "routeMapImage", required = false) MultipartFile routeMapImage
+	) {
+		FeedUploadRequest request = new FeedUploadRequest(
+				fields.get("title"), fields.get("content"), fields.get("privacy"), bool(fields.get("mapVisible")),
+				storedUri(routeImage != null ? routeImage : routeMapImage), parseLongList(fields.get("taggedUserIds")), storedUris(images),
+				decimal(fields.get("distance")), fields.get("runningTime"), fields.get("pace"), parseInt(fields.get("tagCount"))
+		);
+		return ResponseEntity.status(HttpStatus.CREATED).body(service.uploadFeed(authenticatedUserId(authorization, headerUserId), request));
+	}
 	@GetMapping("/feeds")
 	public ResponseEntity<List<FeedUploadResponse>> getFeedList() { return ResponseEntity.ok(service.getFeedList()); }
+	@GetMapping("/api/community/feeds")
+	public ResponseEntity<List<FeedUploadResponse>> getCommunityFeedList() { return ResponseEntity.ok(service.getFeedList()); }
 	@PostMapping("/api/tips")
 	public ResponseEntity<TipUploadResponse> uploadTip(
 			@RequestHeader(value = "Authorization", required = false) String authorization,
@@ -175,6 +197,85 @@ public class CommunityController {
 	) { return ResponseEntity.status(HttpStatus.CREATED).body(service.uploadTip(authenticatedUserId(authorization, headerUserId), request)); }
 	@GetMapping("/api/tips")
 	public ResponseEntity<TipListResponse> getTips() { return ResponseEntity.ok(service.getTips()); }
+	@PostMapping(value = "/api/community/tips", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+	public ResponseEntity<TipUploadResponse> uploadTipMultipart(
+			@RequestHeader(value = "Authorization", required = false) String authorization,
+			@RequestHeader(value = "X-User-Id", required = false) Long headerUserId,
+			@RequestParam Map<String, String> fields,
+			@RequestPart(value = "images", required = false) List<MultipartFile> images,
+			@RequestPart(value = "route_image", required = false) MultipartFile routeImage,
+			@RequestPart(value = "routeMapImage", required = false) MultipartFile routeMapImage
+	) {
+		TipUploadRequest request = new TipUploadRequest(fields.get("category"), fields.get("title"), fields.get("content"), bool(fields.get("gpsVisible")), storedUri(routeImage != null ? routeImage : routeMapImage), storedUris(images));
+		return ResponseEntity.status(HttpStatus.CREATED).body(service.uploadTip(authenticatedUserId(authorization, headerUserId), request));
+	}
+	@GetMapping("/api/community/tips")
+	public ResponseEntity<List<TipUploadResponse>> getCommunityTips() { return ResponseEntity.ok(service.getTips().tips()); }
+
+	@GetMapping("/api/community/search/feeds")
+	public ResponseEntity<List<FeedUploadResponse>> searchFeeds(
+			@RequestParam(value = "keyword", required = false) String keyword,
+			@RequestParam(defaultValue = "0") int page,
+			@RequestParam(defaultValue = "10") int size
+	) { return ResponseEntity.ok(service.searchFeeds(keyword, page, size)); }
+
+	@GetMapping("/api/community/search/tips")
+	public ResponseEntity<List<TipUploadResponse>> searchTips(
+			@RequestParam(value = "keyword", required = false) String keyword,
+			@RequestParam(value = "category", required = false, defaultValue = "ALL") String category,
+			@RequestParam(defaultValue = "0") int page,
+			@RequestParam(defaultValue = "10") int size
+	) { return ResponseEntity.ok(service.searchTips(keyword, category, page, size)); }
+
+	@GetMapping("/api/community/search/profiles")
+	public ResponseEntity<List<SearchUserResponse>> searchProfiles(
+			@RequestParam(value = "keyword", required = false) String keyword,
+			@RequestParam(defaultValue = "0") int page,
+			@RequestParam(defaultValue = "10") int size
+	) { return ResponseEntity.ok(service.searchProfiles(keyword, page, size)); }
+
+	@GetMapping("/api/community/search/friends")
+	public ResponseEntity<List<SearchUserResponse>> searchFriends(
+			@RequestHeader(value = "Authorization", required = false) String authorization,
+			@RequestHeader(value = "X-User-Id", required = false) Long headerUserId,
+			@RequestParam(value = "keyword", required = false) String keyword
+	) { return ResponseEntity.ok(service.searchFriends(authenticatedUserId(authorization, headerUserId), keyword)); }
+
+	@GetMapping("/api/community/search/top-profiles")
+	public ResponseEntity<List<SearchUserResponse>> getTopProfiles(
+			@RequestParam(defaultValue = "0") int page,
+			@RequestParam(defaultValue = "10") int size
+	) { return ResponseEntity.ok(service.getTopProfiles(page, size)); }
+
+	@GetMapping("/api/community/search/my-friends")
+	public ResponseEntity<List<SearchUserResponse>> getMyFriends(
+			@RequestHeader(value = "Authorization", required = false) String authorization,
+			@RequestHeader(value = "X-User-Id", required = false) Long headerUserId
+	) { return ResponseEntity.ok(service.getMyFriends(authenticatedUserId(authorization, headerUserId))); }
+
+	private static boolean bool(String value) { return Boolean.parseBoolean(value); }
+	private static int parseInt(String value) { return value == null || value.isBlank() ? 0 : Integer.parseInt(value); }
+	private static BigDecimal decimal(String value) { return value == null || value.isBlank() ? null : new BigDecimal(value); }
+	private static List<Long> parseLongList(String value) {
+		if (value == null || value.isBlank()) return List.of();
+		List<Long> ids = new ArrayList<>();
+		for (String part : value.split(",")) if (!part.isBlank()) ids.add(Long.parseLong(part.trim()));
+		return ids;
+	}
+	private static List<String> storedUris(List<MultipartFile> files) {
+		if (files == null || files.isEmpty()) return List.of();
+		List<String> uris = new ArrayList<>();
+		for (MultipartFile file : files) {
+			String uri = storedUri(file);
+			if (uri != null) uris.add(uri);
+		}
+		return uris;
+	}
+	private static String storedUri(MultipartFile file) {
+		if (file == null || file.isEmpty()) return null;
+		String name = file.getOriginalFilename();
+		return "/uploads/community/" + (name == null || name.isBlank() ? "image" : name.replaceAll("[^A-Za-z0-9._-]", "_"));
+	}
 
 	private long authenticatedUserId(String authorization, Long headerUserId) {
 		long authenticatedUserId = authenticatedUserService.requireUserId(authorization);

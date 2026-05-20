@@ -108,7 +108,7 @@ public class OpenAiCoachingClient implements AiCoachingClient {
 			planDays.add(new AiCoachingPlanDay(
 					LocalDate.parse(planDate),
 					distanceNode.decimalValue(),
-					paceNode.intValue(),
+					paceNode.decimalValue(),
 					node.path("description").asText(null)
 			));
 		}
@@ -123,7 +123,7 @@ public class OpenAiCoachingClient implements AiCoachingClient {
 
 	private String planPrompt(GoalRequest request, int durationWeeks, LocalDate startDate) throws Exception {
 		return "다음 사용자 입력으로 러닝 플랜을 생성하라. "
-				+ "응답 JSON schema: {\"summary\": string, \"plan_days\": [{\"plan_date\": \"yyyy-MM-dd\", \"day_distance_km\": number, \"day_pace_min_per_km\": integer, \"description\": string}]} "
+				+ "응답 JSON schema: {\"summary\": string, \"plan_days\": [{\"plan_date\": \"yyyy-MM-dd\", \"day_distance_km\": number, \"day_pace_min_per_km\": number, \"description\": string}]} "
 				+ "plan_days는 running_days에 해당하는 날짜만 포함하고, 기간은 start_date부터 duration_weeks 주 이내여야 한다. "
 				+ "day_distance_km와 day_pace_min_per_km는 양수여야 한다. "
 				+ "사용자 입력: " + objectMapper.writeValueAsString(Map.of(

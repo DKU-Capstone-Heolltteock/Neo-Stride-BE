@@ -51,7 +51,7 @@ public class CoachingService {
 		int durationWeeks = durationWeeks(request.periodType(), request.customWeeks());
 		LocalDate startDate = parseDate(request.startDate(), "start_date");
 		Set<DayOfWeek> runningDays = parseRunningDays(request.runningDays());
-		int targetPace = roundedInt(request.goalPaceMinPerKm(), "goal_pace_min_per_km");
+		BigDecimal targetPace = normalizedPace(request.goalPaceMinPerKm(), "goal_pace_min_per_km");
 
 		coachingRepository.deactivateActiveGoals(request.userId());
 		long goalId = coachingRepository.insertGoal(new GoalInsertCommand(
@@ -82,7 +82,8 @@ public class CoachingService {
 		if (goal == null) {
 			return GoalResponse.empty();
 		}
-		return toGoalResponse(goal, periodType(goal.durationWeeks()), customWeeks(goal.durationWeeks()), goal.runningDays(), coachingRepository.findPlanDaysByGoalId(goal.goalId()));
+		List<PlanDayRow> planDays = coachingRepository.findPlanDaysByGoalId(goal.goalId());
+		return toGoalResponse(goal, periodType(goal.durationWeeks()), customWeeks(goal.durationWeeks()), runningDaysOrDerived(goal.runningDays(), planDays), planDays);
 	}
 
 	@Transactional(readOnly = true)
@@ -93,7 +94,8 @@ public class CoachingService {
 			return new TodayPlanResponse(false, null, null);
 		}
 		GoalRow goal = coachingRepository.findGoalById(planDay.goalId());
-		return new TodayPlanResponse(true, toPlanDayResponse(planDay), goal == null ? null : toGoalInfo(goal, periodType(goal.durationWeeks()), customWeeks(goal.durationWeeks()), goal.runningDays()));
+		List<PlanDayRow> goalPlanDays = goal == null ? List.of() : coachingRepository.findPlanDaysByGoalId(goal.goalId());
+		return new TodayPlanResponse(true, toPlanDayResponse(planDay), goal == null ? null : toGoalInfo(goal, periodType(goal.durationWeeks()), customWeeks(goal.durationWeeks()), runningDaysOrDerived(goal.runningDays(), goalPlanDays)));
 	}
 
 	@Transactional
@@ -130,7 +132,8 @@ public class CoachingService {
 		if (goal == null) {
 			throw new IllegalArgumentException("goal_id에 해당하는 목표가 없습니다.");
 		}
-		return toGoalResponse(goal, periodType(goal.durationWeeks()), customWeeks(goal.durationWeeks()), goal.runningDays(), coachingRepository.findPlanDaysByGoalId(goalId));
+		List<PlanDayRow> planDays = coachingRepository.findPlanDaysByGoalId(goalId);
+		return toGoalResponse(goal, periodType(goal.durationWeeks()), customWeeks(goal.durationWeeks()), runningDaysOrDerived(goal.runningDays(), planDays), planDays);
 	}
 
 	private void validateGoalRequest(GoalRequest request) {
@@ -173,7 +176,7 @@ public class CoachingService {
 	}
 
 	private List<PlanDayInsertCommand> generatePlanDaysWithAiFallback(GoalRequest request, LocalDate startDate, int durationWeeks,
-			Set<DayOfWeek> runningDays, int targetPace) {
+			Set<DayOfWeek> runningDays, BigDecimal targetPace) {
 		AiCoachingPlan aiPlan = aiCoachingClient.generatePlan(request, durationWeeks, startDate);
 		List<PlanDayInsertCommand> aiPlanDays = toSafePlanDayCommands(aiPlan, startDate, durationWeeks, runningDays);
 		if (!aiPlanDays.isEmpty()) {
@@ -199,16 +202,16 @@ public class CoachingService {
 			if (!runningDays.contains(day.planDate().getDayOfWeek())) {
 				return List.of();
 			}
-			if (day.dayDistanceKm().compareTo(BigDecimal.ZERO) <= 0 || day.dayPaceMinPerKm() <= 0) {
+			if (day.dayDistanceKm().compareTo(BigDecimal.ZERO) <= 0 || day.dayPaceMinPerKm().compareTo(BigDecimal.ZERO) <= 0) {
 				return List.of();
 			}
-			commands.add(new PlanDayInsertCommand(day.planDate(), day.dayDistanceKm().setScale(2, RoundingMode.HALF_UP), day.dayPaceMinPerKm()));
+			commands.add(new PlanDayInsertCommand(day.planDate(), day.dayDistanceKm().setScale(2, RoundingMode.HALF_UP), normalizedPace(day.dayPaceMinPerKm(), "day_pace_min_per_km")));
 		}
 		return commands;
 	}
 
 	private List<PlanDayInsertCommand> generatePlanDays(LocalDate startDate, int durationWeeks, Set<DayOfWeek> runningDays,
-			BigDecimal targetDistance, int targetPace) {
+			BigDecimal targetDistance, BigDecimal targetPace) {
 		List<PlanDayInsertCommand> planDays = new ArrayList<>();
 		LocalDate endExclusive = startDate.plusWeeks(durationWeeks);
 		for (LocalDate date = startDate; date.isBefore(endExclusive); date = date.plusDays(1)) {
@@ -230,7 +233,7 @@ public class CoachingService {
 				customWeeks,
 				runningDays == null ? List.of() : runningDays,
 				goal.targetDistance(),
-				goal.targetPace() == null ? null : BigDecimal.valueOf(goal.targetPace()),
+				goal.targetPace(),
 				goal.startDate() == null ? null : goal.startDate().format(DATE_FORMATTER),
 				goal.endDate() == null ? null : goal.endDate().format(DATE_FORMATTER),
 				goal.createdAt() == null ? null : goal.createdAt().format(DATE_TIME_FORMATTER),
@@ -244,7 +247,7 @@ public class CoachingService {
 				row.planDayId(),
 				row.planDate().format(DATE_FORMATTER),
 				row.targetDistance(),
-				row.targetPace() == null ? null : BigDecimal.valueOf(row.targetPace()),
+				row.targetPace(),
 				"목표 거리 " + row.targetDistance() + "km, 목표 페이스 " + row.targetPace() + "분/km 러닝",
 				Boolean.TRUE.equals(row.completed()),
 				row.feedback(),
@@ -347,9 +350,37 @@ public class CoachingService {
 		}
 	}
 
-	private int roundedInt(BigDecimal value, String fieldName) {
+	private BigDecimal normalizedPace(BigDecimal value, String fieldName) {
 		requirePositive(value, fieldName);
-		return value.setScale(0, RoundingMode.HALF_UP).intValueExact();
+		return value.setScale(2, RoundingMode.HALF_UP);
+	}
+
+	private List<String> runningDaysOrDerived(List<String> runningDays, List<PlanDayRow> planDays) {
+		if (runningDays != null && !runningDays.isEmpty()) {
+			return runningDays;
+		}
+		List<String> derived = new ArrayList<>();
+		if (planDays == null) {
+			return derived;
+		}
+		for (PlanDayRow planDay : planDays) {
+			if (planDay == null || planDay.planDate() == null) {
+				continue;
+			}
+			String value = switch (planDay.planDate().getDayOfWeek()) {
+				case MONDAY -> "mon";
+				case TUESDAY -> "tue";
+				case WEDNESDAY -> "wed";
+				case THURSDAY -> "thu";
+				case FRIDAY -> "fri";
+				case SATURDAY -> "sat";
+				case SUNDAY -> "sun";
+			};
+			if (!derived.contains(value)) {
+				derived.add(value);
+			}
+		}
+		return derived;
 	}
 
 	private void requirePositive(BigDecimal value, String fieldName) {

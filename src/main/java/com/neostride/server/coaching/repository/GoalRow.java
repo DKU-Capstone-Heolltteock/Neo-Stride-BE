@@ -11,7 +11,7 @@ public record GoalRow(
 		Integer durationWeeks,
 		Integer runningDay,
 		BigDecimal targetDistance,
-		Integer targetPace,
+		BigDecimal targetPace,
 		LocalDateTime createdAt,
 		Boolean active,
 		Boolean achieved,

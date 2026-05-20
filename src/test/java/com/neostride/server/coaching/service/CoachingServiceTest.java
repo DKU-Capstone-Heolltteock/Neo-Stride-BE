@@ -51,8 +51,8 @@ class CoachingServiceTest {
 		GoalRequest request = new GoalRequest(1L, "custom", 1, List.of("mon", "wed"), new BigDecimal("5.0"), new BigDecimal("6.5"), "2026-05-04");
 		when(aiCoachingClient.generatePlan(request, 1, LocalDate.parse("2026-05-04")))
 				.thenReturn(new AiCoachingPlan("AI 맞춤 1주 플랜", List.of(
-						new AiCoachingPlanDay(LocalDate.parse("2026-05-04"), new BigDecimal("2.50"), 7, "회복 조깅"),
-						new AiCoachingPlanDay(LocalDate.parse("2026-05-06"), new BigDecimal("3.00"), 6, "가벼운 지속주")
+						new AiCoachingPlanDay(LocalDate.parse("2026-05-04"), new BigDecimal("2.50"), new BigDecimal("7.25"), "회복 조깅"),
+						new AiCoachingPlanDay(LocalDate.parse("2026-05-06"), new BigDecimal("3.00"), new BigDecimal("6.50"), "가벼운 지속주")
 				)));
 		when(repository.insertGoal(any())).thenReturn(10L);
 		when(repository.findPlanDaysByGoalId(10L)).thenReturn(List.of());
@@ -63,9 +63,40 @@ class CoachingServiceTest {
 				commands.size() == 2
 						&& commands.get(0).planDate().equals(LocalDate.parse("2026-05-04"))
 						&& commands.get(0).targetDistance().compareTo(new BigDecimal("2.50")) == 0
-						&& commands.get(0).targetPace().equals(7)
+						&& commands.get(0).targetPace().compareTo(new BigDecimal("7.25")) == 0
 						&& commands.get(1).planDate().equals(LocalDate.parse("2026-05-06"))
 		));
+	}
+
+	@Test
+	void createGoal_preservesDecimalPaceWithoutIntegerRounding() {
+		GoalRequest request = new GoalRequest(1L, "custom", 1, List.of("mon"), new BigDecimal("5.0"), new BigDecimal("6.45"), "2026-05-04");
+		when(repository.insertGoal(any())).thenReturn(10L);
+		when(repository.findPlanDaysByGoalId(10L)).thenReturn(List.of());
+
+		service.createGoal(request);
+
+		verify(repository).insertGoal(argThat(command -> command.targetPace().compareTo(new BigDecimal("6.45")) == 0));
+		verify(repository).insertPlanDays(eq(1L), eq(10L), argThat(commands ->
+				!commands.isEmpty() && commands.getFirst().targetPace().compareTo(new BigDecimal("6.45")) == 0
+		));
+	}
+
+	@Test
+	void getActiveGoal_derivesRunningDaysFromPlanDatesWhenGoalRowHasNoDayList() {
+		GoalRow goal = new GoalRow(10L, 1L, 4, 2, new BigDecimal("5.00"), new BigDecimal("6.45"),
+				LocalDateTime.parse("2026-05-01T09:00:00"), true, false,
+				LocalDate.parse("2026-05-04"), LocalDate.parse("2026-05-06"), List.of());
+		when(repository.findActiveGoalByUserId(1L)).thenReturn(goal);
+		when(repository.findPlanDaysByGoalId(10L)).thenReturn(List.of(
+				new com.neostride.server.coaching.repository.PlanDayRow(100L, 1L, 10L, LocalDate.parse("2026-05-04"), new BigDecimal("5.00"), new BigDecimal("6.45"), false, null, LocalDateTime.parse("2026-05-01T09:00:00")),
+				new com.neostride.server.coaching.repository.PlanDayRow(101L, 1L, 10L, LocalDate.parse("2026-05-06"), new BigDecimal("5.00"), new BigDecimal("6.45"), false, null, LocalDateTime.parse("2026-05-01T09:00:00"))
+		));
+
+		var response = service.getActiveGoal(1L);
+
+		assertThat(response.goal().runningDays()).containsExactly("mon", "wed");
+		assertThat(response.goal().goalPaceMinPerKm()).isEqualByComparingTo("6.45");
 	}
 
 	@Test
@@ -116,7 +147,7 @@ class CoachingServiceTest {
 	@Test
 	void updateGoalStatus_updatesGoalFlagsAndReturnsCurrentGoalShape() {
 		GoalStatusUpdateRequest request = new GoalStatusUpdateRequest(false, true);
-		GoalRow completedGoal = new GoalRow(10L, 1L, 4, 3, new BigDecimal("5.00"), 6,
+		GoalRow completedGoal = new GoalRow(10L, 1L, 4, 3, new BigDecimal("5.00"), new BigDecimal("6.00"),
 				LocalDateTime.parse("2026-05-01T09:00:00"), false, true,
 				LocalDate.parse("2026-05-01"), LocalDate.parse("2026-05-29"), List.of("mon", "wed", "fri"));
 		when(repository.updateGoalStatusForUser(1L, 10L, false, true)).thenReturn(true);
