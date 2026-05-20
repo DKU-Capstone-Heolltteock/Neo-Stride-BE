@@ -22,7 +22,7 @@
 
 - AI 피드백 API `POST /api/coaching/plans/{plan_day_id}/feedback`를 현재 Android/Backend 기준으로 명시했습니다.
 - Android 최신 main에 추가된 피드 상세/수정/삭제/좋아요/북마크/댓글, 팁 상세/수정/삭제/좋아요/북마크/댓글, 검색, 알림 API를 반영했습니다.
-- 기존 문서가 `/feeds`, `/api/tips`를 Android API처럼 적고 있던 부분을 바로잡았습니다. 현재 Android는 `/api/community/feeds`, `/api/community/tips`를 호출하고, 백엔드는 일부 legacy 경로 `/feeds`, `/api/tips`만 제공합니다.
+- 사진/이미지 업로드는 현재 백엔드 구현 기준으로 실제 로컬 파일 저장 후 `/uploads/...` public URL을 DB에 저장/응답합니다. 다중 이미지와 multipart 회원가입 사진은 아직 정식 지원하지 않습니다.
 
 ## 공통 설정
 
@@ -70,6 +70,22 @@ BASE_URL="http://10.0.2.2:8080/"
 | Spring Boot 로그 타임스탬프 | `logging.pattern.dateformat` | `yyyy-MM-dd'T'HH:mm:ss.SSSXXX,Asia/Seoul` |
 | MySQL JDBC 세션 TimeZone | `spring.datasource.url` | `serverTimezone=Asia/Seoul` |
 
+### Backend image upload/storage
+
+현재 구현 기준:
+
+- 로컬 저장 설정: `neostride.upload.base-dir=${UPLOAD_BASE_DIR:./uploads}`
+- public URL prefix: `neostride.upload.public-prefix=/uploads`
+- 정적 파일 조회: `/uploads/**` 요청을 업로드 디렉터리에서 서빙합니다.
+- 파일 크기 제한: `spring.servlet.multipart.max-file-size=10MB`, `spring.servlet.multipart.max-request-size=30MB`
+- 허용 확장자: `jpg`, `jpeg`, `png`, `webp`
+- 허용 MIME type: `image/jpeg`, `image/png`, `image/webp`
+- 서버는 빈 파일, MIME/확장자 불일치, magic byte 불일치 파일을 `400 Bad Request`로 거부합니다.
+- 저장 파일명은 원본 파일명을 사용하지 않고 UUID 기반으로 생성합니다.
+- `PATCH /users/me/profile-image`는 `profile_image_url` 또는 multipart part `image` 중 하나가 필수입니다. 둘 다 없거나 빈 문자열이면 기존 `profile_photo`를 null로 덮지 않고 `400 Bad Request`를 반환합니다.
+- `POST /api/community/feeds`, `POST /api/community/tips` multipart 업로드는 현재 DB 스키마가 단일 image 컬럼만 지원하므로 `images` part는 최대 1개만 허용합니다. 2개 이상이면 `400 Bad Request`입니다.
+- route image는 `route_image` 또는 `routeMapImage` part로 받을 수 있고, 실제 저장 후 반환된 URL을 기존 content text delimiter 영역에 저장합니다. route image 전용 컬럼/테이블 분리는 후속 작업입니다.
+
 ## API 목록
 
 | 영역 | Method | Endpoint | Android 선언 위치 | 백엔드 상태 |
@@ -81,8 +97,8 @@ BASE_URL="http://10.0.2.2:8080/"
 | 인증 | `POST` | `/api/auth/signup` | `com/neostride/app/feature/auth/api/AuthApi.java:23 signup()`, `com/neostride/app/feature/auth/api/AuthApi.java:29 signupWithPhoto()` | 구현됨. multipart 가입은 request content type 불일치 주의 |
 | 계정/프로필/배지 | `GET` | `/users/me/badge` | `com/neostride/app/feature/badge/api/BadgeService.java:15 getBadgeDetail()` | 구현됨 |
 | 계정/프로필/배지 | `GET` | `/users/{userId}/badge` | `com/neostride/app/feature/badge/api/BadgeService.java:19 getBadgeDetailByUserId()`, `com/neostride/app/feature/community/runnerpage/api/RunnerPageService.java:25 getRunnerBadge()` | 구현됨 |
-| 피드 | `POST` | `/api/community/feeds` | `com/neostride/app/feature/community/feed/api/FeedApi.java:44 uploadFeed()` | 경로 불일치: 백엔드는 POST /feeds만 구현 |
-| 피드 | `GET` | `/api/community/feeds` | `com/neostride/app/feature/community/feed/api/FeedApi.java:60 getFeedList()` | 경로 불일치: 백엔드는 GET /feeds만 구현 |
+| 피드 | `POST` | `/api/community/feeds` | `com/neostride/app/feature/community/feed/api/FeedApi.java:44 uploadFeed()` | 구현됨. multipart 사진은 최대 1장 + route image 저장 URL 지원 |
+| 피드 | `GET` | `/api/community/feeds` | `com/neostride/app/feature/community/feed/api/FeedApi.java:60 getFeedList()` | 구현됨 |
 | 피드 | `GET` | `/api/community/feeds/{feedId}` | `com/neostride/app/feature/community/feed/api/FeedApi.java:72 getFeedDetail()` | 백엔드 미구현/미확인 |
 | 친구 | `GET` | `/api/community/friends` | `com/neostride/app/feature/community/feed/api/FeedApi.java:92 getFriendList()` | 경로 불일치: 백엔드는 GET /community/friends 및 /api/relationships 제공 |
 | 피드 | `POST` | `/api/community/feeds/{feedId}/likes` | `com/neostride/app/feature/community/feed/api/FeedApi.java:102 toggleFeedLike()` | 백엔드 미구현/미확인 |
@@ -114,8 +130,8 @@ BASE_URL="http://10.0.2.2:8080/"
 | 검색 | `GET` | `/api/community/search/friends` | `com/neostride/app/feature/community/search/api/SearchApi.java:64 searchFriends()` | 백엔드 미구현/미확인 |
 | 검색 | `GET` | `/api/community/search/top-profiles` | `com/neostride/app/feature/community/search/api/SearchApi.java:74 getTopProfiles()` | 백엔드 미구현/미확인 |
 | 검색 | `GET` | `/api/community/search/my-friends` | `com/neostride/app/feature/community/search/api/SearchApi.java:84 getMyFriends()` | 백엔드 미구현/미확인 |
-| 팁 | `POST` | `/api/community/tips` | `com/neostride/app/feature/community/tip/api/TipApi.java:43 uploadTip()` | 경로 불일치: 백엔드는 POST /api/tips만 구현 |
-| 팁 | `GET` | `/api/community/tips` | `com/neostride/app/feature/community/tip/api/TipApi.java:54 getTips()` | 경로 불일치: 백엔드는 GET /api/tips만 구현 |
+| 팁 | `POST` | `/api/community/tips` | `com/neostride/app/feature/community/tip/api/TipApi.java:43 uploadTip()` | 구현됨. multipart 사진은 최대 1장 + route image 저장 URL 지원 |
+| 팁 | `GET` | `/api/community/tips` | `com/neostride/app/feature/community/tip/api/TipApi.java:54 getTips()` | 구현됨 |
 | 팁 | `GET` | `/api/community/tips/{tipId}` | `com/neostride/app/feature/community/tip/api/TipApi.java:61 getTipDetail()` | 백엔드 미구현/미확인 |
 | 팁 | `POST` | `/api/community/tips/{tipId}/likes` | `com/neostride/app/feature/community/tip/api/TipApi.java:70 toggleTipLike()` | 백엔드 미구현/미확인 |
 | 팁 | `POST` | `/api/community/tips/{tipId}/bookmarks` | `com/neostride/app/feature/community/tip/api/TipApi.java:79 toggleTipBookmark()` | 백엔드 미구현/미확인 |
@@ -176,7 +192,7 @@ Response 예시:
 - 성공: `201 Created`
 - 이메일 형식/필수값 오류: `400 Bad Request`
 - 중복 이메일: `409 Conflict`
-- 주의: Android에는 multipart 사진 포함 가입 선언이 있지만, 현재 백엔드 `AuthController.signup()`은 JSON `SignupRequest`만 받습니다. multipart 가입은 method/path는 같지만 request content type이 달라서 별도 구현/검증이 필요합니다.
+- 주의: Android에는 multipart 사진 포함 가입 선언이 있지만, 현재 백엔드 `AuthController.signup()`은 JSON `SignupRequest`만 받습니다. multipart 가입 사진 업로드는 아직 미지원이며 별도 작업으로 분리해야 합니다.
 
 ### POST /api/auth/login
 
@@ -404,12 +420,12 @@ Android `NotificationApi`는 아래 알림 API를 호출합니다. 현재 백엔
 
 ## 확인된 범위와 주의사항
 
-- 확인/문서 업데이트 시각: 2026-05-19 07:27 UTC
+- 확인/문서 업데이트 시각: 2026-05-20 01:27 UTC
 - Frontend 검색 대상: `Neo-Stride/Neo-Stride/app/src/main/java/**/*.java`
 - Backend 검색 대상: `Neo-Stride/Neo-Stride-BE/src/main/java/**/*.java`
 - Android repo 상태: `main...origin/main`, HEAD `d7f15e2`
-- Backend repo 상태: `codex/prepare-backend-readiness...origin/codex/prepare-backend-readiness`, HEAD `de506d9`
+- Backend repo 상태: `main...origin/main`, HEAD `08d0656` 기준으로 사진 저장 로직 보완 전 상태에서 작업했습니다.
 - 부모 디렉터리 `/home/yoonhyeon/projects/Neo-Stride`는 git repository가 아니므로 원본 `docs/frontend-api-spec.md` 자체는 현재 어떤 git repo에도 속하지 않습니다. 푸시 가능한 산출물로 백엔드 repo의 `docs/frontend-api-spec.md`에도 동일 내용을 저장했습니다.
 - 현재 백엔드 작업 트리에는 기존 untracked `backups/` 디렉터리가 있으며 이 문서 업데이트에서는 건드리지 않았습니다.
-- 최신 Android 커뮤니티 API는 `/api/community/...` namespace로 확장되었지만, 백엔드는 아직 일부 이전 경로(`/feeds`, `/api/tips`, `/api/relationships`)만 제공합니다. 앱 통합 전에 backend route alias 또는 신규 Controller 구현이 필요합니다.
+- 최신 Android 커뮤니티 API는 `/api/community/...` namespace로 확장되었습니다. 현재 피드/팁 목록·업로드·검색 일부는 백엔드 alias가 있으나, 상세/수정/삭제/좋아요/댓글/알림 등은 아직 추가 구현이 필요합니다.
 - AI 피드백 API는 구현되어 있지만, OpenAI 호출 성공/실패 여부를 응답에서 구분하지 않습니다. 운영 검증을 위해서는 로그 또는 `source: ai|fallback` 같은 추적 필드 추가를 권장합니다.

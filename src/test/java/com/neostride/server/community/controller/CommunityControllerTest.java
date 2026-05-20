@@ -10,14 +10,21 @@ import com.neostride.server.community.dto.FriendResponse;
 import com.neostride.server.community.dto.SearchUserResponse;
 import com.neostride.server.community.dto.UserProfileResponse;
 import com.neostride.server.community.service.CommunityService;
+import com.neostride.server.storage.StorageService;
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
+import org.springframework.mock.web.MockMultipartFile;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class CommunityControllerTest {
@@ -26,7 +33,8 @@ class CommunityControllerTest {
 
 	private final CommunityService service = mock(CommunityService.class);
 	private final AuthenticatedUserService authenticatedUserService = mock(AuthenticatedUserService.class);
-	private final CommunityController controller = new CommunityController(service, authenticatedUserService);
+	private final StorageService storageService = mock(StorageService.class);
+	private final CommunityController controller = new CommunityController(service, authenticatedUserService, storageService);
 
 	@Test
 	void getUserProfile_returnsAuthenticatedUserProfile() {
@@ -113,6 +121,61 @@ class CommunityControllerTest {
 		assertThat(controller.getAccountInfo(AUTHORIZATION, 1L).getBody()).isSameAs(account);
 		assertThat(controller.updateNickname(AUTHORIZATION, 1L, Map.of("nickname", "neo2")).getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
 		assertThat(controller.deleteAccount(AUTHORIZATION, 1L).getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
+	}
+
+	@Test
+	void updateProfileImage_rejectsEmptyRequestWithoutOverwritingExistingPhoto() {
+		authenticate();
+
+		assertThatThrownBy(() -> controller.updateProfileImage(AUTHORIZATION, 1L, " ", null))
+				.isInstanceOf(IllegalArgumentException.class)
+				.hasMessageContaining("profile_image_url 또는 image");
+
+		verify(service, never()).updateProfileImage(anyLong(), any());
+	}
+
+	@Test
+	void updateProfileImage_storesMultipartImageUrl() {
+		MockMultipartFile image = new MockMultipartFile("image", "profile.png", "image/png", new byte[] {(byte) 0x89, 'P', 'N', 'G'});
+		authenticate();
+		when(storageService.storeImage(image, "profile")).thenReturn("/uploads/profile/profile-id.png");
+
+		var response = controller.updateProfileImage(AUTHORIZATION, 1L, null, image);
+
+		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
+		verify(service).updateProfileImage(1L, "/uploads/profile/profile-id.png");
+	}
+
+	@Test
+	void uploadFeedMultipart_storesSingleImageAndRouteImageBeforeServiceCall() {
+		MockMultipartFile image = new MockMultipartFile("images", "feed.jpg", "image/jpeg", new byte[] {(byte) 0xff, (byte) 0xd8, (byte) 0xff});
+		MockMultipartFile route = new MockMultipartFile("route_image", "route.webp", "image/webp", new byte[] {'R', 'I', 'F', 'F', 0, 0, 0, 0, 'W', 'E', 'B', 'P'});
+		FeedUploadRequest expected = new FeedUploadRequest("title", "content", "PUBLIC", true, "/uploads/routes/route-id.webp", List.of(2L), List.of("/uploads/community/feed-id.jpg"), new BigDecimal("3.2"), "20:00", "6'15\"", 1);
+		FeedUploadResponse uploaded = new FeedUploadResponse(99L, null, "neo", "2026-05-11T00:00:00", "title", "content", 1, 0, 0, "3.20 km", "20:00", "6'15\"", true, "/uploads/routes/route-id.webp", List.of("/uploads/community/feed-id.jpg"));
+		authenticate();
+		when(storageService.storeImage(image, "community")).thenReturn("/uploads/community/feed-id.jpg");
+		when(storageService.storeImage(route, "routes")).thenReturn("/uploads/routes/route-id.webp");
+		when(service.uploadFeed(1L, expected)).thenReturn(uploaded);
+
+		var response = controller.uploadFeedMultipart(AUTHORIZATION, 1L, Map.of("title", "title", "content", "content", "privacy", "PUBLIC", "mapVisible", "true", "taggedUserIds", "2", "distance", "3.2", "runningTime", "20:00", "pace", "6'15\"", "tagCount", "1"), List.of(image), route, null);
+
+		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+		assertThat(response.getBody()).isSameAs(uploaded);
+		verify(service).uploadFeed(1L, expected);
+	}
+
+	@Test
+	void uploadFeedMultipart_rejectsMultipleImagesUntilSchemaSupportsLists() {
+		MockMultipartFile first = new MockMultipartFile("images", "first.jpg", "image/jpeg", new byte[] {(byte) 0xff, (byte) 0xd8, (byte) 0xff});
+		MockMultipartFile second = new MockMultipartFile("images", "second.jpg", "image/jpeg", new byte[] {(byte) 0xff, (byte) 0xd8, (byte) 0xff});
+		authenticate();
+
+		assertThatThrownBy(() -> controller.uploadFeedMultipart(AUTHORIZATION, 1L, Map.of("title", "title"), List.of(first, second), null, null))
+				.isInstanceOf(IllegalArgumentException.class)
+				.hasMessageContaining("단일 이미지만");
+
+		verify(storageService, never()).storeImage(any(), any());
+		verify(service, never()).uploadFeed(anyLong(), any());
 	}
 
 	@Test

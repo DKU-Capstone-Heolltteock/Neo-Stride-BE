@@ -14,6 +14,7 @@ import com.neostride.server.community.dto.TipUploadRequest;
 import com.neostride.server.community.dto.TipUploadResponse;
 import com.neostride.server.community.dto.UserProfileResponse;
 import com.neostride.server.community.service.CommunityService;
+import com.neostride.server.storage.StorageService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import java.util.List;
@@ -39,10 +40,12 @@ import org.springframework.web.multipart.MultipartFile;
 public class CommunityController {
 	private final CommunityService service;
 	private final AuthenticatedUserService authenticatedUserService;
+	private final StorageService storageService;
 
-	public CommunityController(CommunityService service, AuthenticatedUserService authenticatedUserService) {
+	public CommunityController(CommunityService service, AuthenticatedUserService authenticatedUserService, StorageService storageService) {
 		this.service = service;
 		this.authenticatedUserService = authenticatedUserService;
+		this.storageService = storageService;
 	}
 
 	@Operation(summary = "내 프로필 조회")
@@ -86,9 +89,12 @@ public class CommunityController {
 			@RequestParam(value = "profile_image_url", required = false) String profileImageUrl,
 			@RequestPart(value = "image", required = false) MultipartFile image
 	) {
-		String storedValue = profileImageUrl;
-		if ((storedValue == null || storedValue.isBlank()) && image != null && !image.isEmpty()) {
-			storedValue = image.getOriginalFilename();
+		String storedValue = normalizedNonBlank(profileImageUrl);
+		if (image != null) {
+			storedValue = storageService.storeImage(image, "profile");
+		}
+		if (storedValue == null) {
+			throw new IllegalArgumentException("profile_image_url 또는 image 중 하나는 필요합니다.");
 		}
 		service.updateProfileImage(authenticatedUserId(authorization, headerUserId), storedValue);
 		return ResponseEntity.noContent().build();
@@ -180,7 +186,7 @@ public class CommunityController {
 	) {
 		FeedUploadRequest request = new FeedUploadRequest(
 				fields.get("title"), fields.get("content"), fields.get("privacy"), bool(fields.get("mapVisible")),
-				storedUri(routeImage != null ? routeImage : routeMapImage), parseLongList(fields.get("taggedUserIds")), storedUris(images),
+				storedRouteUri(routeImage != null ? routeImage : routeMapImage), parseLongList(fields.get("taggedUserIds")), storedImageUris(images),
 				decimal(fields.get("distance")), fields.get("runningTime"), fields.get("pace"), parseInt(fields.get("tagCount"))
 		);
 		return ResponseEntity.status(HttpStatus.CREATED).body(service.uploadFeed(authenticatedUserId(authorization, headerUserId), request));
@@ -206,7 +212,7 @@ public class CommunityController {
 			@RequestPart(value = "route_image", required = false) MultipartFile routeImage,
 			@RequestPart(value = "routeMapImage", required = false) MultipartFile routeMapImage
 	) {
-		TipUploadRequest request = new TipUploadRequest(fields.get("category"), fields.get("title"), fields.get("content"), bool(fields.get("gpsVisible")), storedUri(routeImage != null ? routeImage : routeMapImage), storedUris(images));
+		TipUploadRequest request = new TipUploadRequest(fields.get("category"), fields.get("title"), fields.get("content"), bool(fields.get("gpsVisible")), storedRouteUri(routeImage != null ? routeImage : routeMapImage), storedImageUris(images));
 		return ResponseEntity.status(HttpStatus.CREATED).body(service.uploadTip(authenticatedUserId(authorization, headerUserId), request));
 	}
 	@GetMapping("/api/community/tips")
@@ -262,19 +268,24 @@ public class CommunityController {
 		for (String part : value.split(",")) if (!part.isBlank()) ids.add(Long.parseLong(part.trim()));
 		return ids;
 	}
-	private static List<String> storedUris(List<MultipartFile> files) {
+	private List<String> storedImageUris(List<MultipartFile> files) {
 		if (files == null || files.isEmpty()) return List.of();
-		List<String> uris = new ArrayList<>();
-		for (MultipartFile file : files) {
-			String uri = storedUri(file);
-			if (uri != null) uris.add(uri);
+		if (files.size() > 1) {
+			throw new IllegalArgumentException("현재 피드/팁 업로드는 단일 이미지만 지원합니다.");
 		}
-		return uris;
+		MultipartFile file = files.get(0);
+		if (file == null) return List.of();
+		return List.of(storageService.storeImage(file, "community"));
 	}
-	private static String storedUri(MultipartFile file) {
-		if (file == null || file.isEmpty()) return null;
-		String name = file.getOriginalFilename();
-		return "/uploads/community/" + (name == null || name.isBlank() ? "image" : name.replaceAll("[^A-Za-z0-9._-]", "_"));
+
+	private String storedRouteUri(MultipartFile file) {
+		if (file == null) return null;
+		return storageService.storeImage(file, "routes");
+	}
+
+	private static String normalizedNonBlank(String value) {
+		if (value == null || value.isBlank()) return null;
+		return value.trim();
 	}
 
 	private long authenticatedUserId(String authorization, Long headerUserId) {
