@@ -165,6 +165,21 @@ class CommunityControllerTest {
 	}
 
 	@Test
+	void uploadFeedMultipart_acceptsJsonArrayTaggedUserIdsFromAndroid() {
+		MockMultipartFile route = new MockMultipartFile("routeMapImage", "route.png", "image/png", new byte[] {(byte) 0x89, 'P', 'N', 'G', 13, 10, 26, 10});
+		FeedUploadRequest expected = new FeedUploadRequest("title", "content", "PUBLIC", true, "/uploads/routes/route-id.png", List.of(2L, 3L), List.of(), null, "20:00", "6'15\"", 2);
+		FeedUploadResponse uploaded = new FeedUploadResponse(99L, null, "neo", "2026-05-11T00:00:00", "title", "content", 2, 0, 0, "0.00 km", "20:00", "6'15\"", true, "/uploads/routes/route-id.png", List.of());
+		authenticate();
+		when(storageService.storeImage(route, "routes")).thenReturn("/uploads/routes/route-id.png");
+		when(service.uploadFeed(1L, expected)).thenReturn(uploaded);
+
+		var response = controller.uploadFeedMultipart(AUTHORIZATION, 1L, Map.of("title", "title", "content", "content", "privacy", "PUBLIC", "mapVisible", "true", "taggedUserIds", "[2,3]", "runningTime", "20:00", "pace", "6'15\"", "tagCount", "2"), null, null, route);
+
+		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+		verify(service).uploadFeed(1L, expected);
+	}
+
+	@Test
 	void uploadFeedMultipart_rejectsMultipleImagesUntilSchemaSupportsLists() {
 		MockMultipartFile first = new MockMultipartFile("images", "first.jpg", "image/jpeg", new byte[] {(byte) 0xff, (byte) 0xd8, (byte) 0xff});
 		MockMultipartFile second = new MockMultipartFile("images", "second.jpg", "image/jpeg", new byte[] {(byte) 0xff, (byte) 0xd8, (byte) 0xff});
@@ -203,13 +218,13 @@ class CommunityControllerTest {
 		var tipList = new com.neostride.server.community.dto.TipListResponse(List.of(tip));
 		when(service.toggleBookmark(1L, 10L)).thenReturn(bookmark);
 		when(service.uploadTip(1L, tipRequest)).thenReturn(tip);
-		when(service.getTips()).thenReturn(tipList);
+		when(service.getTips(1L)).thenReturn(tipList);
 		authenticate();
 
 		assertThat(controller.toggleBookmark(AUTHORIZATION, 1L, 10L).getBody()).isSameAs(bookmark);
 		assertThat(controller.uploadTip(AUTHORIZATION, 1L, tipRequest).getStatusCode()).isEqualTo(HttpStatus.CREATED);
 		assertThat(controller.uploadTip(AUTHORIZATION, 1L, tipRequest).getBody()).isSameAs(tip);
-		assertThat(controller.getTips().getBody()).isSameAs(tipList);
+		assertThat(controller.getTips(AUTHORIZATION, 1L).getBody()).isSameAs(tipList);
 	}
 
 	@Test

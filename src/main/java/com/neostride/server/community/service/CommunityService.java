@@ -44,7 +44,7 @@ public class CommunityService {
 	public List<FriendResponse> getTaggedUsers(long feedId) { validatePositive(feedId, "feed_id"); return repository.getTaggedUsers(feedId); }
 	public List<FeedUploadResponse> getFeedList() { return repository.listFeeds(); }
 	public TipUploadResponse uploadTip(long userId, TipUploadRequest request) { validatePositive(userId, "user_id"); requireBody(request); long id = repository.insertTip(userId, request); return repository.findTip(id); }
-	public TipListResponse getTips() { return new TipListResponse(repository.listTips()); }
+	public TipListResponse getTips(Long viewerUserId) { return new TipListResponse(viewerUserId == null ? repository.listTips() : repository.listTips(viewerUserId)); }
 	public List<TipUploadResponse> getMyTips(long userId) { validatePositive(userId, "user_id"); return repository.listTipsByUser(userId); }
 	public List<TipUploadResponse> getUserTips(long userId) { validatePositive(userId, "user_id"); return repository.listTipsByUser(userId); }
 	public TipDetailResponse getTipDetail(long userId, long tipId) { validatePositive(userId, "user_id"); validatePositive(tipId, "tip_id"); return repository.findTipDetail(userId, tipId); }

@@ -259,7 +259,10 @@ public class CommunityController {
 			@RequestBody TipUploadRequest request
 	) { return ResponseEntity.status(HttpStatus.CREATED).body(service.uploadTip(authenticatedUserId(authorization, headerUserId), request)); }
 	@GetMapping("/api/tips")
-	public ResponseEntity<TipListResponse> getTips() { return ResponseEntity.ok(service.getTips()); }
+	public ResponseEntity<TipListResponse> getTips(
+			@RequestHeader(value = "Authorization", required = false) String authorization,
+			@RequestHeader(value = "X-User-Id", required = false) Long headerUserId
+	) { return ResponseEntity.ok(service.getTips(optionalUserId(authorization, headerUserId))); }
 	@PostMapping(value = "/api/community/tips", consumes = MediaType.APPLICATION_JSON_VALUE)
 	public ResponseEntity<TipUploadResponse> uploadCommunityTipJson(
 			@RequestHeader(value = "Authorization", required = false) String authorization,
@@ -279,7 +282,10 @@ public class CommunityController {
 		return ResponseEntity.status(HttpStatus.CREATED).body(service.uploadTip(authenticatedUserId(authorization, headerUserId), request));
 	}
 	@GetMapping("/api/community/tips")
-	public ResponseEntity<List<TipUploadResponse>> getCommunityTips() { return ResponseEntity.ok(service.getTips().tips()); }
+	public ResponseEntity<List<TipUploadResponse>> getCommunityTips(
+			@RequestHeader(value = "Authorization", required = false) String authorization,
+			@RequestHeader(value = "X-User-Id", required = false) Long headerUserId
+	) { return ResponseEntity.ok(service.getTips(optionalUserId(authorization, headerUserId)).tips()); }
 	@GetMapping("/api/community/tips/me")
 	public ResponseEntity<List<TipUploadResponse>> getMyTips(
 			@RequestHeader(value = "Authorization", required = false) String authorization,
@@ -387,8 +393,18 @@ public class CommunityController {
 	private static BigDecimal decimal(String value) { return value == null || value.isBlank() ? null : new BigDecimal(value); }
 	private static List<Long> parseLongList(String value) {
 		if (value == null || value.isBlank()) return List.of();
+		String normalized = value.trim();
+		if (normalized.startsWith("[") && normalized.endsWith("]")) {
+			normalized = normalized.substring(1, normalized.length() - 1);
+		}
 		List<Long> ids = new ArrayList<>();
-		for (String part : value.split(",")) if (!part.isBlank()) ids.add(Long.parseLong(part.trim()));
+		for (String part : normalized.split(",")) {
+			String token = part.trim();
+			if (token.startsWith("\"") && token.endsWith("\"") && token.length() >= 2) {
+				token = token.substring(1, token.length() - 1).trim();
+			}
+			if (!token.isBlank()) ids.add(Long.parseLong(token));
+		}
 		return ids;
 	}
 	private List<String> storedImageUris(List<MultipartFile> files) {
@@ -415,5 +431,12 @@ public class CommunityController {
 		long authenticatedUserId = authenticatedUserService.requireUserId(authorization);
 		authenticatedUserService.requireSameUserIfPresent(authenticatedUserId, headerUserId, "X-User-Id");
 		return authenticatedUserId;
+	}
+
+	private Long optionalUserId(String authorization, Long headerUserId) {
+		if (authorization != null && !authorization.isBlank()) {
+			return authenticatedUserId(authorization, headerUserId);
+		}
+		return headerUserId != null && headerUserId > 0 ? headerUserId : null;
 	}
 }

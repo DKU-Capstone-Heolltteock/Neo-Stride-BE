@@ -167,7 +167,8 @@ public class CommunityRepository {
 			""", (rs, n) -> {
 			String[] parts = decodeFeedContent(rs.getString("content_text"));
 			String badge = rs.getString("badge");
-			return new FeedDetailResponse(rs.getLong("content_id"), rs.getLong("author_user_id"), rs.getString("profile_image_url"), rs.getString("nickname"), badgeOwned(badge), badge, rs.getTimestamp("created_at").toLocalDateTime().format(ISO), parts[0], parts[1], rs.getInt("tagged_count"), rs.getInt("like_count"), rs.getInt("comment_count"), rs.getBoolean("liked"), rs.getBoolean("bookmarked"), rs.getLong("author_user_id") == userId, String.format(Locale.KOREA, "%.2f km", rs.getBigDecimal("total_distance")), rs.getObject("duration") == null ? null : String.valueOf(rs.getInt("duration")), rs.getObject("pace") == null ? null : String.valueOf(rs.getInt("pace")), rs.getBoolean("include_route_detail"), parts[2], rs.getString("image") == null ? List.of() : List.of(rs.getString("image")), List.of());
+			long contentId = rs.getLong("content_id");
+			return new FeedDetailResponse(contentId, rs.getLong("author_user_id"), rs.getString("profile_image_url"), rs.getString("nickname"), badgeOwned(badge), badge, rs.getTimestamp("created_at").toLocalDateTime().format(ISO), parts[0], parts[1], rs.getInt("tagged_count"), rs.getInt("like_count"), rs.getInt("comment_count"), rs.getBoolean("liked"), rs.getBoolean("bookmarked"), rs.getLong("author_user_id") == userId, String.format(Locale.KOREA, "%.2f km", rs.getBigDecimal("total_distance")), rs.getObject("duration") == null ? null : String.valueOf(rs.getInt("duration")), rs.getObject("pace") == null ? null : String.valueOf(rs.getInt("pace")), rs.getBoolean("include_route_detail"), parts[2], rs.getString("image") == null ? List.of() : List.of(rs.getString("image")), commentsForContent(userId, contentId));
 		}, userId, userId, feedId).stream().findFirst().orElse(null);
 	}
 
@@ -182,16 +183,24 @@ public class CommunityRepository {
 	}
 
 	public CommentResponse createComment(long userId, long contentId, CommentRequest request) {
-		jdbcTemplate.update("INSERT INTO community_interactions (user_id, content_id, interaction_type) VALUES (?, ?, 'COMMENT')", userId, contentId);
-		return commentResponse(null, userId, request.content());
+		KeyHolder kh = new GeneratedKeyHolder();
+		jdbcTemplate.update(con -> {
+			PreparedStatement ps = con.prepareStatement("INSERT INTO community_interactions (user_id, content_id, interaction_type, comment_text) VALUES (?, ?, 'COMMENT', ?)", Statement.RETURN_GENERATED_KEYS);
+			ps.setLong(1, userId);
+			ps.setLong(2, contentId);
+			ps.setString(3, request.content());
+			return ps;
+		}, kh);
+		return findComment(userId, generatedKey(kh, "댓글 ID를 생성하지 못했습니다."));
 	}
 
 	public CommentResponse updateComment(long userId, long contentId, long commentId, CommentRequest request) {
-		return commentResponse(commentId, userId, request.content());
+		jdbcTemplate.update("UPDATE community_interactions SET comment_text=? WHERE interaction_id=? AND user_id=? AND content_id=? AND interaction_type='COMMENT'", request.content(), commentId, userId, contentId);
+		return findComment(userId, commentId);
 	}
 
 	public void deleteComment(long userId, long contentId, long commentId) {
-		jdbcTemplate.update("DELETE FROM community_interactions WHERE user_id=? AND content_id=? AND interaction_type='COMMENT'", userId, contentId);
+		jdbcTemplate.update("DELETE FROM community_interactions WHERE interaction_id=? AND user_id=? AND content_id=? AND interaction_type='COMMENT'", commentId, userId, contentId);
 	}
 
 	public void updateFeed(long userId, long feedId, FeedUploadRequest request) {
@@ -233,6 +242,7 @@ public class CommunityRepository {
 
 	public TipUploadResponse findTip(long tipId) { return tipQuery("cc.content_id = ?", tipId).stream().findFirst().orElse(null); }
 	public List<TipUploadResponse> listTips() { return tipQuery("cc.content_type = 'TIP'", null); }
+	public List<TipUploadResponse> listTips(long viewerUserId) { return tipQueryForViewer("cc.content_type = 'TIP'", new Object[]{viewerUserId, viewerUserId, viewerUserId, viewerUserId}); }
 	public List<TipUploadResponse> listTipsByUser(long userId) { return tipQuery("cc.content_type = 'TIP' AND cc.author_user_id = ?", userId); }
 
 	public TipDetailResponse findTipDetail(long userId, long tipId) {
@@ -249,7 +259,8 @@ public class CommunityRepository {
 			""", (rs, n) -> {
 			String[] parts = decodeTipContent(rs.getString("content_text"));
 			String badge = rs.getString("badge");
-			return new TipDetailResponse(rs.getLong("content_id"), rs.getLong("author_user_id"), rs.getString("nickname"), rs.getString("profile_image_url"), badgeOwned(badge), badge, fromTipType(rs.getString("tip_type")), parts[0], parts[1], rs.getBoolean("include_route_detail"), parts[2], null, rs.getString("image") == null ? List.of() : List.of(rs.getString("image")), rs.getInt("like_count"), rs.getInt("comment_count"), rs.getBoolean("liked"), rs.getBoolean("bookmarked"), rs.getLong("author_user_id") == userId, rs.getTimestamp("created_at").toLocalDateTime().format(ISO), List.of());
+			long contentId = rs.getLong("content_id");
+			return new TipDetailResponse(contentId, rs.getLong("author_user_id"), rs.getString("nickname"), rs.getString("profile_image_url"), badgeOwned(badge), badge, fromTipType(rs.getString("tip_type")), parts[0], parts[1], rs.getBoolean("include_route_detail"), parts[2], null, rs.getString("image") == null ? List.of() : List.of(rs.getString("image")), rs.getInt("like_count"), rs.getInt("comment_count"), rs.getBoolean("liked"), rs.getBoolean("bookmarked"), rs.getLong("author_user_id") == userId, rs.getTimestamp("created_at").toLocalDateTime().format(ISO), commentsForContent(userId, contentId));
 		}, userId, userId, tipId).stream().findFirst().orElse(null);
 	}
 
@@ -337,11 +348,12 @@ public class CommunityRepository {
 	private List<TipUploadResponse> tipQuery(String predicate, Long id) {
 		Object[] args = id == null ? new Object[]{} : new Object[]{id};
 		return jdbcTemplate.query("""
-			SELECT cc.content_id, COALESCE(cu.community_profile_name, u.community_profile_name, u.name) AS nickname,
+			SELECT cc.content_id, cc.author_user_id, COALESCE(cu.community_profile_name, u.community_profile_name, u.name) AS nickname,
 			       COALESCE(cu.profile_photo, u.profile_photo) AS profile_image_url, COALESCE(cu.badge, 'NONE') AS badge,
 			       cc.tip_type, cc.content_text, cc.include_route_detail, cc.image, cc.created_at,
 			       (SELECT COUNT(*) FROM community_interactions ci WHERE ci.content_id=cc.content_id AND ci.interaction_type='LIKE') AS like_count,
-			       (SELECT COUNT(*) FROM community_interactions ci WHERE ci.content_id=cc.content_id AND ci.interaction_type='COMMENT') AS comment_count
+			       (SELECT COUNT(*) FROM community_interactions ci WHERE ci.content_id=cc.content_id AND ci.interaction_type='COMMENT') AS comment_count,
+			       FALSE AS liked, FALSE AS bookmarked, FALSE AS commented, FALSE AS mine
 			FROM community_contents cc JOIN users u ON u.user_id=cc.author_user_id LEFT JOIN community_users cu ON cu.user_id=u.user_id
 			WHERE
 			""" + predicate + " ORDER BY cc.created_at DESC, cc.content_id DESC", this::mapTip, args);
@@ -363,19 +375,39 @@ public class CommunityRepository {
 
 	private List<TipUploadResponse> tipQueryPaged(String predicate, Object[] args) {
 		return jdbcTemplate.query("""
-			SELECT cc.content_id, COALESCE(cu.community_profile_name, u.community_profile_name, u.name) AS nickname,
+			SELECT cc.content_id, cc.author_user_id, COALESCE(cu.community_profile_name, u.community_profile_name, u.name) AS nickname,
 			       COALESCE(cu.profile_photo, u.profile_photo) AS profile_image_url, COALESCE(cu.badge, 'NONE') AS badge,
 			       cc.tip_type, cc.content_text, cc.include_route_detail, cc.image, cc.created_at,
 			       (SELECT COUNT(*) FROM community_interactions ci WHERE ci.content_id=cc.content_id AND ci.interaction_type='LIKE') AS like_count,
-			       (SELECT COUNT(*) FROM community_interactions ci WHERE ci.content_id=cc.content_id AND ci.interaction_type='COMMENT') AS comment_count
+			       (SELECT COUNT(*) FROM community_interactions ci WHERE ci.content_id=cc.content_id AND ci.interaction_type='COMMENT') AS comment_count,
+			       FALSE AS liked, FALSE AS bookmarked, FALSE AS commented, FALSE AS mine
 			FROM community_contents cc JOIN users u ON u.user_id=cc.author_user_id LEFT JOIN community_users cu ON cu.user_id=u.user_id
 			WHERE
 			""" + predicate + " ORDER BY cc.created_at DESC, cc.content_id DESC LIMIT ? OFFSET ?", this::mapTip, args);
 	}
 
+	private List<TipUploadResponse> tipQueryForViewer(String predicate, Object[] args) {
+		return jdbcTemplate.query("""
+			SELECT cc.content_id, cc.author_user_id, COALESCE(cu.community_profile_name, u.community_profile_name, u.name) AS nickname,
+			       COALESCE(cu.profile_photo, u.profile_photo) AS profile_image_url, COALESCE(cu.badge, 'NONE') AS badge,
+			       cc.tip_type, cc.content_text, cc.include_route_detail, cc.image, cc.created_at,
+			       (SELECT COUNT(*) FROM community_interactions ci WHERE ci.content_id=cc.content_id AND ci.interaction_type='LIKE') AS like_count,
+			       (SELECT COUNT(*) FROM community_interactions ci WHERE ci.content_id=cc.content_id AND ci.interaction_type='COMMENT') AS comment_count,
+			       EXISTS (SELECT 1 FROM community_interactions ci WHERE ci.content_id=cc.content_id AND ci.user_id=? AND ci.interaction_type='LIKE') AS liked,
+			       EXISTS (SELECT 1 FROM community_interactions ci WHERE ci.content_id=cc.content_id AND ci.user_id=? AND ci.interaction_type='BOOKMARK') AS bookmarked,
+			       EXISTS (SELECT 1 FROM community_interactions ci WHERE ci.content_id=cc.content_id AND ci.user_id=? AND ci.interaction_type='COMMENT') AS commented,
+			       (cc.author_user_id = ?) AS mine
+			FROM community_contents cc JOIN users u ON u.user_id=cc.author_user_id LEFT JOIN community_users cu ON cu.user_id=u.user_id
+			WHERE
+			""" + predicate + " ORDER BY cc.created_at DESC, cc.content_id DESC", this::mapTip, args);
+	}
+
 	private TipUploadResponse mapTip(java.sql.ResultSet rs, int n) throws java.sql.SQLException {
 		String[] parts = decodeTipContent(rs.getString("content_text"));
-		return new TipUploadResponse(rs.getLong("content_id"), rs.getString("nickname"), rs.getString("profile_image_url"), !"NONE".equalsIgnoreCase(rs.getString("badge")), fromTipType(rs.getString("tip_type")), parts[0], parts[1], rs.getBoolean("include_route_detail"), parts[2], rs.getString("image") == null ? List.of() : List.of(rs.getString("image")), rs.getInt("like_count"), rs.getInt("comment_count"), rs.getTimestamp("created_at").toLocalDateTime().format(ISO));
+		String badge = rs.getString("badge");
+		long writerId = rs.getLong("author_user_id");
+		boolean mine = rs.getBoolean("mine");
+		return new TipUploadResponse(rs.getLong("content_id"), writerId, rs.getString("nickname"), rs.getString("profile_image_url"), badgeOwned(badge), badge, fromTipType(rs.getString("tip_type")), parts[0], parts[1], rs.getBoolean("include_route_detail"), parts[2], rs.getString("image") == null ? List.of() : List.of(rs.getString("image")), rs.getInt("like_count"), rs.getInt("comment_count"), rs.getBoolean("liked"), rs.getBoolean("bookmarked"), rs.getBoolean("commented"), mine, rs.getTimestamp("created_at").toLocalDateTime().format(ISO));
 	}
 
 	private List<SearchUserResponse> userSearchQuery(String predicate, String orderBy, Object[] args) {
@@ -393,16 +425,43 @@ public class CommunityRepository {
 			""" + predicate + " ORDER BY " + orderBy + " LIMIT ? OFFSET ?", (rs, n) -> new SearchUserResponse(rs.getLong("user_id"), rs.getString("nickname"), rs.getString("profile_image_url"), rs.getString("status_message"), rs.getInt("friend_count"), rs.getString("badge_tier"), "none"), args);
 	}
 
+	private CommentResponse findComment(long viewerUserId, long commentId) {
+		return jdbcTemplate.query("""
+			SELECT ci.interaction_id, ci.user_id, COALESCE(cu.community_profile_name, u.community_profile_name, u.name) AS nickname,
+			       COALESCE(cu.profile_photo, u.profile_photo) AS profile_image_url, ci.comment_text, ci.created_at,
+			       COALESCE(cu.badge, 'NONE') AS badge
+			FROM community_interactions ci JOIN users u ON u.user_id=ci.user_id LEFT JOIN community_users cu ON cu.user_id=u.user_id
+			WHERE ci.interaction_id=? AND ci.interaction_type='COMMENT'
+			""", (rs, n) -> mapComment(rs, viewerUserId), commentId).stream().findFirst().orElse(null);
+	}
+
+	private List<CommentResponse> commentsForContent(long viewerUserId, long contentId) {
+		return jdbcTemplate.query("""
+			SELECT ci.interaction_id, ci.user_id, COALESCE(cu.community_profile_name, u.community_profile_name, u.name) AS nickname,
+			       COALESCE(cu.profile_photo, u.profile_photo) AS profile_image_url, ci.comment_text, ci.created_at,
+			       COALESCE(cu.badge, 'NONE') AS badge
+			FROM community_interactions ci JOIN users u ON u.user_id=ci.user_id LEFT JOIN community_users cu ON cu.user_id=u.user_id
+			WHERE ci.content_id=? AND ci.interaction_type='COMMENT'
+			ORDER BY ci.created_at ASC, ci.interaction_id ASC
+			""", (rs, n) -> mapComment(rs, viewerUserId), contentId);
+	}
+
+	private CommentResponse mapComment(java.sql.ResultSet rs, long viewerUserId) throws java.sql.SQLException {
+		String badge = rs.getString("badge");
+		long writerId = rs.getLong("user_id");
+		return new CommentResponse(rs.getLong("interaction_id"), writerId, rs.getString("nickname"), rs.getString("profile_image_url"), rs.getString("comment_text"), rs.getTimestamp("created_at").toLocalDateTime().format(ISO), badgeOwned(badge), badge, writerId == viewerUserId);
+	}
+
 	private static String toRelationshipStatus(String status) { return switch ((status == null ? "friends" : status).toLowerCase(Locale.ROOT)) { case "sent", "received" -> "REQUESTED"; case "blocked" -> "BLOCKED"; default -> "ACCEPTED"; }; }
 	private static String feedPredicate(String predicate) { return "cc.content_type = 'POST' AND (" + predicate + ")"; }
 	private static boolean blank(String value) { return value == null || value.isBlank(); }
 	private static String like(String value) { return "%" + value.trim().toLowerCase(Locale.ROOT) + "%"; }
 	private static int offset(int page, int size) { return page * size; }
 	private static Object[] pageArgs(int page, int size) { return new Object[]{size, offset(page, size)}; }
-	private static String normalizeSearchCategory(String category) { String value = category == null ? "ALL" : category.trim().toUpperCase(Locale.ROOT); return switch (value) { case "", "ALL", "FREE" -> null; case "TRAINING" -> "TRAINING"; case "COURSE", "코스" -> "COURSE"; case "GEAR", "장비" -> "GEAR"; default -> value; }; }
+	private static String normalizeSearchCategory(String category) { String value = category == null ? "ALL" : category.trim().toUpperCase(Locale.ROOT); return switch (value) { case "", "ALL" -> null; case "FREE", "자유", "ETC" -> "ETC"; case "TRAINING", "훈련" -> "TRAINING"; case "COURSE", "코스" -> "COURSE"; case "GEAR", "장비" -> "GEAR"; default -> value; }; }
 	private static String normalizeScope(String privacy) { return switch ((privacy == null ? "PUBLIC" : privacy).toUpperCase(Locale.ROOT)) { case "FRIENDS" -> "FRIENDS"; case "PRIVATE" -> "PRIVATE"; default -> "PUBLIC"; }; }
-	private static String normalizeTipType(String category) { return switch ((category == null ? "ETC" : category).toUpperCase(Locale.ROOT)) { case "TRAINING" -> "TRAINING"; case "COURSE", "코스" -> "COURSE"; case "GEAR", "장비" -> "GEAR"; default -> "ETC"; }; }
-	private static String fromTipType(String tipType) { return tipType == null ? "ETC" : tipType; }
+	private static String normalizeTipType(String category) { return switch ((category == null ? "FREE" : category).trim().toUpperCase(Locale.ROOT)) { case "TRAINING", "훈련" -> "TRAINING"; case "COURSE", "코스" -> "COURSE"; case "GEAR", "장비" -> "GEAR"; case "FREE", "자유", "ETC", "" -> "ETC"; default -> "ETC"; }; }
+	private static String fromTipType(String tipType) { return "ETC".equalsIgnoreCase(tipType) || tipType == null ? "FREE" : tipType; }
 	private static boolean badgeOwned(String badge) { return badge != null && !"NONE".equalsIgnoreCase(badge); }
 	private static CommentResponse commentResponse(Long commentId, long userId, String content) {
 		return new CommentResponse(commentId, userId, null, null, content, java.time.LocalDateTime.now().format(ISO), false, "NONE", true);
