@@ -1,18 +1,7 @@
 package com.neostride.server.community.controller;
 
 import com.neostride.server.auth.service.AuthenticatedUserService;
-import com.neostride.server.community.dto.BadgeDetailResponse;
-import com.neostride.server.community.dto.CommunityContentResponse;
-import com.neostride.server.community.dto.FeedUploadRequest;
-import com.neostride.server.community.dto.FeedUploadResponse;
-import com.neostride.server.community.dto.FriendRequest;
-import com.neostride.server.community.dto.FriendResponse;
-import com.neostride.server.community.dto.AccountInfoResponse;
-import com.neostride.server.community.dto.SearchUserResponse;
-import com.neostride.server.community.dto.TipListResponse;
-import com.neostride.server.community.dto.TipUploadRequest;
-import com.neostride.server.community.dto.TipUploadResponse;
-import com.neostride.server.community.dto.UserProfileResponse;
+import com.neostride.server.community.dto.*;
 import com.neostride.server.community.service.CommunityService;
 import com.neostride.server.storage.StorageService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -28,6 +17,7 @@ import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -175,6 +165,73 @@ public class CommunityController {
 			@RequestHeader(value = "X-User-Id", required = false) Long headerUserId,
 			@RequestBody FeedUploadRequest request
 	) { return ResponseEntity.status(HttpStatus.CREATED).body(service.uploadFeed(authenticatedUserId(authorization, headerUserId), request)); }
+	@GetMapping("/api/community/friends")
+	public ResponseEntity<List<FriendResponse>> getApiCommunityFriends(
+			@RequestHeader(value = "Authorization", required = false) String authorization,
+			@RequestHeader(value = "X-User-Id", required = false) Long headerUserId,
+			@RequestParam String status
+	) { return ResponseEntity.ok(service.getFriendList(authenticatedUserId(authorization, headerUserId), status)); }
+	@GetMapping("/api/community/feeds/{feedId}")
+	public ResponseEntity<FeedDetailResponse> getFeedDetail(
+			@RequestHeader(value = "Authorization", required = false) String authorization,
+			@RequestHeader(value = "X-User-Id", required = false) Long headerUserId,
+			@org.springframework.web.bind.annotation.PathVariable long feedId
+	) { return ResponseEntity.ok(service.getFeedDetail(authenticatedUserId(authorization, headerUserId), feedId)); }
+	@PostMapping("/api/community/feeds/{feedId}/likes")
+	public ResponseEntity<Map<String, String>> toggleFeedLike(
+			@RequestHeader(value = "Authorization", required = false) String authorization,
+			@RequestHeader(value = "X-User-Id", required = false) Long headerUserId,
+			@org.springframework.web.bind.annotation.PathVariable long feedId
+	) { return ResponseEntity.ok(service.toggleFeedLike(authenticatedUserId(authorization, headerUserId), feedId)); }
+	@PostMapping("/api/community/feeds/{feedId}/bookmarks")
+	public ResponseEntity<Map<String, String>> toggleFeedBookmark(
+			@RequestHeader(value = "Authorization", required = false) String authorization,
+			@RequestHeader(value = "X-User-Id", required = false) Long headerUserId,
+			@org.springframework.web.bind.annotation.PathVariable long feedId
+	) { return ResponseEntity.ok(service.toggleFeedBookmark(authenticatedUserId(authorization, headerUserId), feedId)); }
+	@PostMapping("/api/community/feeds/{feedId}/comments")
+	public ResponseEntity<CommentResponse> createFeedComment(
+			@RequestHeader(value = "Authorization", required = false) String authorization,
+			@RequestHeader(value = "X-User-Id", required = false) Long headerUserId,
+			@org.springframework.web.bind.annotation.PathVariable long feedId,
+			@RequestBody CommentRequest request
+	) { return ResponseEntity.status(HttpStatus.CREATED).body(service.createFeedComment(authenticatedUserId(authorization, headerUserId), feedId, request)); }
+	@DeleteMapping("/api/community/feeds/{feedId}")
+	public ResponseEntity<Void> deleteFeed(
+			@RequestHeader(value = "Authorization", required = false) String authorization,
+			@RequestHeader(value = "X-User-Id", required = false) Long headerUserId,
+			@org.springframework.web.bind.annotation.PathVariable long feedId
+	) { service.deleteFeed(authenticatedUserId(authorization, headerUserId), feedId); return ResponseEntity.noContent().build(); }
+	@PutMapping("/api/community/feeds/{feedId}")
+	public ResponseEntity<FeedUploadResponse> updateFeed(
+			@RequestHeader(value = "Authorization", required = false) String authorization,
+			@RequestHeader(value = "X-User-Id", required = false) Long headerUserId,
+			@org.springframework.web.bind.annotation.PathVariable long feedId,
+			@RequestBody FeedUploadRequest request
+	) { return ResponseEntity.ok(service.updateFeed(authenticatedUserId(authorization, headerUserId), feedId, request)); }
+	@PutMapping("/api/community/feeds/{feedId}/comments/{commentId}")
+	public ResponseEntity<CommentResponse> updateFeedComment(
+			@RequestHeader(value = "Authorization", required = false) String authorization,
+			@RequestHeader(value = "X-User-Id", required = false) Long headerUserId,
+			@org.springframework.web.bind.annotation.PathVariable long feedId,
+			@org.springframework.web.bind.annotation.PathVariable long commentId,
+			@RequestBody CommentRequest request
+	) { return ResponseEntity.ok(service.updateFeedComment(authenticatedUserId(authorization, headerUserId), feedId, commentId, request)); }
+	@DeleteMapping("/api/community/feeds/{feedId}/comments/{commentId}")
+	public ResponseEntity<Void> deleteFeedComment(
+			@RequestHeader(value = "Authorization", required = false) String authorization,
+			@RequestHeader(value = "X-User-Id", required = false) Long headerUserId,
+			@org.springframework.web.bind.annotation.PathVariable long feedId,
+			@org.springframework.web.bind.annotation.PathVariable long commentId
+	) { service.deleteFeedComment(authenticatedUserId(authorization, headerUserId), feedId, commentId); return ResponseEntity.noContent().build(); }
+	@GetMapping("/api/community/feeds/{feedId}/tagged-users")
+	public ResponseEntity<List<FriendResponse>> getTaggedUsers(@org.springframework.web.bind.annotation.PathVariable long feedId) { return ResponseEntity.ok(service.getTaggedUsers(feedId)); }
+	@PostMapping(value = "/api/community/feeds", consumes = MediaType.APPLICATION_JSON_VALUE)
+	public ResponseEntity<FeedUploadResponse> uploadCommunityFeedJson(
+			@RequestHeader(value = "Authorization", required = false) String authorization,
+			@RequestHeader(value = "X-User-Id", required = false) Long headerUserId,
+			@RequestBody FeedUploadRequest request
+	) { return ResponseEntity.status(HttpStatus.CREATED).body(service.uploadFeed(authenticatedUserId(authorization, headerUserId), request)); }
 	@PostMapping(value = "/api/community/feeds", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
 	public ResponseEntity<FeedUploadResponse> uploadFeedMultipart(
 			@RequestHeader(value = "Authorization", required = false) String authorization,
@@ -203,6 +260,12 @@ public class CommunityController {
 	) { return ResponseEntity.status(HttpStatus.CREATED).body(service.uploadTip(authenticatedUserId(authorization, headerUserId), request)); }
 	@GetMapping("/api/tips")
 	public ResponseEntity<TipListResponse> getTips() { return ResponseEntity.ok(service.getTips()); }
+	@PostMapping(value = "/api/community/tips", consumes = MediaType.APPLICATION_JSON_VALUE)
+	public ResponseEntity<TipUploadResponse> uploadCommunityTipJson(
+			@RequestHeader(value = "Authorization", required = false) String authorization,
+			@RequestHeader(value = "X-User-Id", required = false) Long headerUserId,
+			@RequestBody TipUploadRequest request
+	) { return ResponseEntity.status(HttpStatus.CREATED).body(service.uploadTip(authenticatedUserId(authorization, headerUserId), request)); }
 	@PostMapping(value = "/api/community/tips", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
 	public ResponseEntity<TipUploadResponse> uploadTipMultipart(
 			@RequestHeader(value = "Authorization", required = false) String authorization,
@@ -217,6 +280,66 @@ public class CommunityController {
 	}
 	@GetMapping("/api/community/tips")
 	public ResponseEntity<List<TipUploadResponse>> getCommunityTips() { return ResponseEntity.ok(service.getTips().tips()); }
+	@GetMapping("/api/community/tips/me")
+	public ResponseEntity<List<TipUploadResponse>> getMyTips(
+			@RequestHeader(value = "Authorization", required = false) String authorization,
+			@RequestHeader(value = "X-User-Id", required = false) Long headerUserId
+	) { return ResponseEntity.ok(service.getMyTips(authenticatedUserId(authorization, headerUserId))); }
+	@GetMapping("/community/tips/user/{userId}")
+	public ResponseEntity<List<TipUploadResponse>> getRunnerTips(@org.springframework.web.bind.annotation.PathVariable long userId) { return ResponseEntity.ok(service.getUserTips(userId)); }
+	@GetMapping("/api/community/tips/{tipId}")
+	public ResponseEntity<TipDetailResponse> getTipDetail(
+			@RequestHeader(value = "Authorization", required = false) String authorization,
+			@RequestHeader(value = "X-User-Id", required = false) Long headerUserId,
+			@org.springframework.web.bind.annotation.PathVariable long tipId
+	) { return ResponseEntity.ok(service.getTipDetail(authenticatedUserId(authorization, headerUserId), tipId)); }
+	@PostMapping("/api/community/tips/{tipId}/likes")
+	public ResponseEntity<Map<String, String>> toggleTipLike(
+			@RequestHeader(value = "Authorization", required = false) String authorization,
+			@RequestHeader(value = "X-User-Id", required = false) Long headerUserId,
+			@org.springframework.web.bind.annotation.PathVariable long tipId
+	) { return ResponseEntity.ok(service.toggleTipLike(authenticatedUserId(authorization, headerUserId), tipId)); }
+	@PostMapping("/api/community/tips/{tipId}/bookmarks")
+	public ResponseEntity<Map<String, String>> toggleTipBookmark(
+			@RequestHeader(value = "Authorization", required = false) String authorization,
+			@RequestHeader(value = "X-User-Id", required = false) Long headerUserId,
+			@org.springframework.web.bind.annotation.PathVariable long tipId
+	) { return ResponseEntity.ok(service.toggleTipBookmark(authenticatedUserId(authorization, headerUserId), tipId)); }
+	@PostMapping("/api/community/tips/{tipId}/comments")
+	public ResponseEntity<CommentResponse> createTipComment(
+			@RequestHeader(value = "Authorization", required = false) String authorization,
+			@RequestHeader(value = "X-User-Id", required = false) Long headerUserId,
+			@org.springframework.web.bind.annotation.PathVariable long tipId,
+			@RequestBody CommentRequest request
+	) { return ResponseEntity.status(HttpStatus.CREATED).body(service.createTipComment(authenticatedUserId(authorization, headerUserId), tipId, request)); }
+	@DeleteMapping("/api/community/tips/{tipId}")
+	public ResponseEntity<Void> deleteTip(
+			@RequestHeader(value = "Authorization", required = false) String authorization,
+			@RequestHeader(value = "X-User-Id", required = false) Long headerUserId,
+			@org.springframework.web.bind.annotation.PathVariable long tipId
+	) { service.deleteTip(authenticatedUserId(authorization, headerUserId), tipId); return ResponseEntity.noContent().build(); }
+	@PutMapping("/api/community/tips/{tipId}")
+	public ResponseEntity<TipUploadResponse> updateTip(
+			@RequestHeader(value = "Authorization", required = false) String authorization,
+			@RequestHeader(value = "X-User-Id", required = false) Long headerUserId,
+			@org.springframework.web.bind.annotation.PathVariable long tipId,
+			@RequestBody TipUploadRequest request
+	) { return ResponseEntity.ok(service.updateTip(authenticatedUserId(authorization, headerUserId), tipId, request)); }
+	@PutMapping("/api/community/tips/{tipId}/comments/{commentId}")
+	public ResponseEntity<CommentResponse> updateTipComment(
+			@RequestHeader(value = "Authorization", required = false) String authorization,
+			@RequestHeader(value = "X-User-Id", required = false) Long headerUserId,
+			@org.springframework.web.bind.annotation.PathVariable long tipId,
+			@org.springframework.web.bind.annotation.PathVariable long commentId,
+			@RequestBody CommentRequest request
+	) { return ResponseEntity.ok(service.updateTipComment(authenticatedUserId(authorization, headerUserId), tipId, commentId, request)); }
+	@DeleteMapping("/api/community/tips/{tipId}/comments/{commentId}")
+	public ResponseEntity<Void> deleteTipComment(
+			@RequestHeader(value = "Authorization", required = false) String authorization,
+			@RequestHeader(value = "X-User-Id", required = false) Long headerUserId,
+			@org.springframework.web.bind.annotation.PathVariable long tipId,
+			@org.springframework.web.bind.annotation.PathVariable long commentId
+	) { service.deleteTipComment(authenticatedUserId(authorization, headerUserId), tipId, commentId); return ResponseEntity.noContent().build(); }
 
 	@GetMapping("/api/community/search/feeds")
 	public ResponseEntity<List<FeedUploadResponse>> searchFeeds(

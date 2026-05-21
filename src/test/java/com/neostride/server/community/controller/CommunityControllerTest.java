@@ -233,6 +233,63 @@ class CommunityControllerTest {
 		assertThat(controller.getMyFriends(AUTHORIZATION, 1L).getBody()).containsExactly(user);
 	}
 
+	@Test
+	void missingFeedApis_supportAndroidContracts() {
+		FeedUploadRequest update = new FeedUploadRequest("updated", "body", "PUBLIC", true, "route.png", List.of(2L), List.of("image.png"), new BigDecimal("5.0"), "30:00", "6'00\"", 1);
+		FeedUploadResponse feed = new FeedUploadResponse(99L, null, "neo", "2026-05-11T00:00:00", "updated", "body", 1, 1, 1, "5.00 km", "30:00", "6'00\"", true, "route.png", List.of("image.png"));
+		var detail = new com.neostride.server.community.dto.FeedDetailResponse(99L, 1L, null, "neo", false, "NONE", "2026-05-11T00:00:00", "updated", "body", 1, 1, 1, true, false, true, "5.00 km", "30:00", "6'00\"", true, "route.png", List.of("image.png"), List.of());
+		var commentRequest = new com.neostride.server.community.dto.CommentRequest("hello");
+		var comment = new com.neostride.server.community.dto.CommentResponse(5L, 1L, "neo", null, "hello", "2026-05-11T00:00:00", false, "NONE", true);
+		List<FriendResponse> tagged = List.of(new FriendResponse(2L, "runner", "SILVER", 3, "photo.png", "tagged"));
+		authenticate();
+		when(service.getFeedDetail(1L, 99L)).thenReturn(detail);
+		when(service.toggleFeedLike(1L, 99L)).thenReturn(Map.of("liked", "true", "likeCount", "1"));
+		when(service.toggleFeedBookmark(1L, 99L)).thenReturn(Map.of("bookmarked", "true"));
+		when(service.createFeedComment(1L, 99L, commentRequest)).thenReturn(comment);
+		when(service.updateFeed(1L, 99L, update)).thenReturn(feed);
+		when(service.updateFeedComment(1L, 99L, 5L, commentRequest)).thenReturn(comment);
+		when(service.getTaggedUsers(99L)).thenReturn(tagged);
+
+		assertThat(controller.getFeedDetail(AUTHORIZATION, 1L, 99L).getBody()).isSameAs(detail);
+		assertThat(controller.toggleFeedLike(AUTHORIZATION, 1L, 99L).getBody()).containsEntry("liked", "true");
+		assertThat(controller.toggleFeedBookmark(AUTHORIZATION, 1L, 99L).getBody()).containsEntry("bookmarked", "true");
+		assertThat(controller.createFeedComment(AUTHORIZATION, 1L, 99L, commentRequest).getStatusCode()).isEqualTo(HttpStatus.CREATED);
+		assertThat(controller.updateFeed(AUTHORIZATION, 1L, 99L, update).getBody()).isSameAs(feed);
+		assertThat(controller.updateFeedComment(AUTHORIZATION, 1L, 99L, 5L, commentRequest).getBody()).isSameAs(comment);
+		assertThat(controller.deleteFeedComment(AUTHORIZATION, 1L, 99L, 5L).getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
+		assertThat(controller.deleteFeed(AUTHORIZATION, 1L, 99L).getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
+		assertThat(controller.getTaggedUsers(99L).getBody()).containsExactlyElementsOf(tagged);
+	}
+
+	@Test
+	void missingTipApis_supportAndroidContracts() {
+		var update = new com.neostride.server.community.dto.TipUploadRequest("COURSE", "title", "body", true, "route.png", List.of("tip.png"));
+		var tip = new com.neostride.server.community.dto.TipUploadResponse(7L, "neo", "photo.png", true, "COURSE", "title", "body", true, "route.png", List.of("tip.png"), 1, 1, "2026-05-11T00:00:00");
+		var detail = new com.neostride.server.community.dto.TipDetailResponse(7L, 1L, "neo", "photo.png", true, "GOLD", "COURSE", "title", "body", true, "route.png", null, List.of("tip.png"), 1, 1, true, false, true, "2026-05-11T00:00:00", List.of());
+		var commentRequest = new com.neostride.server.community.dto.CommentRequest("hello");
+		var comment = new com.neostride.server.community.dto.CommentResponse(8L, 1L, "neo", "photo.png", "hello", "2026-05-11T00:00:00", true, "GOLD", true);
+		authenticate();
+		when(service.getMyTips(1L)).thenReturn(List.of(tip));
+		when(service.getUserTips(2L)).thenReturn(List.of(tip));
+		when(service.getTipDetail(1L, 7L)).thenReturn(detail);
+		when(service.toggleTipLike(1L, 7L)).thenReturn(Map.of("liked", "true"));
+		when(service.toggleTipBookmark(1L, 7L)).thenReturn(Map.of("bookmarked", "true"));
+		when(service.createTipComment(1L, 7L, commentRequest)).thenReturn(comment);
+		when(service.updateTip(1L, 7L, update)).thenReturn(tip);
+		when(service.updateTipComment(1L, 7L, 8L, commentRequest)).thenReturn(comment);
+
+		assertThat(controller.getMyTips(AUTHORIZATION, 1L).getBody()).containsExactly(tip);
+		assertThat(controller.getRunnerTips(2L).getBody()).containsExactly(tip);
+		assertThat(controller.getTipDetail(AUTHORIZATION, 1L, 7L).getBody()).isSameAs(detail);
+		assertThat(controller.toggleTipLike(AUTHORIZATION, 1L, 7L).getBody()).containsEntry("liked", "true");
+		assertThat(controller.toggleTipBookmark(AUTHORIZATION, 1L, 7L).getBody()).containsEntry("bookmarked", "true");
+		assertThat(controller.createTipComment(AUTHORIZATION, 1L, 7L, commentRequest).getStatusCode()).isEqualTo(HttpStatus.CREATED);
+		assertThat(controller.updateTip(AUTHORIZATION, 1L, 7L, update).getBody()).isSameAs(tip);
+		assertThat(controller.updateTipComment(AUTHORIZATION, 1L, 7L, 8L, commentRequest).getBody()).isSameAs(comment);
+		assertThat(controller.deleteTipComment(AUTHORIZATION, 1L, 7L, 8L).getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
+		assertThat(controller.deleteTip(AUTHORIZATION, 1L, 7L).getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
+	}
+
 	private void authenticate() {
 		when(authenticatedUserService.requireUserId(AUTHORIZATION)).thenReturn(1L);
 	}

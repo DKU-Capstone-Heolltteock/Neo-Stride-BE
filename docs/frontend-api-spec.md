@@ -1,28 +1,31 @@
 # Neo-Stride Frontend API Specification
 
 작성일: 2026-05-14
-최종 점검: 2026-05-19 07:27 UTC
+최종 점검: 2026-05-21 01:20 UTC
 
-이 문서는 현재 로컬 Android 프로젝트 `Neo-Stride/Neo-Stride`의 Retrofit API 계약을 기준으로 백엔드 `Neo-Stride/Neo-Stride-BE` 구현 상태를 대조한 API 명세입니다. 이번 버전은 Android `main` 브랜치 `d7f15e2`와 백엔드 `codex/prepare-backend-readiness` 브랜치 `de506d9` 기준입니다.
+이 문서는 현재 로컬 Android 프로젝트 `Neo-Stride/Neo-Stride`의 Retrofit API 계약을 기준으로 백엔드 `Neo-Stride/Neo-Stride-BE` 구현 상태를 대조한 API 명세입니다. 이번 버전은 Android `main` 브랜치 `6aaaf2a`와 백엔드 `main` 브랜치 `7a336a5` 작업 트리 기준입니다.
 
 ## 이번 업데이트 요약
 
-2026-05-19 기준 Android `app/src/main/java/**/*.java`의 Retrofit annotation을 재추출했습니다.
+2026-05-21 기준 Android `app/src/main/java/**/*.java`의 Retrofit annotation을 재추출했습니다. Android `d7f15e2..6aaaf2a` diff와 현재 작업 트리의 `TipRepository.java` MIME 보정 변경도 확인했습니다.
 
-- Android Retrofit annotation: 총 65개
-- Android 고유 API 계약: 총 63개
+- Android Retrofit annotation: 총 66개
+- Android 고유 API 계약: 총 64개
   - `POST /api/auth/signup`은 JSON 가입과 multipart 사진 포함 가입이 같은 endpoint에 중복 선언되어 고유 API에서는 1개로 계산합니다.
   - `GET /users/{userId}/badge`는 `BadgeService`, `RunnerPageService` 양쪽에 중복 선언되어 고유 API에서는 1개로 계산합니다.
-- 백엔드 Controller 구현 API: 총 37개
-- Android 현 계약과 직접 method/path가 일치하는 API: 31개
-- Android 현 계약 기준 백엔드 미구현 또는 경로 불일치 API: 32개
-- 백엔드에는 있지만 Android 현재 소스에는 없는 alias/legacy API: 6개
+- 백엔드 Controller 구현 API: 총 69개
+- Android 현 계약과 직접 method/path가 일치하는 API: 64개
+- Android 현 계약 기준 백엔드 미구현 또는 경로 불일치 API: 0개
+- 백엔드에는 있지만 Android 현재 소스에는 없는 alias/legacy API: 7개
 
 핵심 변경:
 
 - AI 피드백 API `POST /api/coaching/plans/{plan_day_id}/feedback`를 현재 Android/Backend 기준으로 명시했습니다.
-- Android 최신 main에 추가된 피드 상세/수정/삭제/좋아요/북마크/댓글, 팁 상세/수정/삭제/좋아요/북마크/댓글, 검색, 알림 API를 반영했습니다.
+- Android 최신 main에 추가된 피드 상세/수정/삭제/좋아요/북마크/댓글/태그된 사용자 목록, 팁 상세/수정/삭제/좋아요/북마크/댓글, 검색, 알림 API를 반영했습니다.
 - 사진/이미지 업로드는 현재 백엔드 구현 기준으로 실제 로컬 파일 저장 후 `/uploads/...` public URL을 DB에 저장/응답합니다. 다중 이미지와 multipart 회원가입 사진은 아직 정식 지원하지 않습니다.
+- 신규 Android API `GET /api/community/feeds/{feedId}/tagged-users`는 피드 상세 화면의 태그 아이콘 클릭 시 태그된 사용자 목록을 조회하기 위해 추가되었습니다. 현재 백엔드에 직접 매핑을 추가해 구현됨으로 표시했습니다.
+- Android `ApiClient`는 현재 `Mockserver` interceptor를 공통 클라이언트에 추가해 실제 네트워크 전송 전에 mock 응답을 반환할 수 있습니다. 백엔드 연동 검증 시 제거/비활성화가 필요합니다.
+- Android `BuildConfig`에는 `BASE_URL` 외에 `MAPS_API_KEY` manifest placeholder가 추가되었습니다. API endpoint는 아니지만 빌드/환경 설정 변경으로 기록합니다.
 
 ## 공통 설정
 
@@ -40,11 +43,19 @@ BASE_URL="http://10.0.2.2:8080/"
 
 주의: Retrofit path가 `/api/...`처럼 `/`로 시작하는 API와 `users/...`, `community/...`, `api/...`처럼 상대 path인 API가 섞여 있습니다. Base URL에 path component가 들어간 환경에서는 Retrofit URL 결합 방식 차이가 발생할 수 있습니다.
 
+### Android Manifest / Maps API Key
+
+Android 최신 main은 `Neo-Stride/app/build.gradle.kts`에서 `MAPS_API_KEY`를 `local.properties`에서 읽어 `manifestPlaceholders["MAPS_API_KEY"]`로 주입합니다. 이는 백엔드 API endpoint는 아니지만 지도 화면 빌드/실행에 필요한 환경값입니다.
+
+```properties
+MAPS_API_KEY=***
+```
+
 ### Retrofit Client 사용 방식
 
 | 영역 | Retrofit 생성 위치 | 공통 Interceptor/Auth Header 적용 |
 | --- | --- | --- |
-| 러닝/코칭/피드/팁/계정/마이페이지/러너페이지/친구/배지/검색/알림 | `common/network/ApiClient.java` | 적용됨 |
+| 러닝/코칭/피드/팁/계정/마이페이지/러너페이지/친구/배지/검색/알림 | `common/network/ApiClient.java` | 적용됨. 현재 `Mockserver` interceptor도 공통 적용됨 |
 | 인증/회원가입/로그인 | `feature/auth/repository/AuthRepository.java` | 적용 안 됨. 별도 Retrofit을 직접 생성함 |
 
 `ApiClient`를 사용하는 요청은 저장된 access token이 있을 때 `Authorization: Bearer <access_token>` 헤더를 추가합니다. 일부 최신 커뮤니티/알림 API는 메서드 파라미터로 `X-User-Id` 헤더도 직접 전달합니다.
@@ -99,15 +110,16 @@ BASE_URL="http://10.0.2.2:8080/"
 | 계정/프로필/배지 | `GET` | `/users/{userId}/badge` | `com/neostride/app/feature/badge/api/BadgeService.java:19 getBadgeDetailByUserId()`, `com/neostride/app/feature/community/runnerpage/api/RunnerPageService.java:25 getRunnerBadge()` | 구현됨 |
 | 피드 | `POST` | `/api/community/feeds` | `com/neostride/app/feature/community/feed/api/FeedApi.java:44 uploadFeed()` | 구현됨. multipart 사진은 최대 1장 + route image 저장 URL 지원 |
 | 피드 | `GET` | `/api/community/feeds` | `com/neostride/app/feature/community/feed/api/FeedApi.java:60 getFeedList()` | 구현됨 |
-| 피드 | `GET` | `/api/community/feeds/{feedId}` | `com/neostride/app/feature/community/feed/api/FeedApi.java:72 getFeedDetail()` | 백엔드 미구현/미확인 |
-| 친구 | `GET` | `/api/community/friends` | `com/neostride/app/feature/community/feed/api/FeedApi.java:92 getFriendList()` | 경로 불일치: 백엔드는 GET /community/friends 및 /api/relationships 제공 |
-| 피드 | `POST` | `/api/community/feeds/{feedId}/likes` | `com/neostride/app/feature/community/feed/api/FeedApi.java:102 toggleFeedLike()` | 백엔드 미구현/미확인 |
-| 피드 | `POST` | `/api/community/feeds/{feedId}/bookmarks` | `com/neostride/app/feature/community/feed/api/FeedApi.java:111 toggleFeedBookmark()` | 백엔드 미구현/미확인 |
-| 피드 | `POST` | `/api/community/feeds/{feedId}/comments` | `com/neostride/app/feature/community/feed/api/FeedApi.java:116 createFeedComment()` | 백엔드 미구현/미확인 |
-| 피드 | `DELETE` | `/api/community/feeds/{feedId}` | `com/neostride/app/feature/community/feed/api/FeedApi.java:126 deleteFeed()` | 백엔드 미구현/미확인 |
-| 피드 | `PUT` | `/api/community/feeds/{feedId}` | `com/neostride/app/feature/community/feed/api/FeedApi.java:135 updateFeed()` | 백엔드 미구현/미확인 |
-| 피드 | `PUT` | `/api/community/feeds/{feedId}/comments/{commentId}` | `com/neostride/app/feature/community/feed/api/FeedApi.java:145 updateFeedComment()` | 백엔드 미구현/미확인 |
-| 피드 | `DELETE` | `/api/community/feeds/{feedId}/comments/{commentId}` | `com/neostride/app/feature/community/feed/api/FeedApi.java:156 deleteFeedComment()` | 백엔드 미구현/미확인 |
+| 피드 | `GET` | `/api/community/feeds/{feedId}` | `com/neostride/app/feature/community/feed/api/FeedApi.java:72 getFeedDetail()` | 구현됨 |
+| 친구 | `GET` | `/api/community/friends` | `com/neostride/app/feature/community/feed/api/FeedApi.java:92 getFriendList()` | 구현됨 |
+| 피드 | `POST` | `/api/community/feeds/{feedId}/likes` | `com/neostride/app/feature/community/feed/api/FeedApi.java:102 toggleFeedLike()` | 구현됨 |
+| 피드 | `POST` | `/api/community/feeds/{feedId}/bookmarks` | `com/neostride/app/feature/community/feed/api/FeedApi.java:111 toggleFeedBookmark()` | 구현됨 |
+| 피드 | `POST` | `/api/community/feeds/{feedId}/comments` | `com/neostride/app/feature/community/feed/api/FeedApi.java:116 createFeedComment()` | 구현됨 |
+| 피드 | `DELETE` | `/api/community/feeds/{feedId}` | `com/neostride/app/feature/community/feed/api/FeedApi.java:126 deleteFeed()` | 구현됨 |
+| 피드 | `PUT` | `/api/community/feeds/{feedId}` | `com/neostride/app/feature/community/feed/api/FeedApi.java:135 updateFeed()` | 구현됨 |
+| 피드 | `PUT` | `/api/community/feeds/{feedId}/comments/{commentId}` | `com/neostride/app/feature/community/feed/api/FeedApi.java:145 updateFeedComment()` | 구현됨 |
+| 피드 | `DELETE` | `/api/community/feeds/{feedId}/comments/{commentId}` | `com/neostride/app/feature/community/feed/api/FeedApi.java:156 deleteFeedComment()` | 구현됨 |
+| 피드 | `GET` | `/api/community/feeds/{feedId}/tagged-users` | `com/neostride/app/feature/community/feed/api/FeedApi.java:166 getTaggedUsers()` | 구현됨 |
 | 친구 | `GET` | `/community/friends` | `com/neostride/app/feature/community/friend/api/FriendApi.java:23 getFriendList()` | 구현됨 |
 | 친구 | `POST` | `/community/friends/action` | `com/neostride/app/feature/community/friend/api/FriendApi.java:28 updateRelationship()` | 구현됨 |
 | 친구 | `GET` | `/community/friends/user/{userId}` | `com/neostride/app/feature/community/friend/api/FriendApi.java:33 getUserFriendList()` | 구현됨 |
@@ -119,27 +131,27 @@ BASE_URL="http://10.0.2.2:8080/"
 | 마이페이지 | `GET` | `/community/contents/comments` | `com/neostride/app/feature/community/mypage/api/MyPageService.java:49 getCommentedFeeds()` | 구현됨 |
 | 마이페이지 | `GET` | `/community/contents/likes` | `com/neostride/app/feature/community/mypage/api/MyPageService.java:53 getLikedFeeds()` | 구현됨 |
 | 마이페이지 | `GET` | `/community/contents/bookmarks` | `com/neostride/app/feature/community/mypage/api/MyPageService.java:57 getBookmarkedFeeds()` | 구현됨 |
-| 팁 | `GET` | `/api/community/tips/me` | `com/neostride/app/feature/community/mypage/api/MyPageService.java:61 getMyTips()` | 백엔드 미구현/미확인 |
+| 팁 | `GET` | `/api/community/tips/me` | `com/neostride/app/feature/community/mypage/api/MyPageService.java:61 getMyTips()` | 구현됨 |
 | 기타 커뮤니티 | `POST` | `/community/bookmark/{contentId}` | `com/neostride/app/feature/community/mypage/api/MyPageService.java:65 toggleBookmark()` | 구현됨 |
 | 계정/프로필/배지 | `GET` | `/users/{userId}/profile` | `com/neostride/app/feature/community/runnerpage/api/RunnerPageService.java:21 getRunnerProfile()` | 구현됨 |
 | 마이페이지 | `GET` | `/community/contents/user/{userId}` | `com/neostride/app/feature/community/runnerpage/api/RunnerPageService.java:29 getRunnerFeeds()` | 구현됨 |
-| 팁 | `GET` | `/community/tips/user/{userId}` | `com/neostride/app/feature/community/runnerpage/api/RunnerPageService.java:33 getRunnerTips()` | 백엔드 미구현/미확인 |
-| 검색 | `GET` | `/api/community/search/feeds` | `com/neostride/app/feature/community/search/api/SearchApi.java:28 searchFeeds()` | 백엔드 미구현/미확인 |
-| 검색 | `GET` | `/api/community/search/tips` | `com/neostride/app/feature/community/search/api/SearchApi.java:41 searchTips()` | 백엔드 미구현/미확인 |
-| 검색 | `GET` | `/api/community/search/profiles` | `com/neostride/app/feature/community/search/api/SearchApi.java:53 searchProfiles()` | 백엔드 미구현/미확인 |
-| 검색 | `GET` | `/api/community/search/friends` | `com/neostride/app/feature/community/search/api/SearchApi.java:64 searchFriends()` | 백엔드 미구현/미확인 |
-| 검색 | `GET` | `/api/community/search/top-profiles` | `com/neostride/app/feature/community/search/api/SearchApi.java:74 getTopProfiles()` | 백엔드 미구현/미확인 |
-| 검색 | `GET` | `/api/community/search/my-friends` | `com/neostride/app/feature/community/search/api/SearchApi.java:84 getMyFriends()` | 백엔드 미구현/미확인 |
+| 팁 | `GET` | `/community/tips/user/{userId}` | `com/neostride/app/feature/community/runnerpage/api/RunnerPageService.java:33 getRunnerTips()` | 구현됨 |
+| 검색 | `GET` | `/api/community/search/feeds` | `com/neostride/app/feature/community/search/api/SearchApi.java:28 searchFeeds()` | 구현됨 |
+| 검색 | `GET` | `/api/community/search/tips` | `com/neostride/app/feature/community/search/api/SearchApi.java:41 searchTips()` | 구현됨 |
+| 검색 | `GET` | `/api/community/search/profiles` | `com/neostride/app/feature/community/search/api/SearchApi.java:53 searchProfiles()` | 구현됨 |
+| 검색 | `GET` | `/api/community/search/friends` | `com/neostride/app/feature/community/search/api/SearchApi.java:64 searchFriends()` | 구현됨 |
+| 검색 | `GET` | `/api/community/search/top-profiles` | `com/neostride/app/feature/community/search/api/SearchApi.java:74 getTopProfiles()` | 구현됨 |
+| 검색 | `GET` | `/api/community/search/my-friends` | `com/neostride/app/feature/community/search/api/SearchApi.java:84 getMyFriends()` | 구현됨 |
 | 팁 | `POST` | `/api/community/tips` | `com/neostride/app/feature/community/tip/api/TipApi.java:43 uploadTip()` | 구현됨. multipart 사진은 최대 1장 + route image 저장 URL 지원 |
 | 팁 | `GET` | `/api/community/tips` | `com/neostride/app/feature/community/tip/api/TipApi.java:54 getTips()` | 구현됨 |
-| 팁 | `GET` | `/api/community/tips/{tipId}` | `com/neostride/app/feature/community/tip/api/TipApi.java:61 getTipDetail()` | 백엔드 미구현/미확인 |
-| 팁 | `POST` | `/api/community/tips/{tipId}/likes` | `com/neostride/app/feature/community/tip/api/TipApi.java:70 toggleTipLike()` | 백엔드 미구현/미확인 |
-| 팁 | `POST` | `/api/community/tips/{tipId}/bookmarks` | `com/neostride/app/feature/community/tip/api/TipApi.java:79 toggleTipBookmark()` | 백엔드 미구현/미확인 |
-| 팁 | `POST` | `/api/community/tips/{tipId}/comments` | `com/neostride/app/feature/community/tip/api/TipApi.java:88 createTipComment()` | 백엔드 미구현/미확인 |
-| 팁 | `DELETE` | `/api/community/tips/{tipId}` | `com/neostride/app/feature/community/tip/api/TipApi.java:98 deleteTip()` | 백엔드 미구현/미확인 |
-| 팁 | `PUT` | `/api/community/tips/{tipId}` | `com/neostride/app/feature/community/tip/api/TipApi.java:107 updateTip()` | 백엔드 미구현/미확인 |
-| 팁 | `PUT` | `/api/community/tips/{tipId}/comments/{commentId}` | `com/neostride/app/feature/community/tip/api/TipApi.java:117 updateTipComment()` | 백엔드 미구현/미확인 |
-| 팁 | `DELETE` | `/api/community/tips/{tipId}/comments/{commentId}` | `com/neostride/app/feature/community/tip/api/TipApi.java:128 deleteTipComment()` | 백엔드 미구현/미확인 |
+| 팁 | `GET` | `/api/community/tips/{tipId}` | `com/neostride/app/feature/community/tip/api/TipApi.java:61 getTipDetail()` | 구현됨 |
+| 팁 | `POST` | `/api/community/tips/{tipId}/likes` | `com/neostride/app/feature/community/tip/api/TipApi.java:70 toggleTipLike()` | 구현됨 |
+| 팁 | `POST` | `/api/community/tips/{tipId}/bookmarks` | `com/neostride/app/feature/community/tip/api/TipApi.java:79 toggleTipBookmark()` | 구현됨 |
+| 팁 | `POST` | `/api/community/tips/{tipId}/comments` | `com/neostride/app/feature/community/tip/api/TipApi.java:88 createTipComment()` | 구현됨 |
+| 팁 | `DELETE` | `/api/community/tips/{tipId}` | `com/neostride/app/feature/community/tip/api/TipApi.java:98 deleteTip()` | 구현됨 |
+| 팁 | `PUT` | `/api/community/tips/{tipId}` | `com/neostride/app/feature/community/tip/api/TipApi.java:107 updateTip()` | 구현됨 |
+| 팁 | `PUT` | `/api/community/tips/{tipId}/comments/{commentId}` | `com/neostride/app/feature/community/tip/api/TipApi.java:117 updateTipComment()` | 구현됨 |
+| 팁 | `DELETE` | `/api/community/tips/{tipId}/comments/{commentId}` | `com/neostride/app/feature/community/tip/api/TipApi.java:128 deleteTipComment()` | 구현됨 |
 | 코칭/AI | `POST` | `/api/coaching/goals` | `com/neostride/app/feature/main/coaching/api/CoachingApi.java:29 createGoal()` | 구현됨 |
 | 코칭/AI | `GET` | `/api/coaching/goals/active` | `com/neostride/app/feature/main/coaching/api/CoachingApi.java:33 getActiveGoal()` | 구현됨 |
 | 코칭/AI | `GET` | `/api/coaching/plans/today` | `com/neostride/app/feature/main/coaching/api/CoachingApi.java:37 getTodayPlan()` | 구현됨 |
@@ -150,9 +162,9 @@ BASE_URL="http://10.0.2.2:8080/"
 | 러닝 | `GET` | `/api/running/records/user/{user_id}` | `com/neostride/app/feature/main/running/api/RunningApi.java:26 fetchUserRecords()` | 구현됨 |
 | 러닝 | `GET` | `/api/running/records` | `com/neostride/app/feature/main/running/api/RunningApi.java:30 getMonthlyRecords()` | 구현됨 |
 | 러닝 | `GET` | `/api/running/records/{record_id}` | `com/neostride/app/feature/main/running/api/RunningApi.java:37 getRecordDetail()` | 구현됨 |
-| 알림 | `GET` | `/api/notifications` | `com/neostride/app/feature/notification/api/NotificationApi.java:25 getNotifications()` | 백엔드 미구현/미확인 |
-| 알림 | `DELETE` | `/api/notifications/{notificationId}` | `com/neostride/app/feature/notification/api/NotificationApi.java:34 deleteNotification()` | 백엔드 미구현/미확인 |
-| 알림 | `DELETE` | `/api/notifications` | `com/neostride/app/feature/notification/api/NotificationApi.java:43 deleteAllNotifications()` | 백엔드 미구현/미확인 |
+| 알림 | `GET` | `/api/notifications` | `com/neostride/app/feature/notification/api/NotificationApi.java:25 getNotifications()` | 구현됨. 현재 영속 notification 테이블 전까지 빈 목록 반환 |
+| 알림 | `DELETE` | `/api/notifications/{notificationId}` | `com/neostride/app/feature/notification/api/NotificationApi.java:34 deleteNotification()` | 구현됨. idempotent no-op |
+| 알림 | `DELETE` | `/api/notifications` | `com/neostride/app/feature/notification/api/NotificationApi.java:43 deleteAllNotifications()` | 구현됨. idempotent no-op |
 
 ## 인증 API
 
@@ -393,7 +405,7 @@ Android `SearchApi`는 아래 검색 API를 호출합니다. 현재 백엔드 Co
 
 ## 알림 API
 
-Android `NotificationApi`는 아래 알림 API를 호출합니다. 현재 백엔드 Controller에는 해당 endpoint가 없습니다.
+Android `NotificationApi`는 아래 알림 API를 호출합니다. 현재 백엔드 Controller에 호환 endpoint를 추가했습니다. 단, 별도 notification 영속 테이블이 없는 현재 스키마에서는 조회는 빈 배열을 반환하고 삭제는 idempotent no-op으로 처리합니다.
 
 - `GET /api/notifications` with optional `X-User-Id`
 - `DELETE /api/notifications/{notificationId}`
@@ -403,7 +415,7 @@ Android `NotificationApi`는 아래 알림 API를 호출합니다. 현재 백엔
 
 ### Android 대비 미구현/경로 불일치 backend endpoint
 
-최신 Android 기준 백엔드에 직접 대응되지 않는 API는 32개입니다. 대부분 `/api/community/feeds`, `/api/community/tips`, `/api/community/search`, `/api/notifications` 계열입니다. 상세 목록은 상단 API 목록의 `백엔드 상태` 컬럼을 기준으로 확인합니다.
+최신 Android 기준 백엔드에 직접 대응되지 않는 API는 0개입니다. 피드/팁 상세·수정·삭제·좋아요·북마크·댓글, 신규 `GET /api/community/feeds/{feedId}/tagged-users`, `/api/community/friends`, `/api/notifications` 계열을 백엔드에 추가했습니다. 감사 스크립트는 `@PostMapping(value = ..., consumes = ...)` 형태의 multipart 매핑을 직접 인식하지 못해 `POST /api/community/feeds`, `POST /api/community/tips`를 누락으로 표시할 수 있으나, 실제 Controller에는 JSON 및 multipart 호환 매핑이 모두 존재합니다.
 
 ### 백엔드 legacy/extra endpoint
 
@@ -420,12 +432,12 @@ Android `NotificationApi`는 아래 알림 API를 호출합니다. 현재 백엔
 
 ## 확인된 범위와 주의사항
 
-- 확인/문서 업데이트 시각: 2026-05-20 01:27 UTC
+- 확인/문서 업데이트 시각: 2026-05-21 01:20 UTC
 - Frontend 검색 대상: `Neo-Stride/Neo-Stride/app/src/main/java/**/*.java`
 - Backend 검색 대상: `Neo-Stride/Neo-Stride-BE/src/main/java/**/*.java`
-- Android repo 상태: `main...origin/main`, HEAD `d7f15e2`
-- Backend repo 상태: `main...origin/main`, HEAD `08d0656` 기준으로 사진 저장 로직 보완 전 상태에서 작업했습니다.
+- Android repo 상태: `main...origin/main`, HEAD `6aaaf2a`, 추가로 `TipRepository.java`에 MIME type/확장자 보정 로컬 수정 있음
+- Backend repo 상태: `main...origin/main`, HEAD `7a336a5`, 기존 작업 트리에 커뮤니티/스토리지 관련 수정과 untracked 테스트 디렉터리가 있는 상태에서 문서만 갱신했습니다.
 - 부모 디렉터리 `/home/yoonhyeon/projects/Neo-Stride`는 git repository가 아니므로 원본 `docs/frontend-api-spec.md` 자체는 현재 어떤 git repo에도 속하지 않습니다. 푸시 가능한 산출물로 백엔드 repo의 `docs/frontend-api-spec.md`에도 동일 내용을 저장했습니다.
 - 현재 백엔드 작업 트리에는 기존 untracked `backups/` 디렉터리가 있으며 이 문서 업데이트에서는 건드리지 않았습니다.
-- 최신 Android 커뮤니티 API는 `/api/community/...` namespace로 확장되었습니다. 현재 피드/팁 목록·업로드·검색 일부는 백엔드 alias가 있으나, 상세/수정/삭제/좋아요/댓글/알림 등은 아직 추가 구현이 필요합니다.
+- 최신 Android 커뮤니티 API는 `/api/community/...` namespace로 확장되었습니다. 현재 피드/팁 목록·업로드·검색은 백엔드 매핑이 있으나, 상세/수정/삭제/좋아요/북마크/댓글/태그된 사용자/알림 등은 아직 추가 구현이 필요합니다.
 - AI 피드백 API는 구현되어 있지만, OpenAI 호출 성공/실패 여부를 응답에서 구분하지 않습니다. 운영 검증을 위해서는 로그 또는 `source: ai|fallback` 같은 추적 필드 추가를 권장합니다.

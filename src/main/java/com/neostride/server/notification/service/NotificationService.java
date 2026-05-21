@@ -1,0 +1,34 @@
+package com.neostride.server.notification.service;
+
+import com.neostride.server.notification.dto.NotificationResponse;
+import com.neostride.server.notification.repository.NotificationRepository;
+import java.util.List;
+import org.springframework.stereotype.Service;
+
+@Service
+public class NotificationService {
+	private final NotificationRepository repository;
+
+	public NotificationService(NotificationRepository repository) {
+		this.repository = repository;
+	}
+
+	public List<NotificationResponse> getNotifications(long userId) {
+		validatePositive(userId, "user_id");
+		return repository.getNotifications(userId);
+	}
+
+	public void deleteNotification(long notificationId) {
+		validatePositive(notificationId, "notification_id");
+		repository.deleteNotification(notificationId);
+	}
+
+	public void deleteAllNotifications(long userId) {
+		validatePositive(userId, "user_id");
+		repository.deleteAllNotifications(userId);
+	}
+
+	private void validatePositive(long value, String fieldName) {
+		if (value <= 0) throw new IllegalArgumentException(fieldName + "는 1 이상의 값이어야 합니다.");
+	}
+}
