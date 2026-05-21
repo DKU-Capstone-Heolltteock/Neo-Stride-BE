@@ -14,7 +14,6 @@ import org.springframework.web.multipart.MultipartFile;
 
 @Service
 public class StorageService {
-	private static final Set<String> ALLOWED_EXTENSIONS = Set.of("jpg", "jpeg", "png", "webp");
 	private static final Set<String> ALLOWED_CONTENT_TYPES = Set.of("image/jpeg", "image/png", "image/webp");
 	private static final Map<String, String> EXTENSION_BY_CONTENT_TYPE = Map.of(
 			"image/jpeg", "jpg",
@@ -43,8 +42,7 @@ public class StorageService {
 			throw new IllegalArgumentException("빈 파일은 업로드할 수 없습니다.");
 		}
 		String contentType = normalize(file.getContentType());
-		String extension = extension(file.getOriginalFilename());
-		if (!ALLOWED_CONTENT_TYPES.contains(contentType) || !ALLOWED_EXTENSIONS.contains(extension)) {
+		if (!ALLOWED_CONTENT_TYPES.contains(contentType)) {
 			throw new IllegalArgumentException("지원하지 않는 이미지 형식입니다. jpg, jpeg, png, webp만 업로드할 수 있습니다.");
 		}
 		byte[] bytes;
@@ -58,7 +56,7 @@ public class StorageService {
 		}
 
 		String safeDirectory = safeDirectory(directory);
-		String storedExtension = EXTENSION_BY_CONTENT_TYPE.getOrDefault(contentType, extension.equals("jpeg") ? "jpg" : extension);
+		String storedExtension = EXTENSION_BY_CONTENT_TYPE.get(contentType);
 		String filename = UUID.randomUUID() + "." + storedExtension;
 		Path targetDirectory = baseDir.resolve(safeDirectory).normalize();
 		if (!targetDirectory.startsWith(baseDir)) {
@@ -76,17 +74,6 @@ public class StorageService {
 
 	private static String normalize(String value) {
 		return value == null ? "" : value.trim().toLowerCase(Locale.ROOT);
-	}
-
-	private static String extension(String filename) {
-		if (filename == null || filename.isBlank()) {
-			return "";
-		}
-		int dotIndex = filename.lastIndexOf('.');
-		if (dotIndex < 0 || dotIndex == filename.length() - 1) {
-			return "";
-		}
-		return filename.substring(dotIndex + 1).toLowerCase(Locale.ROOT);
 	}
 
 	private static boolean matchesMagicBytes(byte[] bytes, String contentType) {

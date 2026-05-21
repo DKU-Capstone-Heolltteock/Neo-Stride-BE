@@ -57,4 +57,14 @@ class StorageServiceTest {
 				.isInstanceOf(IllegalArgumentException.class)
 				.hasMessageContaining("이미지 파일 내용");
 	}
+
+	@Test
+	void storeImage_acceptsAndroidGalleryFileWithoutExtensionWhenMimeAndBytesAreValid() {
+		StorageService storageService = new StorageService(tempDir, "/uploads");
+		MockMultipartFile file = new MockMultipartFile("images", "1000001234", "image/jpeg", new byte[] {(byte) 0xff, (byte) 0xd8, (byte) 0xff, 0});
+
+		String stored = storageService.storeImage(file, "community");
+
+		assertThat(stored).startsWith("/uploads/community/").endsWith(".jpg");
+	}
 }
