@@ -221,7 +221,6 @@ class CommunityControllerTest {
 		when(service.searchTips("pace", "ALL", 0, 10)).thenReturn(List.of(tip));
 		when(service.searchProfiles("neo", 0, 10)).thenReturn(List.of(user));
 		when(service.searchFriends(1L, "neo")).thenReturn(List.of(user));
-		when(service.getTopProfiles(0, 10)).thenReturn(List.of(user));
 		when(service.getMyFriends(1L)).thenReturn(List.of(user));
 		authenticate();
 
@@ -229,7 +228,7 @@ class CommunityControllerTest {
 		assertThat(controller.searchTips("pace", "ALL", 0, 10).getBody()).containsExactly(tip);
 		assertThat(controller.searchProfiles("neo", 0, 10).getBody()).containsExactly(user);
 		assertThat(controller.searchFriends(AUTHORIZATION, 1L, "neo").getBody()).containsExactly(user);
-		assertThat(controller.getTopProfiles(0, 10).getBody()).containsExactly(user);
+		assertThat(controller.getTopProfiles(0, 10).getBody()).isEmpty();
 		assertThat(controller.getMyFriends(AUTHORIZATION, 1L).getBody()).containsExactly(user);
 	}
 

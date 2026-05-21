@@ -3,11 +3,16 @@ package com.neostride.server.community.service;
 import com.neostride.server.community.dto.*;
 import com.neostride.server.community.repository.CommunityRepository;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.regex.Pattern;
 import org.springframework.stereotype.Service;
 
 @Service
 public class CommunityService {
+	private static final int MAX_SEARCH_KEYWORD_LENGTH = 50;
+	private static final Pattern SQL_INJECTION_META_PATTERN = Pattern.compile("('|\"|;|--|/\\*|\\*/|#|`)");
+	private static final Pattern SQL_INJECTION_KEYWORD_PATTERN = Pattern.compile("\\b(select|insert|update|delete|drop|alter|truncate|union|or|and|exec|execute)\\b", Pattern.CASE_INSENSITIVE);
 	private final CommunityRepository repository;
 	public CommunityService(CommunityRepository repository) { this.repository = repository; }
 	public UserProfileResponse getUserProfile(long userId) { validatePositive(userId, "user_id"); return repository.getUserProfile(userId); }
@@ -52,9 +57,13 @@ public class CommunityService {
 	public void deleteTipComment(long userId, long tipId, long commentId) { validatePositive(userId, "user_id"); validatePositive(tipId, "tip_id"); validatePositive(commentId, "comment_id"); repository.deleteComment(userId, tipId, commentId); }
 	public List<FeedUploadResponse> searchFeeds(String keyword, int page, int size) { validatePage(page, size); return repository.searchFeeds(keyword, page, size); }
 	public List<TipUploadResponse> searchTips(String keyword, String category, int page, int size) { validatePage(page, size); return repository.searchTips(keyword, category, page, size); }
-	public List<SearchUserResponse> searchProfiles(String keyword, int page, int size) { validatePage(page, size); return isBlank(keyword) ? List.of() : repository.searchProfiles(keyword, page, size); }
+	public List<SearchUserResponse> searchProfiles(String keyword, int page, int size) {
+		validatePage(page, size);
+		String normalizedKeyword = validateSearchKeyword(keyword);
+		return normalizedKeyword == null ? List.of() : repository.searchProfiles(normalizedKeyword, page, size);
+	}
 	public List<SearchUserResponse> searchFriends(long userId, String keyword) { validatePositive(userId, "user_id"); return repository.searchFriends(userId, keyword); }
-	public List<SearchUserResponse> getTopProfiles(int page, int size) { validatePage(page, size); return repository.getTopProfiles(page, size); }
+	public List<SearchUserResponse> getTopProfiles(int page, int size) { validatePage(page, size); return List.of(); }
 	public List<SearchUserResponse> getMyFriends(long userId) { validatePositive(userId, "user_id"); return repository.getMyFriends(userId); }
 
 	private Map<String, String> interactionResult(String key, boolean enabled) {
@@ -65,6 +74,21 @@ public class CommunityService {
 		if (body == null) {
 			throw new IllegalArgumentException("요청 본문이 필요합니다.");
 		}
+	}
+
+	private String validateSearchKeyword(String keyword) {
+		if (isBlank(keyword)) {
+			return null;
+		}
+		String normalized = keyword.trim();
+		if (normalized.length() > MAX_SEARCH_KEYWORD_LENGTH) {
+			throw new IllegalArgumentException("검색어는 50자 이하이어야 합니다.");
+		}
+		String lower = normalized.toLowerCase(Locale.ROOT);
+		if (SQL_INJECTION_META_PATTERN.matcher(lower).find() || SQL_INJECTION_KEYWORD_PATTERN.matcher(lower).find()) {
+			throw new IllegalArgumentException("검색어에 허용되지 않는 문자가 포함되어 있습니다.");
+		}
+		return normalized;
 	}
 
 	private boolean isBlank(String value) {
