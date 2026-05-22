@@ -67,4 +67,14 @@ class StorageServiceTest {
 
 		assertThat(stored).startsWith("/uploads/community/").endsWith(".jpg");
 	}
+
+	@Test
+	void storeImage_acceptsAndroidGalleryImageWhenDeclaredMimeDiffersFromMagicBytes() {
+		StorageService storageService = new StorageService(tempDir, "/uploads");
+		MockMultipartFile file = new MockMultipartFile("images", "1000001234", "image/jpeg", new byte[] {(byte) 0x89, 'P', 'N', 'G', 13, 10, 26, 10});
+
+		String stored = storageService.storeImage(file, "community");
+
+		assertThat(stored).startsWith("/uploads/community/").endsWith(".png");
+	}
 }

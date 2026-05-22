@@ -41,22 +41,23 @@ public class StorageService {
 		if (file == null || file.isEmpty()) {
 			throw new IllegalArgumentException("빈 파일은 업로드할 수 없습니다.");
 		}
-		String contentType = normalize(file.getContentType());
-		if (!ALLOWED_CONTENT_TYPES.contains(contentType)) {
-			throw new IllegalArgumentException("지원하지 않는 이미지 형식입니다. jpg, jpeg, png, webp만 업로드할 수 있습니다.");
-		}
+		String declaredContentType = normalize(file.getContentType());
 		byte[] bytes;
 		try {
 			bytes = file.getBytes();
 		} catch (IOException exception) {
 			throw new IllegalStateException("업로드 파일을 읽을 수 없습니다.", exception);
 		}
-		if (!matchesMagicBytes(bytes, contentType)) {
-			throw new IllegalArgumentException("이미지 파일 내용이 MIME type과 일치하지 않습니다.");
+		if (!ALLOWED_CONTENT_TYPES.contains(declaredContentType) && !declaredContentType.isBlank() && !"application/octet-stream".equals(declaredContentType)) {
+			throw new IllegalArgumentException("지원하지 않는 이미지 형식입니다. jpg, jpeg, png, webp만 업로드할 수 있습니다.");
+		}
+		String actualContentType = detectContentType(bytes);
+		if (actualContentType == null) {
+			throw new IllegalArgumentException("이미지 파일 내용이 지원하는 이미지 형식과 일치하지 않습니다.");
 		}
 
 		String safeDirectory = safeDirectory(directory);
-		String storedExtension = EXTENSION_BY_CONTENT_TYPE.get(contentType);
+		String storedExtension = EXTENSION_BY_CONTENT_TYPE.get(actualContentType);
 		String filename = UUID.randomUUID() + "." + storedExtension;
 		Path targetDirectory = baseDir.resolve(safeDirectory).normalize();
 		if (!targetDirectory.startsWith(baseDir)) {
@@ -74,6 +75,15 @@ public class StorageService {
 
 	private static String normalize(String value) {
 		return value == null ? "" : value.trim().toLowerCase(Locale.ROOT);
+	}
+
+	private static String detectContentType(byte[] bytes) {
+		for (String contentType : ALLOWED_CONTENT_TYPES) {
+			if (matchesMagicBytes(bytes, contentType)) {
+				return contentType;
+			}
+		}
+		return null;
 	}
 
 	private static boolean matchesMagicBytes(byte[] bytes, String contentType) {
