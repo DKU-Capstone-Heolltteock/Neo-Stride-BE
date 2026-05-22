@@ -2,6 +2,13 @@
 
 Spring Boot backend for the Neo-Stride capstone running app. The API currently covers authentication, running records with GPS traces, AI-assisted coaching plans and feedback, and community profile/feed/friend/tip features.
 
+##  Storage
+
+| Division | Link |
+|------|------|
+|  Android (Frontend) | [Neo-Stride](https://github.com/DKU-Capstone-Heolltteock/Neo-Stride) |
+|  Spring Boot (Backend) | [Neo-Stride-BE](https://github.com/DKU-Capstone-Heolltteock/Neo-Stride-BE) |
+
 ## Tech Stack
 
 - Java 21
