@@ -77,4 +77,38 @@ class StorageServiceTest {
 
 		assertThat(stored).startsWith("/uploads/community/").endsWith(".png");
 	}
+
+	@Test
+	void storeImage_acceptsIphoneHeicImage() {
+		StorageService storageService = new StorageService(tempDir, "/uploads");
+		MockMultipartFile file = new MockMultipartFile("images", "IMG_0001.HEIC", "image/heic", isoBaseMediaFile("heic"));
+
+		String stored = storageService.storeImage(file, "community");
+
+		assertThat(stored).startsWith("/uploads/community/").endsWith(".heic");
+	}
+
+	@Test
+	void storeImage_acceptsHeifImageWithOctetStreamMime() {
+		StorageService storageService = new StorageService(tempDir, "/uploads");
+		MockMultipartFile file = new MockMultipartFile("images", "IMG_0002", "application/octet-stream", isoBaseMediaFile("mif1"));
+
+		String stored = storageService.storeImage(file, "community");
+
+		assertThat(stored).startsWith("/uploads/community/").endsWith(".heif");
+	}
+
+	private static byte[] isoBaseMediaFile(String majorBrand) {
+		byte[] bytes = new byte[24];
+		bytes[3] = 24;
+		bytes[4] = 'f';
+		bytes[5] = 't';
+		bytes[6] = 'y';
+		bytes[7] = 'p';
+		for (int i = 0; i < 4; i++) {
+			bytes[8 + i] = (byte) majorBrand.charAt(i);
+			bytes[16 + i] = (byte) majorBrand.charAt(i);
+		}
+		return bytes;
+	}
 }

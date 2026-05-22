@@ -14,11 +14,13 @@ import org.springframework.web.multipart.MultipartFile;
 
 @Service
 public class StorageService {
-	private static final Set<String> ALLOWED_CONTENT_TYPES = Set.of("image/jpeg", "image/png", "image/webp");
+	private static final Set<String> ALLOWED_CONTENT_TYPES = Set.of("image/jpeg", "image/png", "image/webp", "image/heic", "image/heif");
 	private static final Map<String, String> EXTENSION_BY_CONTENT_TYPE = Map.of(
 			"image/jpeg", "jpg",
 			"image/png", "png",
-			"image/webp", "webp"
+			"image/webp", "webp",
+			"image/heic", "heic",
+			"image/heif", "heif"
 	);
 
 	private final Path baseDir;
@@ -49,7 +51,7 @@ public class StorageService {
 			throw new IllegalStateException("업로드 파일을 읽을 수 없습니다.", exception);
 		}
 		if (!ALLOWED_CONTENT_TYPES.contains(declaredContentType) && !declaredContentType.isBlank() && !"application/octet-stream".equals(declaredContentType)) {
-			throw new IllegalArgumentException("지원하지 않는 이미지 형식입니다. jpg, jpeg, png, webp만 업로드할 수 있습니다.");
+			throw new IllegalArgumentException("지원하지 않는 이미지 형식입니다. jpg, jpeg, png, webp, heic, heif만 업로드할 수 있습니다.");
 		}
 		String actualContentType = detectContentType(bytes);
 		if (actualContentType == null) {
@@ -110,8 +112,30 @@ public class StorageService {
 					&& bytes[9] == 'E'
 					&& bytes[10] == 'B'
 					&& bytes[11] == 'P';
+			case "image/heic" -> hasIsoBaseMediaBrand(bytes, Set.of("heic", "heix", "hevc", "hevx"));
+			case "image/heif" -> hasIsoBaseMediaBrand(bytes, Set.of("mif1", "msf1"));
 			default -> false;
 		};
+	}
+
+	private static boolean hasIsoBaseMediaBrand(byte[] bytes, Set<String> brands) {
+		if (bytes.length < 12 || bytes[4] != 'f' || bytes[5] != 't' || bytes[6] != 'y' || bytes[7] != 'p') {
+			return false;
+		}
+		if (hasBrandAt(bytes, 8, brands)) {
+			return true;
+		}
+		for (int offset = 16; offset + 3 < bytes.length; offset += 4) {
+			if (hasBrandAt(bytes, offset, brands)) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	private static boolean hasBrandAt(byte[] bytes, int offset, Set<String> brands) {
+		String brand = new String(bytes, offset, 4, java.nio.charset.StandardCharsets.US_ASCII);
+		return brands.contains(brand);
 	}
 
 	private static String safeDirectory(String directory) {
