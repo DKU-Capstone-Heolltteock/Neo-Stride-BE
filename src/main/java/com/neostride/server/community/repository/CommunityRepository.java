@@ -94,12 +94,13 @@ public class CommunityRepository {
 
 	private List<CommunityContentResponse> contentQuery(String predicate, long userId) {
 		return jdbcTemplate.query("""
-			SELECT cc.content_id, cc.content_text, rr.run_record_id AS joined_running_record_id, COALESCE(rr.total_distance, 0) AS total_distance, rr.duration, rr.pace, cc.created_at
-			FROM community_contents cc LEFT JOIN running_records rr ON rr.run_record_id = cc.running_record_id
+			SELECT cc.content_id, cc.content_text, COALESCE(cu.profile_photo, u.profile_photo) AS profile_image_url, cc.image,
+			       rr.run_record_id AS joined_running_record_id, COALESCE(rr.total_distance, 0) AS total_distance, rr.duration, rr.pace, cc.created_at
+			FROM community_contents cc JOIN users u ON u.user_id = cc.author_user_id LEFT JOIN community_users cu ON cu.user_id = u.user_id LEFT JOIN running_records rr ON rr.run_record_id = cc.running_record_id
 			WHERE
 			""" + feedPredicate(predicate) + " ORDER BY cc.created_at DESC, cc.content_id DESC", (rs, n) -> {
 			DecodedFeedContent decoded = decodeFeedContent(rs.getString("content_text"));
-			return new CommunityContentResponse(rs.getLong("content_id"), decoded.title(), decoded.content(), communityDistance(rs, decoded), communityDuration(rs, decoded), communityPace(rs, decoded), rs.getTimestamp("created_at").toLocalDateTime().format(ISO));
+			return new CommunityContentResponse(rs.getLong("content_id"), decoded.title(), decoded.content(), communityDistance(rs, decoded), communityDuration(rs, decoded), communityPace(rs, decoded), rs.getTimestamp("created_at").toLocalDateTime().format(ISO), rs.getString("profile_image_url"), decodeImages(rs.getString("image")));
 		}, userId);
 	}
 
@@ -124,18 +125,42 @@ public class CommunityRepository {
 	}
 
 	public List<FriendResponse> getFriendList(long userId, String status) {
-		String dbStatus = toRelationshipStatus(status);
+		String normalized = status == null ? "friends" : status.trim().toLowerCase(Locale.ROOT);
+		return switch (normalized) {
+			case "sent" -> relationshipQuery(
+					"r.user1_id = ? AND r.status = 'REQUESTED'",
+					"sent",
+					userId, userId
+			);
+			case "received" -> relationshipQuery(
+					"r.user2_id = ? AND r.status = 'REQUESTED'",
+					"received",
+					userId, userId
+			);
+			case "blocked" -> relationshipQuery(
+					"r.user1_id = ? AND r.status = 'BLOCKED'",
+					"blocked",
+					userId, userId
+			);
+			default -> relationshipQuery(
+					"(r.user1_id = ? OR r.user2_id = ?) AND r.status = 'ACCEPTED'",
+					"friends",
+					userId, userId, userId
+			);
+		};
+	}
+
+	private List<FriendResponse> relationshipQuery(String predicate, String responseStatus, Object... args) {
 		return jdbcTemplate.query("""
 			SELECT other_user.user_id, COALESCE(cu.community_profile_name, other_user.community_profile_name, other_user.name) AS nickname,
 			       COALESCE(cu.badge, 'NONE') AS badge_tier,
 			       (SELECT COUNT(*) FROM relationships rf WHERE (rf.user1_id = other_user.user_id OR rf.user2_id = other_user.user_id) AND rf.status='ACCEPTED') AS friend_count,
-			       COALESCE(cu.profile_photo, other_user.profile_photo) AS profile_image_url, r.status
+			       COALESCE(cu.profile_photo, other_user.profile_photo) AS profile_image_url
 			FROM relationships r
 			JOIN users other_user ON other_user.user_id = CASE WHEN r.user1_id = ? THEN r.user2_id ELSE r.user1_id END
 			LEFT JOIN community_users cu ON cu.user_id = other_user.user_id
-			WHERE (r.user1_id = ? OR r.user2_id = ?) AND r.status = ?
-			ORDER BY other_user.user_id
-			""", (rs, n) -> new FriendResponse(rs.getLong("user_id"), rs.getString("nickname"), rs.getString("badge_tier"), rs.getInt("friend_count"), rs.getString("profile_image_url"), rs.getString("status").toLowerCase(Locale.ROOT)), userId, userId, userId, dbStatus);
+			WHERE
+			""" + predicate + " ORDER BY other_user.user_id", (rs, n) -> new FriendResponse(rs.getLong("user_id"), rs.getString("nickname"), rs.getString("badge_tier"), rs.getInt("friend_count"), rs.getString("profile_image_url"), responseStatus), args);
 	}
 
 	public void updateRelationship(long userId, FriendRequest request) {
@@ -185,7 +210,7 @@ public class CommunityRepository {
 	public List<FeedUploadResponse> listFeeds(Long viewerUserId) {
 		String predicate = "cc.content_type = 'POST' AND cc.feed_scope <> 'PRIVATE'";
 		if (viewerUserId == null) return feedQuery(predicate);
-		return feedQuery(predicate + " AND " + blockedByCurrentUserPredicate(), viewerUserId, viewerUserId);
+		return feedQueryForViewer(predicate + " AND " + blockedByCurrentUserPredicate(), viewerUserId, viewerUserId, viewerUserId);
 	}
 
 	public FeedDetailResponse findFeedDetail(long userId, long feedId) {
@@ -376,7 +401,21 @@ public class CommunityRepository {
 
 	private List<FeedUploadResponse> feedQuery(String predicate, Object... args) {
 		return jdbcTemplate.query("""
-			SELECT cc.content_id, COALESCE(cu.profile_photo, u.profile_photo) AS profile_image_url,
+			SELECT cc.content_id, cc.author_user_id, FALSE AS mine, COALESCE(cu.profile_photo, u.profile_photo) AS profile_image_url,
+			       COALESCE(cu.community_profile_name, u.community_profile_name, u.name) AS nickname, cc.created_at,
+			       cc.content_text, cc.include_route_detail, cc.image,
+			       rr.run_record_id AS joined_running_record_id, COALESCE(rr.total_distance, 0) AS total_distance, rr.duration, rr.pace,
+			       (SELECT COUNT(*) FROM community_interactions ci WHERE ci.content_id=cc.content_id AND ci.interaction_type='TAG') AS tagged_count,
+			       (SELECT COUNT(*) FROM community_interactions ci WHERE ci.content_id=cc.content_id AND ci.interaction_type='LIKE') AS like_count,
+			       (SELECT COUNT(*) FROM community_interactions ci WHERE ci.content_id=cc.content_id AND ci.interaction_type='COMMENT') AS comment_count
+			FROM community_contents cc JOIN users u ON u.user_id=cc.author_user_id LEFT JOIN community_users cu ON cu.user_id=u.user_id
+			LEFT JOIN running_records rr ON rr.run_record_id=cc.running_record_id WHERE
+			""" + predicate + " ORDER BY cc.created_at DESC, cc.content_id DESC", (rs, n) -> mapFeed(rs), args);
+	}
+
+	private List<FeedUploadResponse> feedQueryForViewer(String predicate, Object... args) {
+		return jdbcTemplate.query("""
+			SELECT cc.content_id, cc.author_user_id, (cc.author_user_id = ?) AS mine, COALESCE(cu.profile_photo, u.profile_photo) AS profile_image_url,
 			       COALESCE(cu.community_profile_name, u.community_profile_name, u.name) AS nickname, cc.created_at,
 			       cc.content_text, cc.include_route_detail, cc.image,
 			       rr.run_record_id AS joined_running_record_id, COALESCE(rr.total_distance, 0) AS total_distance, rr.duration, rr.pace,
@@ -390,7 +429,8 @@ public class CommunityRepository {
 
 	private FeedUploadResponse mapFeed(ResultSet rs) throws SQLException {
 		DecodedFeedContent parts = decodeFeedContent(rs.getString("content_text"));
-		return new FeedUploadResponse(rs.getLong("content_id"), rs.getString("profile_image_url"), rs.getString("nickname"), rs.getTimestamp("created_at").toLocalDateTime().format(ISO), parts.title(), parts.content(), rs.getInt("tagged_count"), rs.getInt("like_count"), rs.getInt("comment_count"), feedDistance(rs, parts), feedDuration(rs, parts), feedPace(rs, parts), rs.getBoolean("include_route_detail"), parts.routeMapImageUri(), decodeImages(rs.getString("image")));
+		long writerId = rs.getLong("author_user_id");
+		return new FeedUploadResponse(rs.getLong("content_id"), rs.getString("profile_image_url"), rs.getString("nickname"), rs.getTimestamp("created_at").toLocalDateTime().format(ISO), parts.title(), parts.content(), rs.getInt("tagged_count"), rs.getInt("like_count"), rs.getInt("comment_count"), feedDistance(rs, parts), feedDuration(rs, parts), feedPace(rs, parts), rs.getBoolean("include_route_detail"), parts.routeMapImageUri(), decodeImages(rs.getString("image")), rs.getBoolean("mine"), writerId);
 	}
 
 	private List<TipUploadResponse> tipQuery(String predicate, Object... args) {
@@ -408,7 +448,7 @@ public class CommunityRepository {
 
 	private List<FeedUploadResponse> feedQueryPaged(String predicate, Object[] args) {
 		return jdbcTemplate.query("""
-			SELECT cc.content_id, COALESCE(cu.profile_photo, u.profile_photo) AS profile_image_url,
+			SELECT cc.content_id, cc.author_user_id, FALSE AS mine, COALESCE(cu.profile_photo, u.profile_photo) AS profile_image_url,
 			       COALESCE(cu.community_profile_name, u.community_profile_name, u.name) AS nickname, cc.created_at,
 			       cc.content_text, cc.include_route_detail, cc.image,
 			       rr.run_record_id AS joined_running_record_id, COALESCE(rr.total_distance, 0) AS total_distance, rr.duration, rr.pace,
@@ -634,8 +674,15 @@ public class CommunityRepository {
 			if (pace.scale() <= 0 && pace.intValue() > 59) {
 				return pace.intValue();
 			}
+			BigDecimal normalized = pace.stripTrailingZeros();
+			BigDecimal absolute = normalized.abs();
+			int minutes = absolute.intValue();
+			int secondsPart = absolute.subtract(BigDecimal.valueOf(minutes)).movePointRight(Math.max(0, absolute.scale())).intValue();
+			if (absolute.scale() > 0 && absolute.scale() <= 2 && secondsPart < 60) {
+				return minutes * 60 + secondsPart;
+			}
 			return Math.round(pace.multiply(BigDecimal.valueOf(60)).floatValue());
-		} catch (NumberFormatException exception) {
+		} catch (NumberFormatException | ArithmeticException exception) {
 			return null;
 		}
 	}

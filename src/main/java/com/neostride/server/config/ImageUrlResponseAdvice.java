@@ -2,6 +2,7 @@ package com.neostride.server.config;
 
 import com.neostride.server.community.dto.AccountInfoResponse;
 import com.neostride.server.community.dto.CommentResponse;
+import com.neostride.server.community.dto.CommunityContentResponse;
 import com.neostride.server.community.dto.FeedDetailResponse;
 import com.neostride.server.community.dto.FeedUploadResponse;
 import com.neostride.server.community.dto.FriendResponse;
@@ -53,6 +54,9 @@ public class ImageUrlResponseAdvice implements ResponseBodyAdvice<Object> {
 		if (body instanceof FeedUploadResponse response) {
 			return feed(response);
 		}
+		if (body instanceof CommunityContentResponse response) {
+			return communityContent(response);
+		}
 		if (body instanceof FeedDetailResponse response) {
 			return feedDetail(response);
 		}
@@ -92,6 +96,13 @@ public class ImageUrlResponseAdvice implements ResponseBodyAdvice<Object> {
 				response.nickname(), response.createdAt(), response.title(), response.content(), response.taggedCount(),
 				response.likeCount(), response.commentCount(), response.distance(), response.duration(), response.pace(),
 				response.mapVisible(), imageUrlResolver.toPublicUrl(response.routeMapImageUri()),
+				imageUrlResolver.toPublicUrls(response.imageUrls()), response.mine(), response.writerId());
+	}
+
+	private CommunityContentResponse communityContent(CommunityContentResponse response) {
+		return new CommunityContentResponse(response.contentId(), response.contentTitle(), response.contentText(),
+				response.totalDistance(), response.duration(), response.pace(), response.createdAt(),
+				imageUrlResolver.toPublicUrl(response.profileImageUrl()),
 				imageUrlResolver.toPublicUrls(response.imageUrls()));
 	}
 

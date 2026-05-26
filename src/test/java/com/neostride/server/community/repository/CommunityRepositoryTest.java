@@ -102,6 +102,39 @@ class CommunityRepositoryTest {
 	}
 
 	@Test
+	void listFeedsWithViewer_projectsWriterIdMineAndPublicImageFields() throws Exception {
+		when(jdbcTemplate.query(anyString(), any(RowMapper.class), any(Object[].class))).thenAnswer(invocation -> {
+			RowMapper<FeedUploadResponse> mapper = invocation.getArgument(1);
+			return List.of(mapper.mapRow(feedRowWithViewerMetadata(), 0));
+		});
+
+		List<FeedUploadResponse> feeds = repository.listFeeds(1L);
+
+		assertThat(feeds).hasSize(1);
+		FeedUploadResponse feed = feeds.getFirst();
+		assertThat(feed.writerId()).isEqualTo(1L);
+		assertThat(feed.mine()).isTrue();
+		assertThat(feed.profileImageUrl()).isEqualTo("/uploads/profile/me.jpg");
+		assertThat(feed.imageUrls()).containsExactly("/uploads/feed/body.jpg");
+		ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
+		verify(jdbcTemplate).query(sql.capture(), any(RowMapper.class), any(Object[].class));
+		assertThat(sql.getValue()).contains("cc.author_user_id", "AS mine");
+	}
+
+	@Test
+	void myFeeds_projectsProfileImageAndContentImagesForMiniView() throws Exception {
+		when(jdbcTemplate.query(anyString(), any(RowMapper.class), any(Object[].class))).thenAnswer(invocation -> {
+			RowMapper<CommunityContentResponse> mapper = invocation.getArgument(1);
+			return List.of(mapper.mapRow(contentRowWithImages(), 0));
+		});
+
+		CommunityContentResponse content = repository.myFeeds(1L).getFirst();
+
+		assertThat(content.profileImageUrl()).isEqualTo("/uploads/profile/me.jpg");
+		assertThat(content.imageUrls()).containsExactly("/uploads/feed/body.jpg");
+	}
+
+	@Test
 	void createComment_persistsCommentTextInsteadOfOnlyCountingInteraction() throws Exception {
 		when(jdbcTemplate.query(anyString(), any(RowMapper.class), eq(99L))).thenReturn(List.of(commentRow(99L, 1L, "좋은 팁입니다")));
 		doAnswer(invocation -> {
@@ -166,8 +199,20 @@ class CommunityRepositoryTest {
 		CommunityContentResponse content = feeds.getFirst();
 		assertThat(content.totalDistance()).isEqualByComparingTo("7.30");
 		assertThat(content.duration()).isEqualTo(1234);
-		assertThat(content.pace()).isEqualTo(375);
+		assertThat(content.pace()).isEqualTo(385);
 		assertThat(content.contentText()).isEqualTo("run linked");
+	}
+
+	@Test
+	void listFeeds_formatsLinkedRunningPaceStoredAsMinuteSecondDecimal() throws Exception {
+		when(jdbcTemplate.query(anyString(), any(RowMapper.class), any(Object[].class))).thenAnswer(invocation -> {
+			RowMapper<FeedUploadResponse> mapper = invocation.getArgument(1);
+			return List.of(mapper.mapRow(feedRowWithLinkedPace(new BigDecimal("6.45")), 0));
+		});
+
+		FeedUploadResponse feed = repository.listFeeds().getFirst();
+
+		assertThat(feed.pace()).isEqualTo("6'45\"");
 	}
 
 	@Test
@@ -218,6 +263,34 @@ class CommunityRepositoryTest {
 		assertThat(sql.getValue()).contains("AS is_friend", "AS is_blocked", "r.status = 'BLOCKED' AND r.user1_id = ?");
 	}
 
+	@Test
+	void getFriendListSentFiltersRequestsFromCurrentUserOnly() {
+		when(jdbcTemplate.query(anyString(), any(RowMapper.class), any(Object[].class))).thenReturn(List.of());
+
+		repository.getFriendList(1L, "sent");
+
+		ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
+		ArgumentCaptor<Object[]> args = ArgumentCaptor.forClass(Object[].class);
+		verify(jdbcTemplate).query(sql.capture(), any(RowMapper.class), args.capture());
+		assertThat(sql.getValue()).contains("r.user1_id = ?", "r.status = 'REQUESTED'");
+		assertThat(sql.getValue()).doesNotContain("r.user1_id = ? OR r.user2_id = ?");
+		assertThat(args.getValue()).containsExactly(1L, 1L);
+	}
+
+	@Test
+	void getFriendListReceivedFiltersRequestsToCurrentUserOnly() {
+		when(jdbcTemplate.query(anyString(), any(RowMapper.class), any(Object[].class))).thenReturn(List.of());
+
+		repository.getFriendList(1L, "received");
+
+		ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
+		ArgumentCaptor<Object[]> args = ArgumentCaptor.forClass(Object[].class);
+		verify(jdbcTemplate).query(sql.capture(), any(RowMapper.class), args.capture());
+		assertThat(sql.getValue()).contains("r.user2_id = ?", "r.status = 'REQUESTED'");
+		assertThat(sql.getValue()).doesNotContain("r.user1_id = ? OR r.user2_id = ?");
+		assertThat(args.getValue()).containsExactly(1L, 1L);
+	}
+
 	private ResultSet contentRowWithRunningRecord() throws Exception {
 		ResultSet rs = mock(ResultSet.class);
 		when(rs.getLong("content_id")).thenReturn(1L);
@@ -258,6 +331,32 @@ class CommunityRepositoryTest {
 		when(rs.getInt("comment_count")).thenReturn(0);
 		when(rs.getBoolean("include_route_detail")).thenReturn(true);
 		when(rs.getString("image")).thenReturn(null);
+		return rs;
+	}
+
+	private ResultSet feedRowWithViewerMetadata() throws Exception {
+		ResultSet rs = feedRowWithStoredMetrics();
+		when(rs.getLong("author_user_id")).thenReturn(1L);
+		when(rs.getBoolean("mine")).thenReturn(true);
+		when(rs.getString("profile_image_url")).thenReturn("/uploads/profile/me.jpg");
+		when(rs.getString("image")).thenReturn("/uploads/feed/body.jpg");
+		return rs;
+	}
+
+	private ResultSet feedRowWithLinkedPace(BigDecimal pace) throws Exception {
+		ResultSet rs = feedRowWithStoredMetrics();
+		when(rs.getString("content_text")).thenReturn("title\n---NEOSTRIDE-FEED---\nbody\n---NEOSTRIDE-ROUTE---\nroute.png");
+		when(rs.getObject("joined_running_record_id")).thenReturn(99L);
+		when(rs.getBigDecimal("total_distance")).thenReturn(new BigDecimal("5.00"));
+		when(rs.getObject("duration")).thenReturn(2025);
+		when(rs.getObject("pace")).thenReturn(pace);
+		return rs;
+	}
+
+	private ResultSet contentRowWithImages() throws Exception {
+		ResultSet rs = contentRowWithRunningRecord();
+		when(rs.getString("profile_image_url")).thenReturn("/uploads/profile/me.jpg");
+		when(rs.getString("image")).thenReturn("/uploads/feed/body.jpg");
 		return rs;
 	}
 

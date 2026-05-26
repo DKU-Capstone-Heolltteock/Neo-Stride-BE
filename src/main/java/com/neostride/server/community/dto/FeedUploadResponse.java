@@ -17,5 +17,15 @@ public record FeedUploadResponse(
 		String pace,
 		boolean mapVisible,
 		String routeMapImageUri,
-		List<String> imageUrls
-) {}
+		List<String> imageUrls,
+		boolean mine,
+		Long writerId
+) {
+	public FeedUploadResponse(Long feedId, String profileImageUrl, String nickname, String createdAt, String title,
+						  String content, int taggedCount, int likeCount, int commentCount, String distance,
+						  String duration, String pace, boolean mapVisible, String routeMapImageUri,
+						  List<String> imageUrls) {
+		this(feedId, profileImageUrl, nickname, createdAt, title, content, taggedCount, likeCount, commentCount,
+				distance, duration, pace, mapVisible, routeMapImageUri, imageUrls, false, null);
+	}
+}
