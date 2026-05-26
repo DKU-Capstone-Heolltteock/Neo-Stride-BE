@@ -1,7 +1,11 @@
 package com.neostride.server.storage;
 
+import java.awt.image.BufferedImage;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import javax.imageio.ImageIO;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.mock.web.MockMultipartFile;
@@ -17,7 +21,8 @@ class StorageServiceTest {
 	@Test
 	void storeImage_writesFileWithUuidNameAndReturnsPublicUrl() throws Exception {
 		StorageService storageService = new StorageService(tempDir, "/uploads");
-		MockMultipartFile file = new MockMultipartFile("image", "my photo.png", "image/png", new byte[] {(byte) 0x89, 'P', 'N', 'G', 13, 10, 26, 10});
+		byte[] imageBytes = imageBytes("png");
+		MockMultipartFile file = new MockMultipartFile("image", "my photo.png", "image/png", imageBytes);
 
 		String url = storageService.storeImage(file, "community");
 
@@ -25,7 +30,7 @@ class StorageServiceTest {
 		assertThat(url).doesNotContain("my photo");
 		Path storedPath = tempDir.resolve(url.replaceFirst("^/uploads/", ""));
 		assertThat(Files.exists(storedPath)).isTrue();
-		assertThat(Files.readAllBytes(storedPath)).containsExactly((byte) 0x89, 'P', 'N', 'G', 13, 10, 26, 10);
+		assertThat(Files.readAllBytes(storedPath)).containsExactly(imageBytes);
 	}
 
 	@Test
@@ -61,7 +66,7 @@ class StorageServiceTest {
 	@Test
 	void storeImage_acceptsAndroidGalleryFileWithoutExtensionWhenMimeAndBytesAreValid() {
 		StorageService storageService = new StorageService(tempDir, "/uploads");
-		MockMultipartFile file = new MockMultipartFile("images", "1000001234", "image/jpeg", new byte[] {(byte) 0xff, (byte) 0xd8, (byte) 0xff, 0});
+		MockMultipartFile file = new MockMultipartFile("images", "1000001234", "image/jpeg", imageBytes("jpg"));
 
 		String stored = storageService.storeImage(file, "community");
 
@@ -71,11 +76,27 @@ class StorageServiceTest {
 	@Test
 	void storeImage_acceptsAndroidGalleryImageWhenDeclaredMimeDiffersFromMagicBytes() {
 		StorageService storageService = new StorageService(tempDir, "/uploads");
-		MockMultipartFile file = new MockMultipartFile("images", "1000001234", "image/jpeg", new byte[] {(byte) 0x89, 'P', 'N', 'G', 13, 10, 26, 10});
+		MockMultipartFile file = new MockMultipartFile("images", "1000001234", "image/jpeg", imageBytes("png"));
 
 		String stored = storageService.storeImage(file, "community");
 
 		assertThat(stored).startsWith("/uploads/community/").endsWith(".png");
+	}
+
+	@Test
+	void storeImage_rejectsPngThatHasOnlyHeaderChunks() {
+		StorageService storageService = new StorageService(tempDir, "/uploads");
+		byte[] truncatedPng = new byte[] {
+				(byte) 0x89, 'P', 'N', 'G', 13, 10, 26, 10,
+				0, 0, 0, 13, 'I', 'H', 'D', 'R',
+				0, 0, 0, 1, 0, 0, 0, 1, 8, 2, 0, 0, 0,
+				(byte) 0x90, 'w', 'S', (byte) 0xde
+		};
+		MockMultipartFile file = new MockMultipartFile("images", "tiny.png", "image/png", truncatedPng);
+
+		assertThatThrownBy(() -> storageService.storeImage(file, "community"))
+				.isInstanceOf(IllegalArgumentException.class)
+				.hasMessageContaining("이미지 파일을 읽을 수 없습니다");
 	}
 
 	@Test
@@ -96,6 +117,19 @@ class StorageServiceTest {
 		String stored = storageService.storeImage(file, "community");
 
 		assertThat(stored).startsWith("/uploads/community/").endsWith(".heif");
+	}
+
+	private static byte[] imageBytes(String format) {
+		try {
+			BufferedImage image = new BufferedImage(1, 1, BufferedImage.TYPE_INT_RGB);
+			ByteArrayOutputStream output = new ByteArrayOutputStream();
+			if (!ImageIO.write(image, format, output)) {
+				throw new IllegalStateException("No ImageIO writer for " + format);
+			}
+			return output.toByteArray();
+		} catch (IOException exception) {
+			throw new IllegalStateException(exception);
+		}
 	}
 
 	private static byte[] isoBaseMediaFile(String majorBrand) {

@@ -77,14 +77,16 @@ public class CommunityController {
 			@RequestHeader(value = "Authorization", required = false) String authorization,
 			@RequestHeader(value = "X-User-Id", required = false) Long headerUserId,
 			@RequestParam(value = "profile_image_url", required = false) String profileImageUrl,
-			@RequestPart(value = "image", required = false) MultipartFile image
+			@RequestPart(value = "image", required = false) MultipartFile image,
+			@RequestPart(value = "profile_photo", required = false) MultipartFile profilePhoto
 	) {
 		String storedValue = normalizedNonBlank(profileImageUrl);
-		if (image != null) {
-			storedValue = storageService.storeImage(image, "profile");
+		MultipartFile upload = image != null ? image : profilePhoto;
+		if (upload != null) {
+			storedValue = storageService.storeImage(upload, "profile");
 		}
 		if (storedValue == null) {
-			throw new IllegalArgumentException("profile_image_url 또는 image 중 하나는 필요합니다.");
+			throw new IllegalArgumentException("profile_image_url, image 또는 profile_photo 중 하나는 필요합니다.");
 		}
 		service.updateProfileImage(authenticatedUserId(authorization, headerUserId), storedValue);
 		return ResponseEntity.noContent().build();

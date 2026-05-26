@@ -127,9 +127,9 @@ class CommunityControllerTest {
 	void updateProfileImage_rejectsEmptyRequestWithoutOverwritingExistingPhoto() {
 		authenticate();
 
-		assertThatThrownBy(() -> controller.updateProfileImage(AUTHORIZATION, 1L, " ", null))
+		assertThatThrownBy(() -> controller.updateProfileImage(AUTHORIZATION, 1L, " ", null, null))
 				.isInstanceOf(IllegalArgumentException.class)
-				.hasMessageContaining("profile_image_url 또는 image");
+				.hasMessageContaining("profile_image_url, image 또는 profile_photo");
 
 		verify(service, never()).updateProfileImage(anyLong(), any());
 	}
@@ -140,9 +140,22 @@ class CommunityControllerTest {
 		authenticate();
 		when(storageService.storeImage(image, "profile")).thenReturn("/uploads/profile/profile-id.png");
 
-		var response = controller.updateProfileImage(AUTHORIZATION, 1L, null, image);
+		var response = controller.updateProfileImage(AUTHORIZATION, 1L, null, image, null);
 
 		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
+		verify(service).updateProfileImage(1L, "/uploads/profile/profile-id.png");
+	}
+
+	@Test
+	void updateProfileImage_acceptsProfilePhotoMultipartAlias() {
+		MockMultipartFile image = new MockMultipartFile("profile_photo", "profile.png", "image/png", new byte[] {(byte) 0x89, 'P', 'N', 'G'});
+		authenticate();
+		when(storageService.storeImage(image, "profile")).thenReturn("/uploads/profile/profile-id.png");
+
+		var response = controller.updateProfileImage(AUTHORIZATION, 1L, null, null, image);
+
+		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
+		verify(storageService).storeImage(image, "profile");
 		verify(service).updateProfileImage(1L, "/uploads/profile/profile-id.png");
 	}
 

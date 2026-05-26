@@ -1,8 +1,10 @@
 package com.neostride.server.storage;
 
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import javax.imageio.ImageIO;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
@@ -57,6 +59,7 @@ public class StorageService {
 		if (actualContentType == null) {
 			throw new IllegalArgumentException("이미지 파일 내용이 지원하는 이미지 형식과 일치하지 않습니다.");
 		}
+		validateDecodableRaster(bytes, actualContentType);
 
 		String safeDirectory = safeDirectory(directory);
 		String storedExtension = EXTENSION_BY_CONTENT_TYPE.get(actualContentType);
@@ -73,6 +76,20 @@ public class StorageService {
 			throw new IllegalStateException("이미지 파일 저장에 실패했습니다.", exception);
 		}
 		return publicPrefix + "/" + safeDirectory + "/" + filename;
+	}
+
+	private static void validateDecodableRaster(byte[] bytes, String contentType) {
+		if (!"image/jpeg".equals(contentType) && !"image/png".equals(contentType)) {
+			return;
+		}
+		try (ByteArrayInputStream input = new ByteArrayInputStream(bytes)) {
+			var image = ImageIO.read(input);
+			if (image == null || image.getWidth() <= 0 || image.getHeight() <= 0) {
+				throw new IllegalArgumentException("이미지 파일을 읽을 수 없습니다.");
+			}
+		} catch (IOException exception) {
+			throw new IllegalArgumentException("이미지 파일을 읽을 수 없습니다.", exception);
+		}
 	}
 
 	private static String normalize(String value) {
