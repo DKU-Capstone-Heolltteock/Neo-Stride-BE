@@ -210,7 +210,7 @@ public class OpenAiCoachingClient implements AiCoachingClient {
 	String planPrompt(GoalRequest request, int durationWeeks, LocalDate startDate) throws Exception {
 		return "다음 사용자 입력으로 러닝 플랜을 생성하라. "
 				+ "응답 JSON schema: {\"summary\": string, \"plan_days\": [{\"plan_date\": \"yyyy-MM-dd\", \"day_distance_km\": number, \"day_pace_min_per_km\": number, \"description\": string}]} "
-				+ "사용자가 입력한 목표 거리와 목표 페이스는 변경하지 말고 각 plan_days의 day_distance_km와 day_pace_min_per_km에도 같은 값을 사용한다. "
+				+ "goal_distance_km와 goal_pace_min_per_km는 사용자의 최종 목표이므로 그대로 보존하고, 각 plan_days의 day_distance_km와 day_pace_min_per_km는 해당 날짜의 일일 미션으로 점진적으로 산출한다. 초반은 최종 목표보다 낮은 거리와 느린 페이스로 시작하고 마지막 주에 최종 목표에 근접하게 조정한다. "
 				+ "DB 저장 제약: plan_days는 running_days에 해당하는 날짜만 포함하고, 기간은 start_date부터 duration_weeks 주 이내여야 한다. "
 				+ "plan_date는 yyyy-MM-dd 형식, day_distance_km와 day_pace_min_per_km는 0보다 큰 숫자이며 소수점 2자리 이하로 출력한다. "
 				+ "summary는 한국어 500자 이하, description은 한국어 255자 이하로 출력한다. null을 출력하지 않는다. "

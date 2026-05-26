@@ -27,10 +27,17 @@ public class CommunityRepository {
 	public CommunityRepository(JdbcTemplate jdbcTemplate) { this.jdbcTemplate = jdbcTemplate; }
 
 	public UserProfileResponse getUserProfile(long userId) {
+		return getUserProfile(null, userId);
+	}
+
+	public UserProfileResponse getUserProfile(Long viewerUserId, long userId) {
 		List<UserProfileResponse> rows = jdbcTemplate.query("""
 			SELECT COALESCE(cu.community_profile_name, u.community_profile_name, u.name) AS nickname,
 			       COALESCE(cu.profile_photo, u.profile_photo) AS profile_photo,
 			       cu.status_message,
+			       EXISTS (SELECT 1 FROM relationships r WHERE r.status = 'ACCEPTED'
+			           AND ((r.user1_id = ? AND r.user2_id = u.user_id) OR (r.user2_id = ? AND r.user1_id = u.user_id))) AS is_friend,
+			       EXISTS (SELECT 1 FROM relationships r WHERE r.status = 'BLOCKED' AND r.user1_id = ? AND r.user2_id = u.user_id) AS is_blocked,
 			       (SELECT COUNT(*) FROM relationships r WHERE (r.user1_id = u.user_id OR r.user2_id = u.user_id) AND r.status = 'ACCEPTED') AS friend_count,
 			       (SELECT COUNT(*) FROM community_contents cc WHERE cc.author_user_id = u.user_id AND cc.content_type = 'POST') AS post_count,
 			       (SELECT COUNT(*) FROM community_interactions ci WHERE ci.tagged_user_id = u.user_id AND ci.interaction_type = 'TAG') AS tagged_count,
@@ -38,8 +45,8 @@ public class CommunityRepository {
 			       (SELECT COUNT(*) FROM community_interactions ci WHERE ci.user_id = u.user_id AND ci.interaction_type = 'LIKE') AS liked_feed_count,
 			       (SELECT COUNT(*) FROM community_interactions ci WHERE ci.user_id = u.user_id AND ci.interaction_type = 'BOOKMARK') AS bookmarked_feed_count
 			FROM users u LEFT JOIN community_users cu ON cu.user_id = u.user_id WHERE u.user_id = ?
-			""", (rs, n) -> new UserProfileResponse(rs.getString("nickname"), rs.getString("profile_photo"), rs.getString("status_message"), rs.getInt("friend_count"), rs.getInt("post_count"), rs.getInt("tagged_count"), rs.getInt("commented_feed_count"), rs.getInt("liked_feed_count"), rs.getInt("bookmarked_feed_count")), userId);
-		return rows.isEmpty() ? new UserProfileResponse(null, null, null, 0, 0, 0, 0, 0, 0) : rows.getFirst();
+			""", (rs, n) -> new UserProfileResponse(rs.getString("nickname"), rs.getString("profile_photo"), rs.getString("status_message"), rs.getBoolean("is_friend"), rs.getBoolean("is_blocked"), rs.getInt("friend_count"), rs.getInt("post_count"), rs.getInt("tagged_count"), rs.getInt("commented_feed_count"), rs.getInt("liked_feed_count"), rs.getInt("bookmarked_feed_count")), viewerUserId, viewerUserId, viewerUserId, userId);
+		return rows.isEmpty() ? new UserProfileResponse(null, null, null, false, false, 0, 0, 0, 0, 0, 0) : rows.getFirst();
 	}
 
 	public AccountInfoResponse getAccountInfo(long userId) {
@@ -134,12 +141,16 @@ public class CommunityRepository {
 	public void updateRelationship(long userId, FriendRequest request) {
 		if (request == null) throw new IllegalArgumentException("요청 본문이 필요합니다.");
 		if (request.targetId() == null || request.targetId() <= 0 || request.targetId() == userId) throw new IllegalArgumentException("target_id가 올바르지 않습니다.");
-		switch ((request.action() == null ? "" : request.action()).toLowerCase(Locale.ROOT)) {
+		switch ((request.action() == null ? "" : request.action().trim()).toLowerCase(Locale.ROOT)) {
 			case "request" -> jdbcTemplate.update("INSERT INTO relationships (user1_id, user2_id, status) VALUES (?, ?, 'REQUESTED') ON DUPLICATE KEY UPDATE status = 'REQUESTED'", userId, request.targetId());
 			case "accept" -> jdbcTemplate.update("UPDATE relationships SET status='ACCEPTED' WHERE user1_id=? AND user2_id=?", request.targetId(), userId);
 			case "reject" -> jdbcTemplate.update("UPDATE relationships SET status='REJECTED' WHERE user1_id=? AND user2_id=?", request.targetId(), userId);
-			case "block" -> jdbcTemplate.update("INSERT INTO relationships (user1_id, user2_id, status) VALUES (?, ?, 'BLOCKED') ON DUPLICATE KEY UPDATE status='BLOCKED'", userId, request.targetId());
+			case "block" -> {
+				jdbcTemplate.update("DELETE FROM relationships WHERE (user1_id=? AND user2_id=?) OR (user1_id=? AND user2_id=?)", userId, request.targetId(), request.targetId(), userId);
+				jdbcTemplate.update("INSERT INTO relationships (user1_id, user2_id, status) VALUES (?, ?, 'BLOCKED')", userId, request.targetId());
+			}
 			case "cancel" -> jdbcTemplate.update("DELETE FROM relationships WHERE user1_id=? AND user2_id=? AND status='REQUESTED'", userId, request.targetId());
+			case "delete", "unfriend" -> jdbcTemplate.update("DELETE FROM relationships WHERE status='ACCEPTED' AND ((user1_id=? AND user2_id=?) OR (user1_id=? AND user2_id=?))", userId, request.targetId(), request.targetId(), userId);
 			default -> throw new IllegalArgumentException("지원하지 않는 relationship action입니다.");
 		}
 	}

@@ -121,6 +121,7 @@ class OpenAiCoachingClientTest {
 				.contains("부상 위험");
 		assertThat(planPrompt)
 				.contains("DB 저장 제약")
+				.contains("점진적으로 산출")
 				.contains("소수점 2자리 이하")
 				.contains("null을 출력하지 않는다");
 	}

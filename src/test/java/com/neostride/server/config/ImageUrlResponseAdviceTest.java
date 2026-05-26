@@ -27,7 +27,7 @@ class ImageUrlResponseAdviceTest {
 
 	@Test
 	void beforeBodyWrite_rewritesProfilePhoto() {
-		UserProfileResponse response = new UserProfileResponse("neo", "/uploads/profile/me.jpg", null, 0, 0, 0, 0, 0, 0);
+		UserProfileResponse response = new UserProfileResponse("neo", "/uploads/profile/me.jpg", null, false, false, 0, 0, 0, 0, 0, 0);
 
 		UserProfileResponse result = (UserProfileResponse) advice.beforeBodyWrite(response, null, null, null, null, null);
 

@@ -64,8 +64,9 @@ public class ImageUrlResponseAdvice implements ResponseBodyAdvice<Object> {
 		}
 		if (body instanceof UserProfileResponse response) {
 			return new UserProfileResponse(response.nickname(), imageUrlResolver.toPublicUrl(response.profilePhoto()),
-					response.statusMessage(), response.friendCount(), response.postCount(), response.taggedCount(),
-					response.commentedFeedCount(), response.likedFeedCount(), response.bookmarkedFeedCount());
+					response.statusMessage(), response.friend(), response.blocked(), response.friendCount(),
+					response.postCount(), response.taggedCount(), response.commentedFeedCount(),
+					response.likedFeedCount(), response.bookmarkedFeedCount());
 		}
 		if (body instanceof AccountInfoResponse response) {
 			return new AccountInfoResponse(response.email(), response.nickname(),

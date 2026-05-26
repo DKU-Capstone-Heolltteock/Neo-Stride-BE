@@ -194,49 +194,84 @@ public class CoachingService {
 
 	private List<PlanDayInsertCommand> generatePlanDaysWithAiFallback(GoalRequest request, LocalDate startDate, int durationWeeks,
 			Set<DayOfWeek> runningDays, BigDecimal targetDistance, BigDecimal targetPace) {
+		List<LocalDate> planDates = scheduledPlanDates(startDate, durationWeeks, runningDays);
 		AiCoachingPlan aiPlan = aiCoachingClient.generatePlan(request, durationWeeks, startDate);
-		List<PlanDayInsertCommand> aiPlanDays = toSafePlanDayCommands(aiPlan, startDate, durationWeeks, runningDays, targetDistance, targetPace);
+		List<PlanDayInsertCommand> aiPlanDays = toSafePlanDayCommands(aiPlan, planDates);
 		if (!aiPlanDays.isEmpty()) {
 			return aiPlanDays;
 		}
-		return generatePlanDays(startDate, durationWeeks, runningDays, targetDistance, targetPace);
+		return generatePlanDays(planDates, targetDistance, targetPace);
 	}
 
-	private List<PlanDayInsertCommand> toSafePlanDayCommands(AiCoachingPlan aiPlan, LocalDate startDate, int durationWeeks,
-			Set<DayOfWeek> runningDays, BigDecimal targetDistance, BigDecimal targetPace) {
-		if (aiPlan == null || aiPlan.planDays() == null || aiPlan.planDays().isEmpty()) {
+	private List<PlanDayInsertCommand> toSafePlanDayCommands(AiCoachingPlan aiPlan, List<LocalDate> expectedDates) {
+		if (expectedDates == null || expectedDates.isEmpty() || aiPlan == null
+				|| aiPlan.planDays() == null || aiPlan.planDays().size() != expectedDates.size()) {
 			return List.of();
 		}
-		LocalDate endExclusive = startDate.plusWeeks(durationWeeks);
 		List<PlanDayInsertCommand> commands = new ArrayList<>();
-		for (AiCoachingPlanDay day : aiPlan.planDays()) {
-			if (day == null || day.planDate() == null || day.dayDistanceKm() == null || day.dayPaceMinPerKm() == null) {
+		Set<LocalDate> seenDates = new HashSet<>();
+		for (LocalDate expectedDate : expectedDates) {
+			AiCoachingPlanDay day = null;
+			for (AiCoachingPlanDay candidate : aiPlan.planDays()) {
+				if (candidate != null && expectedDate.equals(candidate.planDate())) {
+					day = candidate;
+					break;
+				}
+			}
+			if (day == null || !seenDates.add(expectedDate)
+					|| day.dayDistanceKm() == null || day.dayPaceMinPerKm() == null
+					|| day.dayDistanceKm().compareTo(BigDecimal.ZERO) <= 0
+					|| day.dayPaceMinPerKm().compareTo(BigDecimal.ZERO) <= 0) {
 				return List.of();
 			}
-			if (day.planDate().isBefore(startDate) || !day.planDate().isBefore(endExclusive)) {
-				return List.of();
-			}
-			if (!runningDays.contains(day.planDate().getDayOfWeek())) {
-				return List.of();
-			}
-			if (day.dayDistanceKm().compareTo(BigDecimal.ZERO) <= 0 || day.dayPaceMinPerKm().compareTo(BigDecimal.ZERO) <= 0) {
-				return List.of();
-			}
-			commands.add(new PlanDayInsertCommand(day.planDate(), targetDistance, targetPace));
+			commands.add(new PlanDayInsertCommand(
+					expectedDate,
+					day.dayDistanceKm().setScale(2, RoundingMode.HALF_UP),
+					day.dayPaceMinPerKm().setScale(2, RoundingMode.HALF_UP)
+			));
 		}
 		return commands;
 	}
 
-	private List<PlanDayInsertCommand> generatePlanDays(LocalDate startDate, int durationWeeks, Set<DayOfWeek> runningDays,
-			BigDecimal targetDistance, BigDecimal targetPace) {
+	private List<PlanDayInsertCommand> generatePlanDays(List<LocalDate> planDates, BigDecimal targetDistance, BigDecimal targetPace) {
 		List<PlanDayInsertCommand> planDays = new ArrayList<>();
+		for (int index = 0; index < planDates.size(); index++) {
+			planDays.add(new PlanDayInsertCommand(
+					planDates.get(index),
+					progressiveDistance(targetDistance, index, planDates.size()),
+					progressivePace(targetPace, index, planDates.size())
+			));
+		}
+		return planDays;
+	}
+
+	private List<LocalDate> scheduledPlanDates(LocalDate startDate, int durationWeeks, Set<DayOfWeek> runningDays) {
+		List<LocalDate> dates = new ArrayList<>();
 		LocalDate endExclusive = startDate.plusWeeks(durationWeeks);
 		for (LocalDate date = startDate; date.isBefore(endExclusive); date = date.plusDays(1)) {
 			if (runningDays.contains(date.getDayOfWeek())) {
-				planDays.add(new PlanDayInsertCommand(date, targetDistance.setScale(2, RoundingMode.HALF_UP), targetPace));
+				dates.add(date);
 			}
 		}
-		return planDays;
+		return dates;
+	}
+
+	private BigDecimal progressiveDistance(BigDecimal targetDistance, int index, int totalDays) {
+		if (totalDays <= 1) {
+			return targetDistance.setScale(2, RoundingMode.HALF_UP);
+		}
+		BigDecimal progress = BigDecimal.valueOf(index).divide(BigDecimal.valueOf(totalDays - 1L), 4, RoundingMode.HALF_UP);
+		BigDecimal factor = new BigDecimal("0.60").add(new BigDecimal("0.40").multiply(progress));
+		return targetDistance.multiply(factor).max(new BigDecimal("0.10")).setScale(2, RoundingMode.HALF_UP);
+	}
+
+	private BigDecimal progressivePace(BigDecimal targetPace, int index, int totalDays) {
+		if (totalDays <= 1) {
+			return targetPace.setScale(2, RoundingMode.HALF_UP);
+		}
+		BigDecimal progress = BigDecimal.valueOf(index).divide(BigDecimal.valueOf(totalDays - 1L), 4, RoundingMode.HALF_UP);
+		BigDecimal factor = new BigDecimal("1.12").subtract(new BigDecimal("0.12").multiply(progress));
+		return targetPace.multiply(factor).max(new BigDecimal("3.00")).setScale(2, RoundingMode.HALF_UP);
 	}
 
 	private GoalResponse toGoalResponse(GoalRow goal, String periodType, Integer customWeeks, List<String> runningDays, List<PlanDayRow> planDays) {
@@ -288,7 +323,7 @@ public class CoachingService {
 		if (aiFeedback != null && !aiFeedback.isBlank()) {
 			return aiFeedback.trim();
 		}
-		return buildFeedback(request);
+		return buildFeedback(request, planDay);
 	}
 
 	private BigDecimal delta(BigDecimal actual, BigDecimal target) {
@@ -298,10 +333,38 @@ public class CoachingService {
 		return actual.subtract(target).setScale(2, RoundingMode.HALF_UP);
 	}
 
+	private String buildFeedback(FeedbackRequest request, PlanDayRow planDay) {
+		BigDecimal distanceDelta = delta(request.actualDistanceKm(), planDay.targetDistance());
+		BigDecimal paceDelta = delta(request.actualPaceMinPerKm(), planDay.targetPace());
+		return "평균 페이스 " + request.actualPaceMinPerKm().setScale(2, RoundingMode.HALF_UP)
+				+ "분/km로 마무리했습니다. " + distanceDeltaText(distanceDelta) + ", " + paceDeltaText(paceDelta)
+				+ " 다음 훈련 전에는 가벼운 스트레칭과 수분 보충으로 회복을 챙기세요.";
+	}
+
 	private String buildFeedback(FeedbackRequest request) {
-		return "러닝 완료: " + request.actualDistanceKm().setScale(2, RoundingMode.HALF_UP)
-				+ "km, " + request.actualTimeSec() + "초, 평균 페이스 "
-				+ request.actualPaceMinPerKm().setScale(2, RoundingMode.HALF_UP) + "분/km";
+		return "러닝을 완료했습니다. " + request.actualDistanceKm().setScale(2, RoundingMode.HALF_UP)
+				+ "km를 평균 페이스 " + request.actualPaceMinPerKm().setScale(2, RoundingMode.HALF_UP)
+				+ "분/km로 마무리했으니, 다음 훈련 전에는 가벼운 스트레칭과 수분 보충으로 회복을 챙기세요.";
+	}
+
+	private String distanceDeltaText(BigDecimal distanceDelta) {
+		if (distanceDelta == null || distanceDelta.compareTo(BigDecimal.ZERO) == 0) {
+			return "목표 거리와 동일한 거리를 달렸고";
+		}
+		String amount = distanceDelta.abs().setScale(2, RoundingMode.HALF_UP).toPlainString();
+		return distanceDelta.compareTo(BigDecimal.ZERO) > 0
+				? "목표보다 " + amount + "km 더 달렸고"
+				: "목표보다 " + amount + "km 부족했고";
+	}
+
+	private String paceDeltaText(BigDecimal paceDelta) {
+		if (paceDelta == null || paceDelta.abs().compareTo(new BigDecimal("0.05")) <= 0) {
+			return "목표 페이스에 가깝게 마무리했습니다.";
+		}
+		String amount = paceDelta.abs().setScale(2, RoundingMode.HALF_UP).toPlainString();
+		return paceDelta.compareTo(BigDecimal.ZERO) > 0
+				? "목표보다 " + amount + "분/km 느렸습니다."
+				: "목표보다 " + amount + "분/km 빨랐습니다.";
 	}
 
 	private void adjustFuturePlanWithFeedbackLoop(long userId, PlanDayRow planDay, FeedbackRequest request) {

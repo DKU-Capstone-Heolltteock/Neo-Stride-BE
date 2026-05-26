@@ -186,6 +186,38 @@ class CommunityRepositoryTest {
 		assertThat(content.contentText()).isEqualTo("run encoded");
 	}
 
+	@Test
+	void updateRelationshipDeleteRemovesAcceptedFriendshipInEitherDirection() {
+		repository.updateRelationship(1L, new com.neostride.server.community.dto.FriendRequest(2L, "delete"));
+
+		verify(jdbcTemplate).update(
+				"DELETE FROM relationships WHERE status='ACCEPTED' AND ((user1_id=? AND user2_id=?) OR (user1_id=? AND user2_id=?))",
+				1L, 2L, 2L, 1L
+		);
+	}
+
+	@Test
+	void updateRelationshipBlockReplacesExistingPairWithCurrentUserBlock() {
+		repository.updateRelationship(1L, new com.neostride.server.community.dto.FriendRequest(2L, "block"));
+
+		verify(jdbcTemplate).update(
+				"DELETE FROM relationships WHERE (user1_id=? AND user2_id=?) OR (user1_id=? AND user2_id=?)",
+				1L, 2L, 2L, 1L
+		);
+		verify(jdbcTemplate).update("INSERT INTO relationships (user1_id, user2_id, status) VALUES (?, ?, 'BLOCKED')", 1L, 2L);
+	}
+
+	@Test
+	void getUserProfileProjectsViewerRelationshipFlags() {
+		when(jdbcTemplate.query(anyString(), any(RowMapper.class), any(Object[].class))).thenReturn(List.of());
+
+		repository.getUserProfile(1L, 2L);
+
+		ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
+		verify(jdbcTemplate).query(sql.capture(), any(RowMapper.class), eq(1L), eq(1L), eq(1L), eq(2L));
+		assertThat(sql.getValue()).contains("AS is_friend", "AS is_blocked", "r.status = 'BLOCKED' AND r.user1_id = ?");
+	}
+
 	private ResultSet contentRowWithRunningRecord() throws Exception {
 		ResultSet rs = mock(ResultSet.class);
 		when(rs.getLong("content_id")).thenReturn(1L);

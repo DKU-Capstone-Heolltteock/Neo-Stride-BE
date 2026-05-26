@@ -49,7 +49,7 @@ class CoachingServiceTest {
 	}
 
 	@Test
-	void createGoal_usesAiGeneratedDatesButPreservesUserTargetValuesWhenAiClientReturnsPlan() {
+	void createGoal_storesAiGeneratedDailyTargetsButPreservesGoalValues() {
 		GoalRequest request = new GoalRequest(1L, "custom", 1, List.of("mon", "wed"), new BigDecimal("5.0"), new BigDecimal("6.5"), "2026-05-04");
 		when(aiCoachingClient.generatePlan(request, 1, LocalDate.parse("2026-05-04")))
 				.thenReturn(new AiCoachingPlan("AI 맞춤 1주 플랜", List.of(
@@ -61,14 +61,37 @@ class CoachingServiceTest {
 
 		service.createGoal(request);
 
+		verify(repository).insertGoal(argThat(command ->
+				command.targetDistance().compareTo(new BigDecimal("5.00")) == 0
+						&& command.targetPace().compareTo(new BigDecimal("6.50")) == 0
+		));
 		verify(repository).insertPlanDays(eq(1L), eq(10L), argThat(commands ->
 				commands.size() == 2
 						&& commands.get(0).planDate().equals(LocalDate.parse("2026-05-04"))
-						&& commands.get(0).targetDistance().compareTo(new BigDecimal("5.00")) == 0
-						&& commands.get(0).targetPace().compareTo(new BigDecimal("6.50")) == 0
+						&& commands.get(0).targetDistance().compareTo(new BigDecimal("2.50")) == 0
+						&& commands.get(0).targetPace().compareTo(new BigDecimal("7.25")) == 0
 						&& commands.get(1).planDate().equals(LocalDate.parse("2026-05-06"))
-						&& commands.get(1).targetDistance().compareTo(new BigDecimal("5.00")) == 0
+						&& commands.get(1).targetDistance().compareTo(new BigDecimal("3.00")) == 0
 						&& commands.get(1).targetPace().compareTo(new BigDecimal("6.50")) == 0
+		));
+	}
+
+	@Test
+	void createGoal_usesProgressiveDailyTargetsWhenAiPlanIsUnavailable() {
+		GoalRequest request = new GoalRequest(1L, "custom", 1, List.of("mon", "wed", "fri"), new BigDecimal("10.0"), new BigDecimal("5.0"), "2026-05-04");
+		when(repository.insertGoal(any())).thenReturn(10L);
+		when(repository.findPlanDaysByGoalId(10L)).thenReturn(List.of());
+
+		service.createGoal(request);
+
+		verify(repository).insertPlanDays(eq(1L), eq(10L), argThat(commands ->
+				commands.size() == 3
+						&& commands.get(0).targetDistance().compareTo(new BigDecimal("6.00")) == 0
+						&& commands.get(0).targetPace().compareTo(new BigDecimal("5.60")) == 0
+						&& commands.get(1).targetDistance().compareTo(new BigDecimal("8.00")) == 0
+						&& commands.get(1).targetPace().compareTo(new BigDecimal("5.30")) == 0
+						&& commands.get(2).targetDistance().compareTo(new BigDecimal("10.00")) == 0
+						&& commands.get(2).targetPace().compareTo(new BigDecimal("5.00")) == 0
 		));
 	}
 
@@ -133,6 +156,24 @@ class CoachingServiceTest {
 		assertThat(response.planDayId()).isEqualTo(20L);
 		assertThat(response.completed()).isTrue();
 		assertThat(response.aiFeedbackComment()).isNotBlank();
+	}
+
+	@Test
+	void requestFeedback_fallbackBuildsCoachingCommentWhenAiClientReturnsNoComment() {
+		FeedbackRequest request = new FeedbackRequest(20L, new BigDecimal("3.20"), 1240, new BigDecimal("6.45"));
+		PlanDayRow planDay = new PlanDayRow(20L, 1L, 10L, LocalDate.parse("2026-05-04"),
+				new BigDecimal("5.00"), new BigDecimal("6.00"), false, null, LocalDateTime.parse("2026-05-01T09:00:00"));
+		when(repository.findPlanDayByIdForUser(20L, 1L)).thenReturn(planDay);
+		when(aiCoachingClient.generateFeedback(any())).thenReturn(null);
+		when(repository.updateFeedbackForUser(eq(1L), eq(20L), any())).thenReturn(true);
+
+		var response = service.requestFeedback(1L, 20L, request);
+
+		assertThat(response.aiFeedbackComment())
+				.contains("평균 페이스 6.45분/km")
+				.contains("목표보다 1.80km 부족")
+				.contains("회복");
+		verify(repository).updateFeedbackForUser(eq(1L), eq(20L), argThat(feedback -> !feedback.startsWith("러닝 완료:")));
 	}
 
 	@Test

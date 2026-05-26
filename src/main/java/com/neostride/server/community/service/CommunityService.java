@@ -16,6 +16,7 @@ public class CommunityService {
 	private final CommunityRepository repository;
 	public CommunityService(CommunityRepository repository) { this.repository = repository; }
 	public UserProfileResponse getUserProfile(long userId) { validatePositive(userId, "user_id"); return repository.getUserProfile(userId); }
+	public UserProfileResponse getUserProfile(Long viewerUserId, long targetUserId) { validatePositive(targetUserId, "user_id"); if (viewerUserId != null) validatePositive(viewerUserId, "viewer_user_id"); return repository.getUserProfile(viewerUserId, targetUserId); }
 	public AccountInfoResponse getAccountInfo(long userId) { validatePositive(userId, "user_id"); return repository.getAccountInfo(userId); }
 	public void updateStatusMessage(long userId, Map<String, String> body) { validatePositive(userId, "user_id"); requireBody(body); repository.updateStatusMessage(userId, body.get("status_message")); }
 	public void updateNickname(long userId, Map<String, String> body) { validatePositive(userId, "user_id"); requireBody(body); repository.updateNickname(userId, body.get("nickname")); }

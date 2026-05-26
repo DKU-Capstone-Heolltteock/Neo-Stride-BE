@@ -38,7 +38,7 @@ class CommunityControllerTest {
 
 	@Test
 	void getUserProfile_returnsAuthenticatedUserProfile() {
-		UserProfileResponse body = new UserProfileResponse("neo", "photo.png", "running", 2, 3, 4, 5, 6, 7);
+		UserProfileResponse body = new UserProfileResponse("neo", "photo.png", "running", false, false, 2, 3, 4, 5, 6, 7);
 		authenticate();
 		when(service.getUserProfile(1L)).thenReturn(body);
 
@@ -259,16 +259,17 @@ class CommunityControllerTest {
 
 	@Test
 	void runnerPageApis_returnOtherUserProfileBadgeFeedsAndFriends() {
-		UserProfileResponse profile = new UserProfileResponse("runner", "photo.png", "ready", 2, 3, 0, 0, 0, 0);
+		UserProfileResponse profile = new UserProfileResponse("runner", "photo.png", "ready", true, false, 2, 3, 0, 0, 0, 0);
 		BadgeDetailResponse badge = new BadgeDetailResponse("GOLD", 11L, new BigDecimal("10.0"), "5", "2026-05-11T00:00:00");
 		List<CommunityContentResponse> feeds = List.of(new CommunityContentResponse(10L, "text", new BigDecimal("3.2"), 1200, 6, "2026-05-11T00:00:00"));
 		List<FriendResponse> friends = List.of(new FriendResponse(3L, "friend", "SILVER", 4, "friend.png", "friends"));
-		when(service.getUserProfile(2L)).thenReturn(profile);
+		authenticate();
+		when(service.getUserProfile(1L, 2L)).thenReturn(profile);
 		when(service.getBadgeDetail(2L)).thenReturn(badge);
 		when(service.getUserFeeds(2L)).thenReturn(feeds);
 		when(service.getUserFriendList(2L)).thenReturn(friends);
 
-		assertThat(controller.getRunnerProfile(2L).getBody()).isSameAs(profile);
+		assertThat(controller.getRunnerProfile(AUTHORIZATION, 1L, 2L).getBody()).isSameAs(profile);
 		assertThat(controller.getUserBadgeDetail(2L).getBody()).isSameAs(badge);
 		assertThat(controller.getRunnerFeeds(2L).getBody()).isSameAs(feeds);
 		assertThat(controller.getUserFriendList(2L).getBody()).isSameAs(friends);

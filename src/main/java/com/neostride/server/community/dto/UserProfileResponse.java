@@ -6,6 +6,8 @@ public record UserProfileResponse(
 		@JsonProperty("community_profile_name") String nickname,
 		@JsonProperty("profile_photo") String profilePhoto,
 		@JsonProperty("status_message") String statusMessage,
+		@JsonProperty("is_friend") boolean friend,
+		@JsonProperty("is_blocked") boolean blocked,
 		@JsonProperty("friend_count") Integer friendCount,
 		@JsonProperty("post_count") Integer postCount,
 		@JsonProperty("tagged_count") Integer taggedCount,

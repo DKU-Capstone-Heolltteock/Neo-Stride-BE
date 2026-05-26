@@ -44,8 +44,12 @@ public class CommunityController {
 			@RequestHeader(value = "Authorization", required = false) String authorization,
 			@RequestHeader(value = "X-User-Id", required = false) Long headerUserId
 	) { return ResponseEntity.ok(service.getUserProfile(authenticatedUserId(authorization, headerUserId))); }
-	@GetMapping("/users/{userId}/profile")
-	public ResponseEntity<UserProfileResponse> getRunnerProfile(@org.springframework.web.bind.annotation.PathVariable long userId) { return ResponseEntity.ok(service.getUserProfile(userId)); }
+	@GetMapping({"/users/{userId}/profile", "/community/runners/{userId}/profile", "/api/community/runners/{userId}/profile"})
+	public ResponseEntity<UserProfileResponse> getRunnerProfile(
+			@RequestHeader(value = "Authorization", required = false) String authorization,
+			@RequestHeader(value = "X-User-Id", required = false) Long headerUserId,
+			@org.springframework.web.bind.annotation.PathVariable long userId
+	) { return ResponseEntity.ok(service.getUserProfile(optionalUserId(authorization, headerUserId), userId)); }
 	@GetMapping("/users/me/account")
 	public ResponseEntity<AccountInfoResponse> getAccountInfo(
 			@RequestHeader(value = "Authorization", required = false) String authorization,
