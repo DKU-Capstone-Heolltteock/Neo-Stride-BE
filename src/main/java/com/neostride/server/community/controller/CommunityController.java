@@ -142,7 +142,7 @@ public class CommunityController {
 	) { return ResponseEntity.ok(service.getFriendList(authenticatedUserId(authorization, headerUserId), status)); }
 	@GetMapping("/community/friends/user/{userId}")
 	public ResponseEntity<List<FriendResponse>> getUserFriendList(@org.springframework.web.bind.annotation.PathVariable long userId) { return ResponseEntity.ok(service.getUserFriendList(userId)); }
-	@PostMapping("/community/friends/action")
+	@PostMapping({"/community/friends/action", "/api/community/friends/action"})
 	public ResponseEntity<Map<String, String>> updateCommunityRelationship(
 			@RequestHeader(value = "Authorization", required = false) String authorization,
 			@RequestHeader(value = "X-User-Id", required = false) Long headerUserId,
@@ -241,19 +241,28 @@ public class CommunityController {
 			@RequestParam Map<String, String> fields,
 			@RequestPart(value = "images", required = false) List<MultipartFile> images,
 			@RequestPart(value = "route_image", required = false) MultipartFile routeImage,
-			@RequestPart(value = "routeMapImage", required = false) MultipartFile routeMapImage
+			@RequestPart(value = "routeMapImage", required = false) MultipartFile routeMapImage,
+			@RequestPart(value = "route_map_image", required = false) MultipartFile routeMapImageSnake
 	) {
 		FeedUploadRequest request = new FeedUploadRequest(
-				fields.get("title"), fields.get("content"), fields.get("privacy"), bool(fields.get("mapVisible")),
-				storedRouteUri(routeImage != null ? routeImage : routeMapImage), parseLongList(fields.get("taggedUserIds")), storedImageUris(images),
-				decimal(fields.get("distance")), fields.get("runningTime"), fields.get("pace"), parseInt(fields.get("tagCount"))
-		);
+					fields.get("title"), fields.get("content"), fields.get("privacy"), bool(fields.get("mapVisible"), fields.get("map_visible")),
+					storedRouteUri(routeImage != null ? routeImage : (routeMapImage != null ? routeMapImage : routeMapImageSnake)),
+					parseLongList(first(fields, "taggedUserIds", "tagged_user_ids")), storedImageUris(images),
+					decimal(first(fields, "distance", "total_distance", "totalDistance")),
+					first(fields, "runningTime", "running_time", "duration"),
+					first(fields, "pace", "running_pace", "runningPace"),
+					parseInt(fields, "tagCount", "tag_count"),
+					firstLong(fields, "running_record_id", "run_record_id", "runningRecordId", "runRecordId")
+			);
 		return ResponseEntity.status(HttpStatus.CREATED).body(service.uploadFeed(authenticatedUserId(authorization, headerUserId), request));
 	}
 	@GetMapping("/feeds")
 	public ResponseEntity<List<FeedUploadResponse>> getFeedList() { return ResponseEntity.ok(service.getFeedList()); }
 	@GetMapping("/api/community/feeds")
-	public ResponseEntity<List<FeedUploadResponse>> getCommunityFeedList() { return ResponseEntity.ok(service.getFeedList()); }
+	public ResponseEntity<List<FeedUploadResponse>> getCommunityFeedList(
+			@RequestHeader(value = "Authorization", required = false) String authorization,
+			@RequestHeader(value = "X-User-Id", required = false) Long headerUserId
+	) { return ResponseEntity.ok(service.getFeedList(optionalUserId(authorization, headerUserId))); }
 	@PostMapping("/api/tips")
 	public ResponseEntity<TipUploadResponse> uploadTip(
 			@RequestHeader(value = "Authorization", required = false) String authorization,
@@ -288,6 +297,21 @@ public class CommunityController {
 			@RequestHeader(value = "Authorization", required = false) String authorization,
 			@RequestHeader(value = "X-User-Id", required = false) Long headerUserId
 	) { return ResponseEntity.ok(service.getTips(optionalUserId(authorization, headerUserId)).tips()); }
+	@GetMapping("/api/community/tips/likes")
+	public ResponseEntity<List<TipUploadResponse>> getLikedTips(
+			@RequestHeader(value = "Authorization", required = false) String authorization,
+			@RequestHeader(value = "X-User-Id", required = false) Long headerUserId
+	) { return ResponseEntity.ok(service.getLikedTips(authenticatedUserId(authorization, headerUserId))); }
+	@GetMapping("/api/community/tips/bookmarks")
+	public ResponseEntity<List<TipUploadResponse>> getBookmarkedTips(
+			@RequestHeader(value = "Authorization", required = false) String authorization,
+			@RequestHeader(value = "X-User-Id", required = false) Long headerUserId
+	) { return ResponseEntity.ok(service.getBookmarkedTips(authenticatedUserId(authorization, headerUserId))); }
+	@GetMapping("/api/community/tips/comments")
+	public ResponseEntity<List<TipUploadResponse>> getCommentedTips(
+			@RequestHeader(value = "Authorization", required = false) String authorization,
+			@RequestHeader(value = "X-User-Id", required = false) Long headerUserId
+	) { return ResponseEntity.ok(service.getCommentedTips(authenticatedUserId(authorization, headerUserId))); }
 	@GetMapping("/api/community/tips/me")
 	public ResponseEntity<List<TipUploadResponse>> getMyTips(
 			@RequestHeader(value = "Authorization", required = false) String authorization,
@@ -376,7 +400,7 @@ public class CommunityController {
 			@RequestHeader(value = "Authorization", required = false) String authorization,
 			@RequestHeader(value = "X-User-Id", required = false) Long headerUserId,
 			@RequestParam(value = "keyword", required = false) String keyword
-	) { return ResponseEntity.ok(service.searchFriends(authenticatedUserId(authorization, headerUserId), keyword)); }
+	) { return ResponseEntity.ok(asFriends(service.searchFriends(authenticatedUserId(authorization, headerUserId), keyword))); }
 
 	@GetMapping("/api/community/search/top-profiles")
 	public ResponseEntity<List<SearchUserResponse>> getTopProfiles(
@@ -388,11 +412,44 @@ public class CommunityController {
 	public ResponseEntity<List<SearchUserResponse>> getMyFriends(
 			@RequestHeader(value = "Authorization", required = false) String authorization,
 			@RequestHeader(value = "X-User-Id", required = false) Long headerUserId
-	) { return ResponseEntity.ok(service.getMyFriends(authenticatedUserId(authorization, headerUserId))); }
+	) { return ResponseEntity.ok(asFriends(service.getMyFriends(authenticatedUserId(authorization, headerUserId)))); }
 
-	private static boolean bool(String value) { return Boolean.parseBoolean(value); }
-	private static int parseInt(String value) { return value == null || value.isBlank() ? 0 : Integer.parseInt(value); }
+	private static String first(Map<String, String> fields, String... names) {
+		for (String name : names) {
+			String value = fields.get(name);
+			if (value != null && !value.isBlank()) return value.trim();
+		}
+		return null;
+	}
+	private static boolean bool(String value) { return Boolean.parseBoolean(value != null ? value.trim() : null); }
+	private static boolean bool(String... values) {
+		for (String value : values) {
+			if (value != null && !value.isBlank()) return Boolean.parseBoolean(value.trim());
+		}
+		return false;
+	}
+	private static int parseInt(String value) { return value == null || value.isBlank() ? 0 : Integer.parseInt(value.trim()); }
+	private static int parseInt(Map<String, String> fields, String... names) {
+		String value = first(fields, names);
+		return value == null || value.isBlank() ? 0 : Integer.parseInt(value);
+	}
+	private static Long firstLong(Map<String, String> fields, String... names) {
+		for (String name : names) {
+			String value = fields.get(name);
+			if (value != null && !value.isBlank()) return Long.parseLong(value.trim());
+		}
+		return null;
+	}
 	private static BigDecimal decimal(String value) { return value == null || value.isBlank() ? null : new BigDecimal(value); }
+	private static List<SearchUserResponse> asFriends(List<SearchUserResponse> users) {
+		if (users == null || users.isEmpty()) return List.of();
+		return users.stream().map(CommunityController::asFriend).toList();
+	}
+	private static SearchUserResponse asFriend(SearchUserResponse response) {
+		if (response == null) return null;
+		return new SearchUserResponse(response.userId(), response.nickname(), response.profileImageUrl(), response.statusMessage(), response.friendCount(), response.badgeTier(), "friends");
+	}
+
 	private static List<Long> parseLongList(String value) {
 		if (value == null || value.isBlank()) return List.of();
 		String normalized = value.trim();

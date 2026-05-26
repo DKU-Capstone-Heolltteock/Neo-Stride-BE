@@ -1,6 +1,7 @@
 package com.neostride.server.auth.controller;
 
 import com.neostride.server.auth.dto.LoginRequest;
+import com.neostride.server.auth.dto.RefreshRequest;
 import com.neostride.server.auth.dto.LoginResponse;
 import com.neostride.server.auth.dto.SignupRequest;
 import com.neostride.server.auth.dto.SignupResponse;
@@ -116,5 +117,10 @@ public class AuthController {
 	@PostMapping("/login")
 	public ResponseEntity<LoginResponse> login(@RequestBody LoginRequest request) {
 		return ResponseEntity.ok(authService.login(request));
+	}
+
+	@PostMapping("/refresh")
+	public ResponseEntity<LoginResponse> refresh(@RequestBody RefreshRequest request) {
+		return ResponseEntity.ok(authService.refresh(request.refreshToken()));
 	}
 }

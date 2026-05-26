@@ -170,7 +170,7 @@ class CommunityControllerTest {
 		when(storageService.storeImage(route, "routes")).thenReturn("/uploads/routes/route-id.webp");
 		when(service.uploadFeed(1L, expected)).thenReturn(uploaded);
 
-		var response = controller.uploadFeedMultipart(AUTHORIZATION, 1L, Map.of("title", "title", "content", "content", "privacy", "PUBLIC", "mapVisible", "true", "taggedUserIds", "2", "distance", "3.2", "runningTime", "20:00", "pace", "6'15\"", "tagCount", "1"), List.of(image), route, null);
+		var response = controller.uploadFeedMultipart(AUTHORIZATION, 1L, Map.of("title", "title", "content", "content", "privacy", "PUBLIC", "mapVisible", "true", "taggedUserIds", "2", "distance", "3.2", "runningTime", "20:00", "pace", "6'15\"", "tagCount", "1"), List.of(image), route, null, null);
 
 		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CREATED);
 		assertThat(response.getBody()).isSameAs(uploaded);
@@ -186,9 +186,56 @@ class CommunityControllerTest {
 		when(storageService.storeImage(route, "routes")).thenReturn("/uploads/routes/route-id.png");
 		when(service.uploadFeed(1L, expected)).thenReturn(uploaded);
 
-		var response = controller.uploadFeedMultipart(AUTHORIZATION, 1L, Map.of("title", "title", "content", "content", "privacy", "PUBLIC", "mapVisible", "true", "taggedUserIds", "[2,3]", "runningTime", "20:00", "pace", "6'15\"", "tagCount", "2"), null, null, route);
+		var response = controller.uploadFeedMultipart(AUTHORIZATION, 1L, Map.of("title", "title", "content", "content", "privacy", "PUBLIC", "mapVisible", "true", "taggedUserIds", "[2,3]", "runningTime", "20:00", "pace", "6'15\"", "tagCount", "2"), null, null, route, null);
 
 		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+		verify(service).uploadFeed(1L, expected);
+	}
+
+	@Test
+	void uploadFeedMultipart_supportsAndroidAliasesForMetricsAndRouteImageField() {
+		MockMultipartFile image = new MockMultipartFile("images", "feed.jpg", "image/jpeg", new byte[] {(byte) 0xff, (byte) 0xd8, (byte) 0xff});
+		MockMultipartFile route = new MockMultipartFile("route_map_image", "route.png", "image/png", new byte[] {(byte) 0x89, 'P', 'N', 'G', 13, 10, 26, 10});
+		FeedUploadRequest expected = new FeedUploadRequest("title", "content", "PUBLIC", true, "/uploads/routes/route-id.png", List.of(2L, 3L), List.of("/uploads/community/feed-id.jpg"), new BigDecimal("3.2"), "20:00", "6'15\"", 1);
+		FeedUploadResponse uploaded = new FeedUploadResponse(99L, null, "neo", "2026-05-11T00:00:00", "title", "content", 1, 0, 0, "3.20 km", "20:00", "6'15\"", true, "/uploads/routes/route-id.png", List.of("/uploads/community/feed-id.jpg"));
+		authenticate();
+		when(storageService.storeImage(image, "community")).thenReturn("/uploads/community/feed-id.jpg");
+		when(storageService.storeImage(route, "routes")).thenReturn("/uploads/routes/route-id.png");
+		when(service.uploadFeed(1L, expected)).thenReturn(uploaded);
+
+		var response = controller.uploadFeedMultipart(
+				AUTHORIZATION, 1L,
+				Map.of("title", "title", "content", "content", "privacy", "PUBLIC", "map_visible", "true", "tagged_user_ids", "[2,3]", "total_distance", "3.2", "duration", "20:00", "running_pace", "6'15\"", "tag_count", "1"),
+				List.of(image),
+				null,
+				null,
+				route
+		);
+
+		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+		assertThat(response.getBody()).isSameAs(uploaded);
+		verify(service).uploadFeed(1L, expected);
+	}
+
+	@Test
+	void uploadFeedMultipart_mapsRunningRecordIdFromSnakeCaseAlias() {
+		FeedUploadRequest expected = new FeedUploadRequest("title", "content", "PUBLIC", true, null, List.of(), List.of(), null, "30:00", null, 0, 555L);
+		FeedUploadResponse uploaded = new FeedUploadResponse(99L, null, "neo", "2026-05-11T00:00:00", "title", "content", 0, 0, 0, "0.00 km", "30:00", null, true, null, List.of());
+		authenticate();
+		when(service.uploadFeed(1L, expected)).thenReturn(uploaded);
+
+		var response = controller.uploadFeedMultipart(
+				AUTHORIZATION,
+				1L,
+				Map.of("title", "title", "content", "content", "privacy", "PUBLIC", "mapVisible", "true", "duration", "30:00", "run_record_id", "555"),
+				null,
+				null,
+				null,
+				null
+		);
+
+		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+		assertThat(response.getBody()).isSameAs(uploaded);
 		verify(service).uploadFeed(1L, expected);
 	}
 
@@ -203,7 +250,7 @@ class CommunityControllerTest {
 		when(storageService.storeImage(second, "community")).thenReturn("/uploads/community/second.jpg");
 		when(service.uploadFeed(1L, expected)).thenReturn(uploaded);
 
-		var response = controller.uploadFeedMultipart(AUTHORIZATION, 1L, Map.of("title", "title"), List.of(first, second), null, null);
+		var response = controller.uploadFeedMultipart(AUTHORIZATION, 1L, Map.of("title", "title"), List.of(first, second), null, null, null);
 
 		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CREATED);
 		assertThat(response.getBody()).isSameAs(uploaded);

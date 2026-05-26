@@ -60,6 +60,26 @@ public class AuthService {
 		return LoginResponse.success(user.userId(), user.email(), user.name(), accessToken, refreshToken);
 	}
 
+	@Transactional
+	public LoginResponse refresh(String refreshToken) {
+		if (refreshToken == null || refreshToken.isBlank()) {
+			throw new InvalidCredentialsException("유효하지 않은 리프레시 토큰입니다.");
+		}
+		JwtTokenService.TokenClaims claims;
+		try {
+			claims = jwtTokenService.verify(refreshToken);
+		} catch (IllegalArgumentException exception) {
+			throw new InvalidCredentialsException("유효하지 않은 리프레시 토큰입니다.");
+		}
+		if (!"refresh".equals(claims.type())) {
+			throw new InvalidCredentialsException("유효하지 않은 리프레시 토큰입니다.");
+		}
+		String accessToken = jwtTokenService.generateAccessToken(claims.userId(), claims.email(), claims.name());
+		String nextRefreshToken = jwtTokenService.generateRefreshToken(claims.userId(), claims.email(), claims.name());
+		return LoginResponse.success(claims.userId(), claims.email(), claims.name(), accessToken, nextRefreshToken);
+	}
+
+
 	private void validateSignup(SignupRequest request) {
 		if (request == null) {
 			throw new IllegalArgumentException("요청 본문이 필요합니다.");

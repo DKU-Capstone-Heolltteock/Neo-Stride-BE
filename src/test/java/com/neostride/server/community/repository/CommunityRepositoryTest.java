@@ -1,5 +1,8 @@
 package com.neostride.server.community.repository;
 
+import com.neostride.server.community.dto.FeedUploadRequest;
+import com.neostride.server.community.dto.FeedUploadResponse;
+import com.neostride.server.community.dto.CommunityContentResponse;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -7,6 +10,7 @@ import org.springframework.jdbc.core.PreparedStatementCreator;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.jdbc.support.KeyHolder;
 
+import java.math.BigDecimal;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -54,6 +58,50 @@ class CommunityRepositoryTest {
 	}
 
 	@Test
+	void insertFeed_persistsRunningMetricsForAndroidUploadFallback() throws Exception {
+		doAnswer(invocation -> {
+			KeyHolder keyHolder = invocation.getArgument(1);
+			keyHolder.getKeyList().add(Map.of("GENERATED_KEY", 10L));
+			return 1;
+		}).when(jdbcTemplate).update(any(PreparedStatementCreator.class), any(KeyHolder.class));
+		FeedUploadRequest request = new FeedUploadRequest("title", "body", "PUBLIC", true, "route.png", List.of(), List.of(), new BigDecimal("3.2"), "20:00", "6'15\"", 0);
+
+		repository.insertFeed(1L, request);
+
+		ArgumentCaptor<PreparedStatementCreator> creator = ArgumentCaptor.forClass(PreparedStatementCreator.class);
+		verify(jdbcTemplate).update(creator.capture(), any(KeyHolder.class));
+		Connection connection = mock(Connection.class);
+		PreparedStatement preparedStatement = mock(PreparedStatement.class);
+		ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
+		when(connection.prepareStatement(sql.capture(), eq(Statement.RETURN_GENERATED_KEYS))).thenReturn(preparedStatement);
+
+		creator.getValue().createPreparedStatement(connection);
+
+		ArgumentCaptor<String> contentText = ArgumentCaptor.forClass(String.class);
+		assertThat(sql.getValue()).contains("running_record_id");
+		verify(preparedStatement).setObject(2, null);
+		verify(preparedStatement).setString(eq(5), contentText.capture());
+		assertThat(contentText.getValue()).contains("---NEOSTRIDE-METRICS---", "3.2", "20:00", "6'15\"");
+	}
+
+	@Test
+	void listFeeds_mapsStoredMetricsWhenRunningRecordIsNotLinked() throws Exception {
+		when(jdbcTemplate.query(anyString(), any(RowMapper.class), any(Object[].class))).thenAnswer(invocation -> {
+			RowMapper<FeedUploadResponse> mapper = invocation.getArgument(1);
+			return List.of(mapper.mapRow(feedRowWithStoredMetrics(), 0));
+		});
+
+		List<FeedUploadResponse> feeds = repository.listFeeds();
+
+		assertThat(feeds).hasSize(1);
+		FeedUploadResponse feed = feeds.getFirst();
+		assertThat(feed.distance()).isEqualTo("3.20 km");
+		assertThat(feed.duration()).isEqualTo("20:00");
+		assertThat(feed.pace()).isEqualTo("6'15\"");
+		assertThat(feed.routeMapImageUri()).isEqualTo("route.png");
+	}
+
+	@Test
 	void createComment_persistsCommentTextInsteadOfOnlyCountingInteraction() throws Exception {
 		when(jdbcTemplate.query(anyString(), any(RowMapper.class), eq(99L))).thenReturn(List.of(commentRow(99L, 1L, "좋은 팁입니다")));
 		doAnswer(invocation -> {
@@ -92,6 +140,7 @@ class CommunityRepositoryTest {
 	}
 
 	@Test
+	//lineA
 	void listTips_mapsLegacyEtcTipTypeToFreeCategoryForClient() throws Exception {
 		when(jdbcTemplate.query(anyString(), any(RowMapper.class), any(Object[].class))).thenAnswer(invocation -> {
 			RowMapper<com.neostride.server.community.dto.TipUploadResponse> mapper = invocation.getArgument(1);
@@ -102,6 +151,82 @@ class CommunityRepositoryTest {
 
 		assertThat(tips).hasSize(1);
 		assertThat(tips.getFirst().category()).isEqualTo("FREE");
+	}
+
+
+	@Test
+	void myFeeds_usesRunningRecordMetricsWhenLinked() throws Exception {
+		when(jdbcTemplate.query(anyString(), any(RowMapper.class), any(Object[].class))).thenAnswer(invocation -> {
+			RowMapper<CommunityContentResponse> mapper = invocation.getArgument(1);
+			return List.of(mapper.mapRow(contentRowWithRunningRecord(), 0));
+		});
+
+		List<CommunityContentResponse> feeds = repository.myFeeds(1L);
+		assertThat(feeds).hasSize(1);
+		CommunityContentResponse content = feeds.getFirst();
+		assertThat(content.totalDistance()).isEqualByComparingTo("7.30");
+		assertThat(content.duration()).isEqualTo(1234);
+		assertThat(content.pace()).isEqualTo(375);
+		assertThat(content.contentText()).isEqualTo("run linked");
+	}
+
+	@Test
+	void myFeeds_fallsBackToEncodedMetricsWhenRunningRecordIsNotLinked() throws Exception {
+		when(jdbcTemplate.query(anyString(), any(RowMapper.class), any(Object[].class))).thenAnswer(invocation -> {
+			RowMapper<CommunityContentResponse> mapper = invocation.getArgument(1);
+			return List.of(mapper.mapRow(contentRowWithEncodedMetrics(), 0));
+		});
+
+		List<CommunityContentResponse> feeds = repository.myFeeds(1L);
+		assertThat(feeds).hasSize(1);
+		CommunityContentResponse content = feeds.getFirst();
+		assertThat(content.totalDistance()).isEqualByComparingTo("3.2");
+		assertThat(content.duration()).isEqualTo(1200);
+		assertThat(content.pace()).isEqualTo(375);
+		assertThat(content.contentText()).isEqualTo("run encoded");
+	}
+
+	private ResultSet contentRowWithRunningRecord() throws Exception {
+		ResultSet rs = mock(ResultSet.class);
+		when(rs.getLong("content_id")).thenReturn(1L);
+		when(rs.getString("content_text")).thenReturn("title\n---NEOSTRIDE-FEED---\nrun linked\n---NEOSTRIDE-ROUTE---\n");
+		when(rs.getTimestamp("created_at")).thenReturn(Timestamp.valueOf("2026-05-11 00:00:00"));
+		when(rs.getObject("joined_running_record_id")).thenReturn(10L);
+		when(rs.getBigDecimal("total_distance")).thenReturn(new BigDecimal("7.30"));
+		when(rs.getObject("duration")).thenReturn(1234);
+		when(rs.getObject("pace")).thenReturn(new BigDecimal("6.25"));
+		return rs;
+	}
+
+	private ResultSet contentRowWithEncodedMetrics() throws Exception {
+		ResultSet rs = mock(ResultSet.class);
+		when(rs.getLong("content_id")).thenReturn(2L);
+		when(rs.getString("content_text")).thenReturn("title\n---NEOSTRIDE-FEED---\nrun encoded\n---NEOSTRIDE-ROUTE---\n\n---NEOSTRIDE-METRICS---\n3.2\n---NEOSTRIDE-METRIC---\n20:00\n---NEOSTRIDE-METRIC---\n6\u002715\"");
+		when(rs.getTimestamp("created_at")).thenReturn(Timestamp.valueOf("2026-05-11 00:00:00"));
+		when(rs.getObject("joined_running_record_id")).thenReturn(null);
+		when(rs.getBigDecimal("total_distance")).thenReturn(BigDecimal.ZERO);
+		when(rs.getObject("duration")).thenReturn(null);
+		when(rs.getObject("pace")).thenReturn(null);
+		return rs;
+	}
+
+	private ResultSet feedRowWithStoredMetrics() throws Exception {
+		ResultSet rs = mock(ResultSet.class);
+		when(rs.getLong("content_id")).thenReturn(10L);
+		when(rs.getString("profile_image_url")).thenReturn("photo.png");
+		when(rs.getString("nickname")).thenReturn("neo");
+		when(rs.getTimestamp("created_at")).thenReturn(Timestamp.valueOf("2026-05-11 00:00:00"));
+		when(rs.getString("content_text")).thenReturn("title\n---NEOSTRIDE-FEED---\nbody\n---NEOSTRIDE-ROUTE---\nroute.png\n---NEOSTRIDE-METRICS---\n3.2\n---NEOSTRIDE-METRIC---\n20:00\n---NEOSTRIDE-METRIC---\n6'15\"");
+		when(rs.getObject("joined_running_record_id")).thenReturn(null);
+		when(rs.getBigDecimal("total_distance")).thenReturn(BigDecimal.ZERO);
+		when(rs.getObject("duration")).thenReturn(null);
+		when(rs.getObject("pace")).thenReturn(null);
+		when(rs.getInt("tagged_count")).thenReturn(0);
+		when(rs.getInt("like_count")).thenReturn(0);
+		when(rs.getInt("comment_count")).thenReturn(0);
+		when(rs.getBoolean("include_route_detail")).thenReturn(true);
+		when(rs.getString("image")).thenReturn(null);
+		return rs;
 	}
 
 	private ResultSet tipRow(String tipType) throws Exception {
@@ -129,3 +254,4 @@ class CommunityRepositoryTest {
 		return new com.neostride.server.community.dto.CommentResponse(commentId, writerId, "neo", null, content, "2026-05-11T00:00:00", false, "NONE", true);
 	}
 }
+

@@ -52,4 +52,36 @@ class AuthServiceLoginTest {
 				.isInstanceOf(InvalidCredentialsException.class)
 				.hasMessage("이메일 또는 비밀번호가 올바르지 않습니다.");
 	}
+
+
+
+	@Test
+	void refresh_withValidRefreshToken_issuesNewTokens() {
+		when(jwtTokenService.verify("refresh-token")).thenReturn(new JwtTokenService.TokenClaims(1L, "runner@example.com", "홍길동", "refresh", 0L));
+		when(jwtTokenService.generateAccessToken(1L, "runner@example.com", "홍길동")).thenReturn("new-access-token");
+		when(jwtTokenService.generateRefreshToken(1L, "runner@example.com", "홍길동")).thenReturn("new-refresh-token");
+
+		LoginResponse response = authService.refresh("refresh-token");
+
+		assertThat(response.status()).isEqualTo("success");
+		assertThat(response.userId()).isEqualTo(1L);
+		assertThat(response.accessToken()).isEqualTo("new-access-token");
+		assertThat(response.refreshToken()).isEqualTo("new-refresh-token");
+	}
+
+	@Test
+	void refresh_withAccessToken_throwsInvalidCredentials() {
+		when(jwtTokenService.verify("access-token")).thenReturn(new JwtTokenService.TokenClaims(1L, "runner@example.com", "홍길동", "access", 0L));
+
+		assertThatThrownBy(() -> authService.refresh("access-token"))
+				.isInstanceOf(InvalidCredentialsException.class);
+	}
+
+	@Test
+	void refresh_withInvalidToken_throwsInvalidCredentials() {
+		when(jwtTokenService.verify("bad-token")).thenThrow(new IllegalArgumentException("bad"));
+
+		assertThatThrownBy(() -> authService.refresh("bad-token"))
+				.isInstanceOf(InvalidCredentialsException.class);
+	}
 }

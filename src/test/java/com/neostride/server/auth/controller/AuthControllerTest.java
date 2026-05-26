@@ -1,6 +1,7 @@
 package com.neostride.server.auth.controller;
 
 import com.neostride.server.auth.dto.LoginRequest;
+import com.neostride.server.auth.dto.RefreshRequest;
 import com.neostride.server.auth.dto.LoginResponse;
 import com.neostride.server.auth.dto.SignupRequest;
 import com.neostride.server.auth.dto.SignupResponse;
@@ -73,5 +74,24 @@ class AuthControllerTest {
 		assertThat(response.getBody().userId()).isEqualTo(1L);
 		assertThat(response.getBody().accessToken()).isEqualTo("access-token");
 		assertThat(response.getBody().refreshToken()).isEqualTo("refresh-token");
+	}
+
+	@Test
+	void refresh_returnsOkResponseWithReissuedTokens() {
+		RefreshRequest request = new RefreshRequest("refresh-token");
+		when(authService.refresh(request.refreshToken())).thenReturn(LoginResponse.success(
+				1L,
+				"runner@example.com",
+				"홍길동",
+				"access-token-2",
+				"refresh-token-2"
+		));
+
+		var response = controller.refresh(request);
+
+		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+		assertThat(response.getBody()).isNotNull();
+		assertThat(response.getBody().accessToken()).isEqualTo("access-token-2");
+		assertThat(response.getBody().refreshToken()).isEqualTo("refresh-token-2");
 	}
 }
