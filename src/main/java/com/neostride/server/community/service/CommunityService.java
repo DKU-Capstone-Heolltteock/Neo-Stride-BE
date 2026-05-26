@@ -2,6 +2,8 @@ package com.neostride.server.community.service;
 
 import com.neostride.server.community.dto.*;
 import com.neostride.server.community.repository.CommunityRepository;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeParseException;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -45,6 +47,20 @@ public class CommunityService {
 	public List<FriendResponse> getTaggedUsers(long feedId) { validatePositive(feedId, "feed_id"); return repository.getTaggedUsers(feedId); }
 	public List<FeedUploadResponse> getFeedList() { return getFeedList(null); }
 	public List<FeedUploadResponse> getFeedList(Long viewerUserId) { return repository.listFeeds(viewerUserId); }
+	public FeedPageResponse getFeedPage(Long viewerUserId, String cursorCreatedAt, Long cursorId, int limit) {
+		validateLimit(limit);
+		if (viewerUserId != null) validatePositive(viewerUserId, "viewer_user_id");
+		LocalDateTime parsedCursorCreatedAt = parseFeedCursor(cursorCreatedAt, cursorId);
+		List<FeedUploadResponse> rows = repository.listFeedsPage(viewerUserId, parsedCursorCreatedAt, cursorId, limit + 1);
+		boolean hasMore = rows.size() > limit;
+		List<FeedUploadResponse> items = hasMore ? rows.subList(0, limit) : rows;
+		FeedCursorResponse nextCursor = null;
+		if (hasMore && !items.isEmpty()) {
+			FeedUploadResponse last = items.getLast();
+			nextCursor = new FeedCursorResponse(last.createdAt(), last.feedId());
+		}
+		return new FeedPageResponse(items, nextCursor, hasMore);
+	}
 	public TipUploadResponse uploadTip(long userId, TipUploadRequest request) { validatePositive(userId, "user_id"); requireBody(request); long id = repository.insertTip(userId, request); return repository.findTip(id); }
 	public TipListResponse getTips(Long viewerUserId) { return new TipListResponse(viewerUserId == null ? repository.listTips() : repository.listTips(viewerUserId)); }
 	public List<TipUploadResponse> getMyTips(long userId) { validatePositive(userId, "user_id"); return repository.listTipsByUser(userId); }
@@ -61,14 +77,23 @@ public class CommunityService {
 	public CommentResponse updateTipComment(long userId, long tipId, long commentId, CommentRequest request) { validatePositive(userId, "user_id"); validatePositive(tipId, "tip_id"); validatePositive(commentId, "comment_id"); requireBody(request); return repository.updateComment(userId, tipId, commentId, request); }
 	public void deleteTipComment(long userId, long tipId, long commentId) { validatePositive(userId, "user_id"); validatePositive(tipId, "tip_id"); validatePositive(commentId, "comment_id"); repository.deleteComment(userId, tipId, commentId); }
 	public List<FeedUploadResponse> searchFeeds(String keyword, int page, int size) { validatePage(page, size); return repository.searchFeeds(keyword, page, size); }
+	public List<FeedUploadResponse> searchFeeds(Long viewerUserId, String keyword, int page, int size) { if (viewerUserId != null) validatePositive(viewerUserId, "viewer_user_id"); validatePage(page, size); return repository.searchFeeds(viewerUserId, keyword, page, size); }
 	public List<TipUploadResponse> searchTips(String keyword, String category, int page, int size) { validatePage(page, size); return repository.searchTips(keyword, category, page, size); }
+	public List<TipUploadResponse> searchTips(Long viewerUserId, String keyword, String category, int page, int size) { if (viewerUserId != null) validatePositive(viewerUserId, "viewer_user_id"); validatePage(page, size); return repository.searchTips(viewerUserId, keyword, category, page, size); }
 	public List<SearchUserResponse> searchProfiles(String keyword, int page, int size) {
 		validatePage(page, size);
 		String normalizedKeyword = validateSearchKeyword(keyword);
 		return normalizedKeyword == null ? repository.getTopProfiles(page, size) : repository.searchProfiles(normalizedKeyword, page, size);
 	}
+	public List<SearchUserResponse> searchProfiles(Long viewerUserId, String keyword, int page, int size) {
+		if (viewerUserId != null) validatePositive(viewerUserId, "viewer_user_id");
+		validatePage(page, size);
+		String normalizedKeyword = validateSearchKeyword(keyword);
+		return normalizedKeyword == null ? repository.getTopProfiles(viewerUserId, page, size) : repository.searchProfiles(viewerUserId, normalizedKeyword, page, size);
+	}
 	public List<SearchUserResponse> searchFriends(long userId, String keyword) { validatePositive(userId, "user_id"); return repository.searchFriends(userId, keyword); }
 	public List<SearchUserResponse> getTopProfiles(int page, int size) { validatePage(page, size); return repository.getTopProfiles(page, size); }
+	public List<SearchUserResponse> getTopProfiles(Long viewerUserId, int page, int size) { if (viewerUserId != null) validatePositive(viewerUserId, "viewer_user_id"); validatePage(page, size); return repository.getTopProfiles(viewerUserId, page, size); }
 	public List<SearchUserResponse> getMyFriends(long userId) { validatePositive(userId, "user_id"); return repository.getMyFriends(userId); }
 
 	private Map<String, String> interactionResult(String key, boolean enabled) {
@@ -96,6 +121,23 @@ public class CommunityService {
 		return normalized;
 	}
 
+	private LocalDateTime parseFeedCursor(String cursorCreatedAt, Long cursorId) {
+		boolean hasCreatedAt = !isBlank(cursorCreatedAt);
+		boolean hasId = cursorId != null;
+		if (!hasCreatedAt && !hasId) {
+			return null;
+		}
+		if (!hasCreatedAt || !hasId) {
+			throw new IllegalArgumentException("cursorCreatedAt과 cursorId는 함께 전달해야 합니다.");
+		}
+		validatePositive(cursorId, "cursor_id");
+		try {
+			return LocalDateTime.parse(cursorCreatedAt.trim());
+		} catch (DateTimeParseException exception) {
+			throw new IllegalArgumentException("cursorCreatedAt은 ISO_LOCAL_DATE_TIME 형식이어야 합니다.", exception);
+		}
+	}
+
 	private boolean isBlank(String value) {
 		return value == null || value.isBlank();
 	}
@@ -103,6 +145,12 @@ public class CommunityService {
 	private void validatePositive(long value, String fieldName) {
 		if (value <= 0) {
 			throw new IllegalArgumentException(fieldName + "는 1 이상의 값이어야 합니다.");
+		}
+	}
+
+	private void validateLimit(int limit) {
+		if (limit <= 0 || limit > 100) {
+			throw new IllegalArgumentException("limit은 1 이상 100 이하이어야 합니다.");
 		}
 	}
 

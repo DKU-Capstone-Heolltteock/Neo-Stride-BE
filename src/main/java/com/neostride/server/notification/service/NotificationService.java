@@ -18,6 +18,16 @@ public class NotificationService {
 		return repository.getNotifications(userId);
 	}
 
+	public void markRead(long notificationId) {
+		validatePositive(notificationId, "notification_id");
+		repository.markRead(notificationId);
+	}
+
+	public void markAllRead(long userId) {
+		validatePositive(userId, "user_id");
+		repository.markAllRead(userId);
+	}
+
 	public void deleteNotification(long notificationId) {
 		validatePositive(notificationId, "notification_id");
 		repository.deleteNotification(notificationId);

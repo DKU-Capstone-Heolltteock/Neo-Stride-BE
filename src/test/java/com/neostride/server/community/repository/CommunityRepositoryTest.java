@@ -16,6 +16,7 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.Statement;
 import java.sql.Timestamp;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 
@@ -42,7 +43,52 @@ class CommunityRepositoryTest {
 		ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
 		verify(jdbcTemplate).query(sql.capture(), any(RowMapper.class), any(Object[].class));
 		assertThat(sql.getValue()).contains("cc.content_type = 'POST'");
-		assertThat(sql.getValue()).contains("cc.feed_scope <> 'PRIVATE'");
+		assertThat(sql.getValue()).contains("cc.feed_scope IN ('PUBLIC', 'FRIENDS')");
+	}
+
+
+	@Test
+	void listFeeds_usesContentStatsTableForCounts() {
+		when(jdbcTemplate.query(anyString(), any(RowMapper.class), any(Object[].class))).thenReturn(List.of());
+
+		repository.listFeeds();
+
+		ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
+		verify(jdbcTemplate).query(sql.capture(), any(RowMapper.class), any(Object[].class));
+		assertThat(sql.getValue()).contains("LEFT JOIN community_content_stats stats");
+		assertThat(sql.getValue()).contains("community_content_images");
+		assertThat(sql.getValue()).doesNotContain("SUM(interaction_type='LIKE')");
+	}
+
+	@Test
+	void listFeedsPage_usesLimitWithoutChangingLegacyListContract() {
+		when(jdbcTemplate.query(anyString(), any(RowMapper.class), any(Object[].class))).thenReturn(List.of());
+
+		repository.listFeedsPage(null, null, null, 21);
+
+		ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
+		ArgumentCaptor<Object[]> args = ArgumentCaptor.forClass(Object[].class);
+		verify(jdbcTemplate).query(sql.capture(), any(RowMapper.class), args.capture());
+		assertThat(sql.getValue()).contains("LIMIT ?");
+		assertThat(args.getValue()).containsExactly(21);
+	}
+
+	@Test
+	void listFeedsPageWithViewer_usesCursorBeforeBlockedPredicateArgs() {
+		when(jdbcTemplate.query(anyString(), any(RowMapper.class), any(Object[].class))).thenReturn(List.of());
+
+		repository.listFeedsPage(1L, LocalDateTime.parse("2026-05-26T22:14:32"), 76L, 11);
+
+		ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
+		ArgumentCaptor<Object[]> args = ArgumentCaptor.forClass(Object[].class);
+		verify(jdbcTemplate).query(sql.capture(), any(RowMapper.class), args.capture());
+		assertThat(sql.getValue()).contains("cc.created_at < ?", "cc.content_id < ?", "LIMIT ?");
+		assertThat(args.getValue()).containsExactly(
+				1L, 1L, 1L, 1L, 1L,
+				Timestamp.valueOf("2026-05-26 22:14:32"),
+				Timestamp.valueOf("2026-05-26 22:14:32"),
+				76L, 1L, 1L, 11
+		);
 	}
 
 	@Test
@@ -82,6 +128,22 @@ class CommunityRepositoryTest {
 		verify(preparedStatement).setObject(2, null);
 		verify(preparedStatement).setString(eq(5), contentText.capture());
 		assertThat(contentText.getValue()).contains("---NEOSTRIDE-METRICS---", "3.2", "20:00", "6'15\"");
+	}
+
+
+	@Test
+	void insertFeed_persistsImagesToNormalizedImageTable() {
+		doAnswer(invocation -> {
+			KeyHolder keyHolder = invocation.getArgument(1);
+			keyHolder.getKeyList().add(Map.of("GENERATED_KEY", 10L));
+			return 1;
+		}).when(jdbcTemplate).update(any(PreparedStatementCreator.class), any(KeyHolder.class));
+		FeedUploadRequest request = new FeedUploadRequest("title", "body", "PUBLIC", false, null, List.of(), List.of(" /uploads/community/a.jpg ", "/uploads/community/b.jpg"), null, null, null, 0);
+
+		repository.insertFeed(1L, request);
+
+		verify(jdbcTemplate).update(anyString(), eq(10L), eq(0), eq("/uploads/community/a.jpg"));
+		verify(jdbcTemplate).update(anyString(), eq(10L), eq(1), eq("/uploads/community/b.jpg"));
 	}
 
 	@Test
@@ -158,6 +220,19 @@ class CommunityRepositoryTest {
 		verify(preparedStatement).setString(3, "좋은 팁입니다");
 	}
 
+
+	@Test
+	void listTipsWithViewer_usesContentStatsTableForCounts() {
+		when(jdbcTemplate.query(anyString(), any(RowMapper.class), any(Object[].class))).thenReturn(List.of());
+
+		repository.listTips(1L);
+
+		ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
+		verify(jdbcTemplate).query(sql.capture(), any(RowMapper.class), any(Object[].class));
+		assertThat(sql.getValue()).contains("LEFT JOIN community_content_stats stats");
+		assertThat(sql.getValue()).doesNotContain("SELECT COUNT(*) FROM community_interactions ci WHERE ci.content_id=cc.content_id");
+	}
+
 	@Test
 	void listTipsWithViewer_projectsOwnershipAndCommentMetadataForTipTab() {
 		when(jdbcTemplate.query(anyString(), any(RowMapper.class), any(Object[].class))).thenReturn(List.of());
@@ -232,11 +307,11 @@ class CommunityRepositoryTest {
 	}
 
 	@Test
-	void updateRelationshipDeleteRemovesAcceptedFriendshipInEitherDirection() {
+	void updateRelationshipDeleteRemovesNonBlockedRelationshipInEitherDirection() {
 		repository.updateRelationship(1L, new com.neostride.server.community.dto.FriendRequest(2L, "delete"));
 
 		verify(jdbcTemplate).update(
-				"DELETE FROM relationships WHERE status='ACCEPTED' AND ((user1_id=? AND user2_id=?) OR (user1_id=? AND user2_id=?))",
+				"DELETE FROM relationships WHERE status <> 'BLOCKED' AND ((user1_id=? AND user2_id=?) OR (user1_id=? AND user2_id=?))",
 				1L, 2L, 2L, 1L
 		);
 	}

@@ -64,8 +64,41 @@ class ImageUrlResolverTest {
 				"https://cdn.example.test/photo.jpg"
 		);
 	}
+
 	@Test
-	void toPublicUrl_dropsMissingAndBrokenStoredUploadPaths() throws Exception {
+	void toPublicThumbnailUrl_usesSidecarWhenPresentAndFallsBackToOriginal() throws Exception {
+		Path communityDir = tempDir.resolve("community");
+		Path thumbnailDir = communityDir.resolve("_thumbs");
+		Files.createDirectories(thumbnailDir);
+		Files.write(communityDir.resolve("feed-id.jpg"), imageBytes("jpg"));
+		Files.write(thumbnailDir.resolve("feed-id_480.jpg"), imageBytes("jpg"));
+		Files.write(communityDir.resolve("without-thumb.jpg"), imageBytes("jpg"));
+		ImageUrlResolver resolver = new ImageUrlResolver("https://api.neostride.test", tempDir, "/uploads");
+
+		assertThat(resolver.toPublicThumbnailUrl("/uploads/community/feed-id.jpg"))
+				.isEqualTo("https://api.neostride.test/uploads/community/_thumbs/feed-id_480.jpg");
+		assertThat(resolver.toPublicThumbnailUrl("/uploads/community/without-thumb.jpg"))
+				.isEqualTo("https://api.neostride.test/uploads/community/without-thumb.jpg");
+	}
+
+	@Test
+	void toPublicThumbnailUrl_prefersWebpSidecarWhenRequested() throws Exception {
+		Path communityDir = tempDir.resolve("community");
+		Path thumbnailDir = communityDir.resolve("_thumbs");
+		Files.createDirectories(thumbnailDir);
+		Files.write(communityDir.resolve("feed-id.jpg"), imageBytes("jpg"));
+		Files.write(thumbnailDir.resolve("feed-id_480.jpg"), imageBytes("jpg"));
+		Files.write(thumbnailDir.resolve("feed-id_480.webp"), new byte[] {1});
+		ImageUrlResolver resolver = new ImageUrlResolver("https://api.neostride.test", tempDir, "/uploads");
+
+		assertThat(resolver.toPublicThumbnailUrl("/uploads/community/feed-id.jpg", true))
+				.isEqualTo("https://api.neostride.test/uploads/community/_thumbs/feed-id_480.webp");
+		assertThat(resolver.toPublicThumbnailUrl("/uploads/community/feed-id.jpg", false))
+				.isEqualTo("https://api.neostride.test/uploads/community/_thumbs/feed-id_480.jpg");
+	}
+
+	@Test
+	void toPublicUrl_dropsMissingStoredUploadPathsWithoutDecodingImages() throws Exception {
 		Path communityDir = tempDir.resolve("community");
 		Files.createDirectories(communityDir);
 		Files.write(communityDir.resolve("valid.png"), imageBytes("png"));
@@ -79,7 +112,8 @@ class ImageUrlResolverTest {
 
 		assertThat(resolver.toPublicUrl("/uploads/community/valid.png"))
 				.isEqualTo("https://api.neostride.test/uploads/community/valid.png");
-		assertThat(resolver.toPublicUrl("/uploads/community/broken.png")).isNull();
+		assertThat(resolver.toPublicUrl("/uploads/community/broken.png"))
+				.isEqualTo("https://api.neostride.test/uploads/community/broken.png");
 		assertThat(resolver.toPublicUrl("/uploads/community/missing.png")).isNull();
 	}
 

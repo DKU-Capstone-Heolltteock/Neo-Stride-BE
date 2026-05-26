@@ -4,6 +4,7 @@ import com.neostride.server.community.dto.AccountInfoResponse;
 import com.neostride.server.community.dto.CommentResponse;
 import com.neostride.server.community.dto.CommunityContentResponse;
 import com.neostride.server.community.dto.FeedDetailResponse;
+import com.neostride.server.community.dto.FeedPageResponse;
 import com.neostride.server.community.dto.FeedUploadResponse;
 import com.neostride.server.community.dto.FriendResponse;
 import com.neostride.server.community.dto.SearchUserResponse;
@@ -13,7 +14,9 @@ import com.neostride.server.community.dto.TipUploadResponse;
 import com.neostride.server.community.dto.UserProfileResponse;
 import com.neostride.server.storage.ImageUrlResolver;
 import java.util.List;
+import java.util.Locale;
 import org.springframework.core.MethodParameter;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
 import org.springframework.http.converter.HttpMessageConverter;
 import org.springframework.http.server.ServerHttpRequest;
@@ -38,30 +41,34 @@ public class ImageUrlResponseAdvice implements ResponseBodyAdvice<Object> {
 	public Object beforeBodyWrite(Object body, MethodParameter returnType, MediaType selectedContentType,
 			Class<? extends HttpMessageConverter<?>> selectedConverterType, ServerHttpRequest request,
 			ServerHttpResponse response) {
-		return rewrite(body);
+		boolean thumbnails = shouldUseThumbnails(request);
+		return rewrite(body, thumbnails, thumbnails && shouldUseWebpThumbnails(request));
 	}
 
-	private Object rewrite(Object body) {
+	private Object rewrite(Object body, boolean thumbnails, boolean webpThumbnails) {
 		if (body == null) {
 			return null;
 		}
 		if (body instanceof List<?> values) {
-			return values.stream().map(this::rewrite).toList();
+			return values.stream().map(value -> rewrite(value, thumbnails, webpThumbnails)).toList();
 		}
 		if (body instanceof TipListResponse response) {
-			return new TipListResponse(tips(response.tips()));
+			return new TipListResponse(tips(response.tips(), thumbnails, webpThumbnails));
 		}
 		if (body instanceof FeedUploadResponse response) {
-			return feed(response);
+			return feed(response, thumbnails, webpThumbnails);
+		}
+		if (body instanceof FeedPageResponse response) {
+			return new FeedPageResponse(feeds(response.items(), thumbnails, webpThumbnails), response.nextCursor(), response.hasMore());
 		}
 		if (body instanceof CommunityContentResponse response) {
-			return communityContent(response);
+			return communityContent(response, thumbnails, webpThumbnails);
 		}
 		if (body instanceof FeedDetailResponse response) {
 			return feedDetail(response);
 		}
 		if (body instanceof TipUploadResponse response) {
-			return tip(response);
+			return tip(response, thumbnails, webpThumbnails);
 		}
 		if (body instanceof TipDetailResponse response) {
 			return tipDetail(response);
@@ -91,19 +98,46 @@ public class ImageUrlResponseAdvice implements ResponseBodyAdvice<Object> {
 		return body;
 	}
 
-	private FeedUploadResponse feed(FeedUploadResponse response) {
-		return new FeedUploadResponse(response.feedId(), imageUrlResolver.toPublicUrl(response.profileImageUrl()),
-				response.nickname(), response.createdAt(), response.title(), response.content(), response.taggedCount(),
-				response.likeCount(), response.commentCount(), response.distance(), response.duration(), response.pace(),
-				response.mapVisible(), imageUrlResolver.toPublicUrl(response.routeMapImageUri()),
-				imageUrlResolver.toPublicUrls(response.imageUrls()), response.mine(), response.writerId());
+	private boolean shouldUseThumbnails(ServerHttpRequest request) {
+		if (request == null || request.getMethod() != HttpMethod.GET) {
+			return false;
+		}
+		String path = request.getURI().getPath();
+		return path.equals("/feeds")
+				|| path.equals("/api/community/feeds")
+				|| path.equals("/api/community/feeds/page")
+				|| path.equals("/api/community/search/feeds")
+				|| path.startsWith("/community/contents/");
 	}
 
-	private CommunityContentResponse communityContent(CommunityContentResponse response) {
-		return new CommunityContentResponse(response.contentId(), response.contentTitle(), response.contentText(),
-				response.totalDistance(), response.duration(), response.pace(), response.createdAt(),
-				imageUrlResolver.toPublicUrl(response.profileImageUrl()),
-				imageUrlResolver.toPublicUrls(response.imageUrls()));
+	private boolean shouldUseWebpThumbnails(ServerHttpRequest request) {
+		if (request == null) {
+			return false;
+		}
+		String requestedFormat = request.getHeaders().getFirst("X-Neostride-Image-Format");
+		if (requestedFormat != null && requestedFormat.trim().equalsIgnoreCase("webp")) {
+			return true;
+		}
+		String query = request.getURI().getRawQuery();
+		return query != null && query.toLowerCase(Locale.ROOT).matches(".*(^|&)(imageformat|image_format)=webp(&|$).*");
+	}
+
+	private FeedUploadResponse feed(FeedUploadResponse response, boolean thumbnails, boolean webpThumbnails) {
+		return new FeedUploadResponse(response.feedId(), publicImage(response.profileImageUrl(), thumbnails, webpThumbnails),
+				response.nickname(), response.badgeOwned(), response.badgeType(), response.createdAt(), response.title(),
+				response.content(), response.taggedCount(), response.likeCount(), response.commentCount(), response.distance(),
+				response.duration(), response.pace(), response.mapVisible(),
+				publicImage(response.routeMapImageUri(), thumbnails, webpThumbnails),
+				publicImages(response.imageUrls(), thumbnails, webpThumbnails), response.liked(), response.bookmarked(),
+				response.commented(), response.tagged(), response.mine(), response.writerId());
+	}
+
+	private CommunityContentResponse communityContent(CommunityContentResponse response, boolean thumbnails, boolean webpThumbnails) {
+		return new CommunityContentResponse(response.contentId(), response.userId(), response.nickname(), response.contentTitle(),
+				response.contentText(), response.totalDistance(), response.duration(), response.pace(), response.createdAt(),
+				publicImage(response.profileImageUrl(), thumbnails, webpThumbnails), publicImages(response.imageUrls(), thumbnails, webpThumbnails),
+				response.likeCount(), response.commentCount(), response.tagCount(), response.liked(), response.bookmarked(),
+				response.commented(), response.tagged(), response.badgeTier(), publicImage(response.routeMapUrl(), thumbnails, webpThumbnails));
 	}
 
 	private FeedDetailResponse feedDetail(FeedDetailResponse response) {
@@ -116,13 +150,13 @@ public class ImageUrlResponseAdvice implements ResponseBodyAdvice<Object> {
 				imageUrlResolver.toPublicUrls(response.imageUrls()), comments(response.comments()));
 	}
 
-	private TipUploadResponse tip(TipUploadResponse response) {
+	private TipUploadResponse tip(TipUploadResponse response, boolean thumbnails, boolean webpThumbnails) {
 		return new TipUploadResponse(response.tipId(), response.writerId(), response.nickname(),
-				imageUrlResolver.toPublicUrl(response.profileImageUrl()), response.badgeOwned(), response.badgeType(),
+				publicImage(response.profileImageUrl(), thumbnails, webpThumbnails), response.badgeOwned(), response.badgeType(),
 				response.category(), response.title(), response.content(), response.gpsVisible(),
-				imageUrlResolver.toPublicUrl(response.routeMapImageUrl()),
-				imageUrlResolver.toPublicUrls(response.imageUrls()), response.likeCount(), response.commentCount(),
-				response.liked(), response.bookmarked(), response.commented(), response.mine(), response.createdAt());
+				publicImage(response.routeMapImageUrl(), thumbnails, webpThumbnails), publicImages(response.imageUrls(), thumbnails, webpThumbnails),
+				response.likeCount(), response.commentCount(), response.liked(), response.bookmarked(),
+				response.commented(), response.mine(), response.createdAt());
 	}
 
 	private TipDetailResponse tipDetail(TipDetailResponse response) {
@@ -134,11 +168,18 @@ public class ImageUrlResponseAdvice implements ResponseBodyAdvice<Object> {
 				response.liked(), response.bookmarked(), response.mine(), response.createdAt(), comments(response.comments()));
 	}
 
-	private List<TipUploadResponse> tips(List<TipUploadResponse> tips) {
+	private List<FeedUploadResponse> feeds(List<FeedUploadResponse> feeds, boolean thumbnails, boolean webpThumbnails) {
+		if (feeds == null || feeds.isEmpty()) {
+			return List.of();
+		}
+		return feeds.stream().map(feed -> feed(feed, thumbnails, webpThumbnails)).toList();
+	}
+
+	private List<TipUploadResponse> tips(List<TipUploadResponse> tips, boolean thumbnails, boolean webpThumbnails) {
 		if (tips == null || tips.isEmpty()) {
 			return List.of();
 		}
-		return tips.stream().map(this::tip).toList();
+		return tips.stream().map(tip -> tip(tip, thumbnails, webpThumbnails)).toList();
 	}
 
 	private List<CommentResponse> comments(List<CommentResponse> comments) {
@@ -146,6 +187,14 @@ public class ImageUrlResponseAdvice implements ResponseBodyAdvice<Object> {
 			return List.of();
 		}
 		return comments.stream().map(this::comment).toList();
+	}
+
+	private String publicImage(String value, boolean thumbnails, boolean webpThumbnails) {
+		return thumbnails ? imageUrlResolver.toPublicThumbnailUrl(value, webpThumbnails) : imageUrlResolver.toPublicUrl(value);
+	}
+
+	private List<String> publicImages(List<String> values, boolean thumbnails, boolean webpThumbnails) {
+		return thumbnails ? imageUrlResolver.toPublicThumbnailUrls(values, webpThumbnails) : imageUrlResolver.toPublicUrls(values);
 	}
 
 	private CommentResponse comment(CommentResponse response) {

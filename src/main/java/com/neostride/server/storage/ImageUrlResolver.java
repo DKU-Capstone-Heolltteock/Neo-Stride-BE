@@ -1,11 +1,9 @@
 package com.neostride.server.storage;
 
-import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Locale;
-import javax.imageio.ImageIO;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
@@ -13,6 +11,9 @@ import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 
 @Component
 public class ImageUrlResolver {
+	private static final int THUMBNAIL_MAX_DIMENSION = 480;
+	private static final String THUMBNAIL_DIRECTORY = "_thumbs";
+
 	private final String publicBaseUrl;
 	private final Path uploadBaseDir;
 	private final String publicPrefix;
@@ -30,7 +31,7 @@ public class ImageUrlResolver {
 		this(publicBaseUrl, (Path) null, "/uploads");
 	}
 
-	ImageUrlResolver(String publicBaseUrl, Path uploadBaseDir, String publicPrefix) {
+	public ImageUrlResolver(String publicBaseUrl, Path uploadBaseDir, String publicPrefix) {
 		this.publicBaseUrl = normalizeBaseUrl(publicBaseUrl);
 		this.uploadBaseDir = uploadBaseDir == null ? null : uploadBaseDir.toAbsolutePath().normalize();
 		this.publicPrefix = normalizePublicPrefix(publicPrefix);
@@ -61,6 +62,24 @@ public class ImageUrlResolver {
 		return baseUrl == null ? url : baseUrl + url;
 	}
 
+	public String toPublicThumbnailUrl(String value) {
+		return toPublicThumbnailUrl(value, false);
+	}
+
+	public String toPublicThumbnailUrl(String value, boolean webpPreferred) {
+		if (webpPreferred) {
+			String webpThumbnail = thumbnailUploadUrl(value, "webp");
+			if (webpThumbnail != null && isReadableStoredUpload(webpThumbnail)) {
+				return toPublicUrl(webpThumbnail);
+			}
+		}
+		String thumbnail = thumbnailUploadUrl(value, "jpg");
+		if (thumbnail != null && isReadableStoredUpload(thumbnail)) {
+			return toPublicUrl(thumbnail);
+		}
+		return toPublicUrl(value);
+	}
+
 	public List<String> toPublicUrls(List<String> values) {
 		if (values == null || values.isEmpty()) {
 			return List.of();
@@ -69,6 +88,38 @@ public class ImageUrlResolver {
 				.map(this::toPublicUrl)
 				.filter(value -> value != null && !value.isBlank())
 				.toList();
+	}
+
+	public List<String> toPublicThumbnailUrls(List<String> values) {
+		return toPublicThumbnailUrls(values, false);
+	}
+
+	public List<String> toPublicThumbnailUrls(List<String> values, boolean webpPreferred) {
+		if (values == null || values.isEmpty()) {
+			return List.of();
+		}
+		return values.stream()
+				.map(value -> toPublicThumbnailUrl(value, webpPreferred))
+				.filter(value -> value != null && !value.isBlank())
+				.toList();
+	}
+
+	private String thumbnailUploadUrl(String value, String extension) {
+		if (uploadBaseDir == null || value == null) {
+			return null;
+		}
+		String url = value.trim();
+		if (!url.startsWith(publicPrefix + "/")) {
+			return null;
+		}
+		int slashIndex = url.lastIndexOf('/');
+		int extensionIndex = url.lastIndexOf('.');
+		if (slashIndex < publicPrefix.length() || extensionIndex <= slashIndex + 1) {
+			return null;
+		}
+		String directory = url.substring(0, slashIndex + 1);
+		String basename = url.substring(slashIndex + 1, extensionIndex);
+		return directory + THUMBNAIL_DIRECTORY + "/" + basename + "_" + THUMBNAIL_MAX_DIMENSION + "." + extension;
 	}
 
 	private boolean isReadableStoredUpload(String url) {
@@ -81,15 +132,8 @@ public class ImageUrlResolver {
 			return false;
 		}
 		try {
-			if (Files.size(path) <= 0) {
-				return false;
-			}
-			String lower = path.getFileName().toString().toLowerCase(Locale.ROOT);
-			if (lower.endsWith(".jpg") || lower.endsWith(".jpeg") || lower.endsWith(".png")) {
-				return ImageIO.read(path.toFile()) != null;
-			}
-			return true;
-		} catch (IOException exception) {
+			return Files.size(path) > 0;
+		} catch (java.io.IOException exception) {
 			return false;
 		}
 	}

@@ -7,6 +7,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -23,6 +24,20 @@ public class NotificationController {
 			@RequestHeader(value = "X-User-Id", required = false, defaultValue = "1") Long userId
 	) {
 		return ResponseEntity.ok(service.getNotifications(userId));
+	}
+
+	@PatchMapping("/api/notifications/{notificationId}/read")
+	public ResponseEntity<Void> markRead(@PathVariable Long notificationId) {
+		service.markRead(notificationId);
+		return ResponseEntity.noContent().build();
+	}
+
+	@PatchMapping("/api/notifications/read-all")
+	public ResponseEntity<Void> markAllRead(
+			@RequestHeader(value = "X-User-Id", required = false, defaultValue = "1") Long userId
+	) {
+		service.markAllRead(userId);
+		return ResponseEntity.noContent().build();
 	}
 
 	@DeleteMapping("/api/notifications/{notificationId}")

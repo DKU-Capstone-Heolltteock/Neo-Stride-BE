@@ -38,6 +38,14 @@ public record RunningRecordRequest(
 
 		@ArraySchema(schema = @Schema(implementation = GpsTraceRequest.class), minItems = 1)
 		@JsonProperty("gps_traces")
-		List<GpsTraceRequest> gpsTraces
+		List<GpsTraceRequest> gpsTraces,
+
+		@Schema(description = "러닝 결과로 산출된 배지 등급", example = "GOLD", nullable = true)
+		@JsonProperty("badge")
+		String badge
 ) {
+	public RunningRecordRequest(Long userId, Long planId, BigDecimal totalDistance, BigDecimal duration, BigDecimal pace,
+						  BigDecimal calories, String routeDetail, List<GpsTraceRequest> gpsTraces) {
+		this(userId, planId, totalDistance, duration, pace, calories, routeDetail, gpsTraces, null);
+	}
 }

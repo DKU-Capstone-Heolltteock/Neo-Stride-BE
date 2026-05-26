@@ -77,18 +77,18 @@ public class CoachingService {
 		return toGoalResponse(persisted, request.periodType(), request.customWeeks(), request.runningDays(), coachingRepository.findPlanDaysByGoalId(goalId));
 	}
 
-	@Transactional(readOnly = true)
+	@Transactional
 	public GoalResponse getActiveGoal(long userId) {
 		validatePositive(userId, "user_id");
 		GoalRow goal = coachingRepository.findActiveGoalByUserId(userId);
 		if (goal == null) {
 			return GoalResponse.empty();
 		}
-		List<PlanDayRow> planDays = coachingRepository.findPlanDaysByGoalId(goal.goalId());
+		List<PlanDayRow> planDays = ensureProgressivePlanDays(goal, coachingRepository.findPlanDaysByGoalId(goal.goalId()));
 		return toGoalResponse(goal, periodType(goal.durationWeeks()), customWeeks(goal.durationWeeks()), runningDaysOrDerived(goal.runningDays(), planDays), planDays);
 	}
 
-	@Transactional(readOnly = true)
+	@Transactional
 	public TodayPlanResponse getTodayPlan(long userId) {
 		validatePositive(userId, "user_id");
 		PlanDayRow planDay = coachingRepository.findTodayPlanByUserId(userId, LocalDate.now());
@@ -96,8 +96,12 @@ public class CoachingService {
 			return new TodayPlanResponse(false, null, null);
 		}
 		GoalRow goal = coachingRepository.findGoalById(planDay.goalId());
-		List<PlanDayRow> goalPlanDays = goal == null ? List.of() : coachingRepository.findPlanDaysByGoalId(goal.goalId());
-		return new TodayPlanResponse(true, toPlanDayResponse(planDay), goal == null ? null : toGoalInfo(goal, periodType(goal.durationWeeks()), customWeeks(goal.durationWeeks()), runningDaysOrDerived(goal.runningDays(), goalPlanDays)));
+		List<PlanDayRow> goalPlanDays = goal == null ? List.of() : ensureProgressivePlanDays(goal, coachingRepository.findPlanDaysByGoalId(goal.goalId()));
+		PlanDayRow normalizedToday = goalPlanDays.stream()
+				.filter(day -> day.planDayId().equals(planDay.planDayId()))
+				.findFirst()
+				.orElse(planDay);
+		return new TodayPlanResponse(true, toPlanDayResponse(normalizedToday), goal == null ? null : toGoalInfo(goal, periodType(goal.durationWeeks()), customWeeks(goal.durationWeeks()), runningDaysOrDerived(goal.runningDays(), goalPlanDays)));
 	}
 
 	@Transactional
@@ -196,20 +200,21 @@ public class CoachingService {
 			Set<DayOfWeek> runningDays, BigDecimal targetDistance, BigDecimal targetPace) {
 		List<LocalDate> planDates = scheduledPlanDates(startDate, durationWeeks, runningDays);
 		AiCoachingPlan aiPlan = aiCoachingClient.generatePlan(request, durationWeeks, startDate);
-		List<PlanDayInsertCommand> aiPlanDays = toSafePlanDayCommands(aiPlan, planDates);
+		List<PlanDayInsertCommand> aiPlanDays = toSafePlanDayCommands(aiPlan, planDates, targetDistance, targetPace);
 		if (!aiPlanDays.isEmpty()) {
 			return aiPlanDays;
 		}
 		return generatePlanDays(planDates, targetDistance, targetPace);
 	}
 
-	private List<PlanDayInsertCommand> toSafePlanDayCommands(AiCoachingPlan aiPlan, List<LocalDate> expectedDates) {
+	private List<PlanDayInsertCommand> toSafePlanDayCommands(AiCoachingPlan aiPlan, List<LocalDate> expectedDates, BigDecimal targetDistance, BigDecimal targetPace) {
 		if (expectedDates == null || expectedDates.isEmpty() || aiPlan == null
 				|| aiPlan.planDays() == null || aiPlan.planDays().size() != expectedDates.size()) {
 			return List.of();
 		}
 		List<PlanDayInsertCommand> commands = new ArrayList<>();
 		Set<LocalDate> seenDates = new HashSet<>();
+		boolean allDaysEqualFinalGoal = expectedDates.size() > 1;
 		for (LocalDate expectedDate : expectedDates) {
 			AiCoachingPlanDay day = null;
 			for (AiCoachingPlanDay candidate : aiPlan.planDays()) {
@@ -224,13 +229,14 @@ public class CoachingService {
 					|| day.dayPaceMinPerKm().compareTo(BigDecimal.ZERO) <= 0) {
 				return List.of();
 			}
-			commands.add(new PlanDayInsertCommand(
-					expectedDate,
-					day.dayDistanceKm().setScale(2, RoundingMode.HALF_UP),
-					day.dayPaceMinPerKm().setScale(2, RoundingMode.HALF_UP)
-			));
+			BigDecimal dayDistance = day.dayDistanceKm().setScale(2, RoundingMode.HALF_UP);
+			BigDecimal dayPace = day.dayPaceMinPerKm().setScale(2, RoundingMode.HALF_UP);
+			allDaysEqualFinalGoal = allDaysEqualFinalGoal
+					&& dayDistance.compareTo(targetDistance) == 0
+					&& dayPace.compareTo(targetPace) == 0;
+			commands.add(new PlanDayInsertCommand(expectedDate, dayDistance, dayPace));
 		}
-		return commands;
+		return allDaysEqualFinalGoal ? List.of() : commands;
 	}
 
 	private List<PlanDayInsertCommand> generatePlanDays(List<LocalDate> planDates, BigDecimal targetDistance, BigDecimal targetPace) {
@@ -272,6 +278,36 @@ public class CoachingService {
 		BigDecimal progress = BigDecimal.valueOf(index).divide(BigDecimal.valueOf(totalDays - 1L), 4, RoundingMode.HALF_UP);
 		BigDecimal factor = new BigDecimal("1.12").subtract(new BigDecimal("0.12").multiply(progress));
 		return targetPace.multiply(factor).max(new BigDecimal("3.00")).setScale(2, RoundingMode.HALF_UP);
+	}
+
+	private List<PlanDayRow> ensureProgressivePlanDays(GoalRow goal, List<PlanDayRow> planDays) {
+		if (!isFlatFinalGoalPlan(goal, planDays)) {
+			return planDays;
+		}
+		List<LocalDate> planDates = planDays.stream().map(PlanDayRow::planDate).toList();
+		List<PlanDayInsertCommand> generated = generatePlanDays(planDates, goal.targetDistance(), goal.targetPace());
+		coachingRepository.updatePlanDayTargets(goal.userId(), goal.goalId(), generated);
+		List<PlanDayRow> normalized = new ArrayList<>();
+		for (int index = 0; index < planDays.size(); index++) {
+			PlanDayRow original = planDays.get(index);
+			PlanDayInsertCommand command = generated.get(index);
+			normalized.add(new PlanDayRow(original.planDayId(), original.userId(), original.goalId(), original.planDate(), command.targetDistance(), command.targetPace(), original.completed(), original.feedback(), original.updatedAt()));
+		}
+		return normalized;
+	}
+
+	private boolean isFlatFinalGoalPlan(GoalRow goal, List<PlanDayRow> planDays) {
+		if (goal == null || planDays == null || planDays.size() <= 1 || goal.targetDistance() == null || goal.targetPace() == null) {
+			return false;
+		}
+		for (PlanDayRow planDay : planDays) {
+			if (planDay == null || planDay.targetDistance() == null || planDay.targetPace() == null
+					|| planDay.targetDistance().compareTo(goal.targetDistance()) != 0
+					|| planDay.targetPace().compareTo(goal.targetPace()) != 0) {
+				return false;
+			}
+		}
+		return true;
 	}
 
 	private GoalResponse toGoalResponse(GoalRow goal, String periodType, Integer customWeeks, List<String> runningDays, List<PlanDayRow> planDays) {

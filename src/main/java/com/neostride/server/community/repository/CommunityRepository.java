@@ -6,6 +6,8 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.PreparedStatement;
 import java.sql.Statement;
+import java.sql.Timestamp;
+import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Locale;
@@ -88,20 +90,65 @@ public class CommunityRepository {
 		jdbcTemplate.update("UPDATE users SET profile_photo = ? WHERE user_id = ?", profileImageUrl, userId);
 	}
 
-	public List<CommunityContentResponse> myFeeds(long userId) { return contentQuery("cc.author_user_id = ?", userId); }
-	public List<CommunityContentResponse> taggedFeeds(long userId) { return contentQuery("EXISTS (SELECT 1 FROM community_interactions ci WHERE ci.content_id = cc.content_id AND ci.interaction_type='TAG' AND ci.tagged_user_id = ?)", userId); }
-	public List<CommunityContentResponse> interactedFeeds(long userId, String type) { return contentQuery("EXISTS (SELECT 1 FROM community_interactions ci WHERE ci.content_id = cc.content_id AND ci.interaction_type='" + type + "' AND ci.user_id = ?)", userId); }
+	public List<CommunityContentResponse> myFeeds(long userId) { return contentQuery("cc.author_user_id = ?", userId, userId); }
+	public List<CommunityContentResponse> taggedFeeds(long userId) { return contentQuery("EXISTS (SELECT 1 FROM community_interactions ci WHERE ci.content_id = cc.content_id AND ci.interaction_type='TAG' AND ci.tagged_user_id = ?)", userId, userId); }
+	public List<CommunityContentResponse> interactedFeeds(long userId, String type) { return contentQuery("EXISTS (SELECT 1 FROM community_interactions ci WHERE ci.content_id = cc.content_id AND ci.interaction_type='" + type + "' AND ci.user_id = ?)", userId, userId); }
 
-	private List<CommunityContentResponse> contentQuery(String predicate, long userId) {
+	private List<CommunityContentResponse> contentQuery(String predicate, long viewerUserId, Object... predicateArgs) {
+		java.util.List<Object> args = new java.util.ArrayList<>();
+		args.add(viewerUserId);
+		args.add(viewerUserId);
+		args.add(viewerUserId);
+		args.add(viewerUserId);
+		args.addAll(java.util.Arrays.asList(predicateArgs));
+		args.add(viewerUserId);
+		args.add(viewerUserId);
 		return jdbcTemplate.query("""
-			SELECT cc.content_id, cc.content_text, COALESCE(cu.profile_photo, u.profile_photo) AS profile_image_url, cc.image,
-			       rr.run_record_id AS joined_running_record_id, COALESCE(rr.total_distance, 0) AS total_distance, rr.duration, rr.pace, cc.created_at
-			FROM community_contents cc JOIN users u ON u.user_id = cc.author_user_id LEFT JOIN community_users cu ON cu.user_id = u.user_id LEFT JOIN running_records rr ON rr.run_record_id = cc.running_record_id
+			SELECT cc.content_id, cc.author_user_id AS user_id,
+			       COALESCE(cu.community_profile_name, u.community_profile_name, u.name) AS nickname,
+			       COALESCE(cu.profile_photo, u.profile_photo) AS profile_image_url,
+			       COALESCE(cu.badge, 'NONE') AS badge_tier,
+			       cc.content_text, cc.include_route_detail, COALESCE(images.image_urls, cc.image) AS image_urls,
+			       rr.run_record_id AS joined_running_record_id, COALESCE(rr.total_distance, 0) AS total_distance, rr.duration, rr.pace, cc.created_at,
+			       COALESCE(stats.tagged_count, 0) AS tagged_count,
+			       COALESCE(stats.like_count, 0) AS like_count,
+			       COALESCE(stats.comment_count, 0) AS comment_count,
+			       EXISTS (SELECT 1 FROM community_interactions ci WHERE ci.content_id=cc.content_id AND ci.user_id=? AND ci.interaction_type='LIKE') AS liked,
+			       EXISTS (SELECT 1 FROM community_interactions ci WHERE ci.content_id=cc.content_id AND ci.user_id=? AND ci.interaction_type='BOOKMARK') AS bookmarked,
+			       EXISTS (SELECT 1 FROM community_interactions ci WHERE ci.content_id=cc.content_id AND ci.user_id=? AND ci.interaction_type='COMMENT') AS commented,
+			       EXISTS (SELECT 1 FROM community_interactions ci WHERE ci.content_id=cc.content_id AND ci.tagged_user_id=? AND ci.interaction_type='TAG') AS tagged
+			FROM community_contents cc
+			JOIN users u ON u.user_id = cc.author_user_id
+			LEFT JOIN community_users cu ON cu.user_id = u.user_id
+			LEFT JOIN running_records rr ON rr.run_record_id = cc.running_record_id
+			LEFT JOIN community_content_stats stats ON stats.content_id = cc.content_id
+			LEFT JOIN (SELECT content_id, GROUP_CONCAT(image_url ORDER BY image_order SEPARATOR '\n---NEOSTRIDE-IMAGE---\n') AS image_urls FROM community_content_images GROUP BY content_id) images ON images.content_id=cc.content_id
 			WHERE
-			""" + feedPredicate(predicate) + " ORDER BY cc.created_at DESC, cc.content_id DESC", (rs, n) -> {
+			""" + feedPredicate(predicate) + " AND " + blockedByCurrentUserPredicate() + " ORDER BY cc.created_at DESC, cc.content_id DESC", (rs, n) -> {
 			DecodedFeedContent decoded = decodeFeedContent(rs.getString("content_text"));
-			return new CommunityContentResponse(rs.getLong("content_id"), decoded.title(), decoded.content(), communityDistance(rs, decoded), communityDuration(rs, decoded), communityPace(rs, decoded), rs.getTimestamp("created_at").toLocalDateTime().format(ISO), rs.getString("profile_image_url"), decodeImages(rs.getString("image")));
-		}, userId);
+			return new CommunityContentResponse(
+					rs.getLong("content_id"),
+					rs.getLong("user_id"),
+					rs.getString("nickname"),
+					decoded.title(),
+					decoded.content(),
+					communityDistance(rs, decoded),
+					communityDuration(rs, decoded),
+					communityPace(rs, decoded),
+					rs.getTimestamp("created_at").toLocalDateTime().format(ISO),
+					rs.getString("profile_image_url"),
+					decodeImages(imageUrls(rs)),
+					rs.getInt("like_count"),
+					rs.getInt("comment_count"),
+					rs.getInt("tagged_count"),
+					rs.getBoolean("liked"),
+					rs.getBoolean("bookmarked"),
+					rs.getBoolean("commented"),
+					rs.getBoolean("tagged"),
+					rs.getString("badge_tier"),
+					decoded.routeMapImageUri()
+			);
+		}, args.toArray());
 	}
 
 	public boolean toggleBookmark(long userId, long contentId) {
@@ -167,7 +214,10 @@ public class CommunityRepository {
 		if (request == null) throw new IllegalArgumentException("요청 본문이 필요합니다.");
 		if (request.targetId() == null || request.targetId() <= 0 || request.targetId() == userId) throw new IllegalArgumentException("target_id가 올바르지 않습니다.");
 		switch ((request.action() == null ? "" : request.action().trim()).toLowerCase(Locale.ROOT)) {
-			case "request" -> jdbcTemplate.update("INSERT INTO relationships (user1_id, user2_id, status) VALUES (?, ?, 'REQUESTED') ON DUPLICATE KEY UPDATE status = 'REQUESTED'", userId, request.targetId());
+			case "request" -> {
+				jdbcTemplate.update("INSERT INTO relationships (user1_id, user2_id, status) VALUES (?, ?, 'REQUESTED') ON DUPLICATE KEY UPDATE status = 'REQUESTED'", userId, request.targetId());
+				notifyFriendRequest(userId, request.targetId());
+			}
 			case "accept" -> jdbcTemplate.update("UPDATE relationships SET status='ACCEPTED' WHERE user1_id=? AND user2_id=?", request.targetId(), userId);
 			case "reject" -> jdbcTemplate.update("UPDATE relationships SET status='REJECTED' WHERE user1_id=? AND user2_id=?", request.targetId(), userId);
 			case "block" -> {
@@ -175,7 +225,7 @@ public class CommunityRepository {
 				jdbcTemplate.update("INSERT INTO relationships (user1_id, user2_id, status) VALUES (?, ?, 'BLOCKED')", userId, request.targetId());
 			}
 			case "cancel" -> jdbcTemplate.update("DELETE FROM relationships WHERE user1_id=? AND user2_id=? AND status='REQUESTED'", userId, request.targetId());
-			case "delete", "unfriend" -> jdbcTemplate.update("DELETE FROM relationships WHERE status='ACCEPTED' AND ((user1_id=? AND user2_id=?) OR (user1_id=? AND user2_id=?))", userId, request.targetId(), request.targetId(), userId);
+			case "delete", "unfriend" -> jdbcTemplate.update("DELETE FROM relationships WHERE status <> 'BLOCKED' AND ((user1_id=? AND user2_id=?) OR (user1_id=? AND user2_id=?))", userId, request.targetId(), request.targetId(), userId);
 			default -> throw new IllegalArgumentException("지원하지 않는 relationship action입니다.");
 		}
 	}
@@ -201,36 +251,74 @@ public class CommunityRepository {
 			return ps;
 		}, kh);
 		long contentId = generatedKey(kh, "피드 ID를 생성하지 못했습니다.");
-		if (request.taggedUserIds() != null) for (Long tagged : request.taggedUserIds()) if (tagged != null) jdbcTemplate.update("INSERT INTO community_interactions (user_id, content_id, interaction_type, tagged_user_id) VALUES (?, ?, 'TAG', ?)", userId, contentId, tagged);
+		insertContentImages(contentId, request.imageUrls());
+		if (request.taggedUserIds() != null) {
+			for (Long tagged : request.taggedUserIds()) {
+				if (tagged != null) {
+					jdbcTemplate.update("INSERT INTO community_interactions (user_id, content_id, interaction_type, tagged_user_id) VALUES (?, ?, 'TAG', ?)", userId, contentId, tagged);
+					notifyTaggedUser(userId, contentId, tagged);
+				}
+			}
+		}
 		return contentId;
 	}
 
 	public FeedUploadResponse findFeed(long feedId) { return feedQuery("cc.content_id = ?", feedId).stream().findFirst().orElse(null); }
 	public List<FeedUploadResponse> listFeeds() { return listFeeds(null); }
 	public List<FeedUploadResponse> listFeeds(Long viewerUserId) {
-		String predicate = "cc.content_type = 'POST' AND cc.feed_scope <> 'PRIVATE'";
+		String predicate = "cc.content_type = 'POST' AND cc.feed_scope IN ('PUBLIC', 'FRIENDS')";
 		if (viewerUserId == null) return feedQuery(predicate);
-		return feedQueryForViewer(predicate + " AND " + blockedByCurrentUserPredicate(), viewerUserId, viewerUserId, viewerUserId);
+		return feedQueryForViewer(predicate + " AND " + blockedByCurrentUserPredicate(), viewerUserId, viewerUserId, viewerUserId, viewerUserId, viewerUserId, viewerUserId, viewerUserId);
+	}
+
+	public List<FeedUploadResponse> listFeedsPage(Long viewerUserId, LocalDateTime cursorCreatedAt, Long cursorId, int limit) {
+		String predicate = "cc.content_type = 'POST' AND cc.feed_scope IN ('PUBLIC', 'FRIENDS')";
+		java.util.List<Object> cursorArgs = new java.util.ArrayList<>();
+		if (cursorCreatedAt != null && cursorId != null) {
+			Timestamp cursorTimestamp = Timestamp.valueOf(cursorCreatedAt);
+			predicate += " AND (cc.created_at < ? OR (cc.created_at = ? AND cc.content_id < ?))";
+			cursorArgs.add(cursorTimestamp);
+			cursorArgs.add(cursorTimestamp);
+			cursorArgs.add(cursorId);
+		}
+		java.util.List<Object> limitedArgs = new java.util.ArrayList<>(cursorArgs);
+		limitedArgs.add(limit);
+		if (viewerUserId == null) {
+			return feedQueryLimited(predicate, limitedArgs.toArray());
+		}
+		java.util.List<Object> args = new java.util.ArrayList<>();
+		args.add(viewerUserId);
+		args.add(viewerUserId);
+		args.add(viewerUserId);
+		args.add(viewerUserId);
+		args.add(viewerUserId);
+		args.addAll(cursorArgs);
+		args.add(viewerUserId);
+		args.add(viewerUserId);
+		args.add(limit);
+		return feedQueryForViewerLimited(predicate + " AND " + blockedByCurrentUserPredicate(), args.toArray());
 	}
 
 	public FeedDetailResponse findFeedDetail(long userId, long feedId) {
 		return jdbcTemplate.query("""
 			SELECT cc.content_id, cc.author_user_id, COALESCE(cu.profile_photo, u.profile_photo) AS profile_image_url,
 			       COALESCE(cu.community_profile_name, u.community_profile_name, u.name) AS nickname,
-			       COALESCE(cu.badge, 'NONE') AS badge, cc.created_at, cc.content_text, cc.include_route_detail, cc.image,
+			       COALESCE(cu.badge, 'NONE') AS badge, cc.created_at, cc.content_text, cc.include_route_detail, COALESCE(images.image_urls, cc.image) AS image_urls,
 			       rr.run_record_id AS joined_running_record_id, COALESCE(rr.total_distance, 0) AS total_distance, rr.duration, rr.pace,
-			       (SELECT COUNT(*) FROM community_interactions ci WHERE ci.content_id=cc.content_id AND ci.interaction_type='TAG') AS tagged_count,
-			       (SELECT COUNT(*) FROM community_interactions ci WHERE ci.content_id=cc.content_id AND ci.interaction_type='LIKE') AS like_count,
-			       (SELECT COUNT(*) FROM community_interactions ci WHERE ci.content_id=cc.content_id AND ci.interaction_type='COMMENT') AS comment_count,
+			       COALESCE(stats.tagged_count, 0) AS tagged_count,
+			       COALESCE(stats.like_count, 0) AS like_count,
+			       COALESCE(stats.comment_count, 0) AS comment_count,
 			       EXISTS (SELECT 1 FROM community_interactions ci WHERE ci.content_id=cc.content_id AND ci.user_id=? AND ci.interaction_type='LIKE') AS liked,
 			       EXISTS (SELECT 1 FROM community_interactions ci WHERE ci.content_id=cc.content_id AND ci.user_id=? AND ci.interaction_type='BOOKMARK') AS bookmarked
 			FROM community_contents cc JOIN users u ON u.user_id=cc.author_user_id LEFT JOIN community_users cu ON cu.user_id=u.user_id
+			LEFT JOIN community_content_stats stats ON stats.content_id=cc.content_id
+			LEFT JOIN (SELECT content_id, GROUP_CONCAT(image_url ORDER BY image_order SEPARATOR '\n---NEOSTRIDE-IMAGE---\n') AS image_urls FROM community_content_images GROUP BY content_id) images ON images.content_id=cc.content_id
 			LEFT JOIN running_records rr ON rr.run_record_id=cc.running_record_id WHERE cc.content_type='POST' AND cc.content_id=?
 			""", (rs, n) -> {
 			DecodedFeedContent parts = decodeFeedContent(rs.getString("content_text"));
 			String badge = rs.getString("badge");
 			long contentId = rs.getLong("content_id");
-			return new FeedDetailResponse(contentId, rs.getLong("author_user_id"), rs.getString("profile_image_url"), rs.getString("nickname"), badgeOwned(badge), badge, rs.getTimestamp("created_at").toLocalDateTime().format(ISO), parts.title(), parts.content(), rs.getInt("tagged_count"), rs.getInt("like_count"), rs.getInt("comment_count"), rs.getBoolean("liked"), rs.getBoolean("bookmarked"), rs.getLong("author_user_id") == userId, feedDistance(rs, parts), feedDuration(rs, parts), feedPace(rs, parts), rs.getBoolean("include_route_detail"), parts.routeMapImageUri(), decodeImages(rs.getString("image")), commentsForContent(userId, contentId));
+			return new FeedDetailResponse(contentId, rs.getLong("author_user_id"), rs.getString("profile_image_url"), rs.getString("nickname"), badgeOwned(badge), badge, rs.getTimestamp("created_at").toLocalDateTime().format(ISO), parts.title(), parts.content(), rs.getInt("tagged_count"), rs.getInt("like_count"), rs.getInt("comment_count"), rs.getBoolean("liked"), rs.getBoolean("bookmarked"), rs.getLong("author_user_id") == userId, feedDistance(rs, parts), feedDuration(rs, parts), feedPace(rs, parts), rs.getBoolean("include_route_detail"), parts.routeMapImageUri(), decodeImages(imageUrls(rs)), commentsForContent(userId, contentId));
 		}, userId, userId, feedId).stream().findFirst().orElse(null);
 	}
 
@@ -241,6 +329,9 @@ public class CommunityRepository {
 			return false;
 		}
 		jdbcTemplate.update("INSERT INTO community_interactions (user_id, content_id, interaction_type) VALUES (?, ?, ?)", userId, contentId, type);
+		if ("LIKE".equalsIgnoreCase(type)) {
+			notifyContentInteraction(userId, contentId, "LIKE");
+		}
 		return true;
 	}
 
@@ -253,7 +344,9 @@ public class CommunityRepository {
 			ps.setString(3, request.content());
 			return ps;
 		}, kh);
-		return findComment(userId, generatedKey(kh, "댓글 ID를 생성하지 못했습니다."));
+		long commentId = generatedKey(kh, "댓글 ID를 생성하지 못했습니다.");
+		notifyContentInteraction(userId, contentId, "COMMENT");
+		return findComment(userId, commentId);
 	}
 
 	public CommentResponse updateComment(long userId, long contentId, long commentId, CommentRequest request) {
@@ -267,11 +360,15 @@ public class CommunityRepository {
 
 	public void updateFeed(long userId, long feedId, FeedUploadRequest request) {
 		String contentText = encodeFeedContent(request.title(), request.content(), request.routeMapImageUri(), request.distance(), request.runningTime(), request.pace());
+		int updated;
 		if (request.runningRecordId() != null) {
-			jdbcTemplate.update("UPDATE community_contents SET running_record_id=?, include_route_detail=?, feed_scope=?, content_text=?, image=? WHERE content_id=? AND author_user_id=? AND content_type='POST'", ownedRunningRecordId(userId, request.runningRecordId()), request.mapVisible(), normalizeScope(request.privacy()), contentText, encodeImages(request.imageUrls()), feedId, userId);
-			return;
+			updated = jdbcTemplate.update("UPDATE community_contents SET running_record_id=?, include_route_detail=?, feed_scope=?, content_text=?, image=? WHERE content_id=? AND author_user_id=? AND content_type='POST'", ownedRunningRecordId(userId, request.runningRecordId()), request.mapVisible(), normalizeScope(request.privacy()), contentText, encodeImages(request.imageUrls()), feedId, userId);
+		} else {
+			updated = jdbcTemplate.update("UPDATE community_contents SET include_route_detail=?, feed_scope=?, content_text=?, image=? WHERE content_id=? AND author_user_id=? AND content_type='POST'", request.mapVisible(), normalizeScope(request.privacy()), contentText, encodeImages(request.imageUrls()), feedId, userId);
 		}
-		jdbcTemplate.update("UPDATE community_contents SET include_route_detail=?, feed_scope=?, content_text=?, image=? WHERE content_id=? AND author_user_id=? AND content_type='POST'", request.mapVisible(), normalizeScope(request.privacy()), contentText, encodeImages(request.imageUrls()), feedId, userId);
+		if (updated > 0) {
+			replaceContentImages(feedId, request.imageUrls());
+		}
 	}
 
 	public void deleteContent(long userId, long contentId, String contentType) {
@@ -304,7 +401,9 @@ public class CommunityRepository {
 			ps.setString(5, encodeImages(request == null ? null : request.imageUrls()));
 			return ps;
 		}, kh);
-		return generatedKey(kh, "팁 ID를 생성하지 못했습니다.");
+		long contentId = generatedKey(kh, "팁 ID를 생성하지 못했습니다.");
+		insertContentImages(contentId, request == null ? null : request.imageUrls());
+		return contentId;
 	}
 
 	public TipUploadResponse findTip(long tipId) { return tipQuery("cc.content_id = ?", tipId).stream().findFirst().orElse(null); }
@@ -314,7 +413,7 @@ public class CommunityRepository {
 		if (viewerUserId <= 0) return listTips();
 		return tipQueryForViewer(predicate + " AND " + blockedByCurrentUserPredicate(), viewerUserId, viewerUserId, viewerUserId, viewerUserId, viewerUserId, viewerUserId);
 	}
-	public List<TipUploadResponse> listTipsByUser(long userId) { return tipQuery("cc.content_type = 'TIP' AND cc.author_user_id = ?", userId); }
+	public List<TipUploadResponse> listTipsByUser(long userId) { return tipQueryForViewer("cc.content_type = 'TIP' AND cc.author_user_id = ? AND " + blockedByCurrentUserPredicate(), userId, userId, userId, userId, userId, userId, userId); }
 	public List<TipUploadResponse> listTipsLikedByUser(long userId) { return listTipsInteractedByType(userId, "LIKE"); }
 	public List<TipUploadResponse> listTipsBookmarkedByUser(long userId) { return listTipsInteractedByType(userId, "BOOKMARK"); }
 	public List<TipUploadResponse> listTipsCommentedByUser(long userId) { return listTipsInteractedByType(userId, "COMMENT"); }
@@ -323,36 +422,54 @@ public class CommunityRepository {
 		return jdbcTemplate.query("""
 			SELECT cc.content_id, cc.author_user_id, COALESCE(cu.community_profile_name, u.community_profile_name, u.name) AS nickname,
 			       COALESCE(cu.profile_photo, u.profile_photo) AS profile_image_url, COALESCE(cu.badge, 'NONE') AS badge,
-			       cc.tip_type, cc.content_text, cc.include_route_detail, cc.image, cc.created_at,
-			       (SELECT COUNT(*) FROM community_interactions ci WHERE ci.content_id=cc.content_id AND ci.interaction_type='LIKE') AS like_count,
-			       (SELECT COUNT(*) FROM community_interactions ci WHERE ci.content_id=cc.content_id AND ci.interaction_type='COMMENT') AS comment_count,
+			       cc.tip_type, cc.content_text, cc.include_route_detail, COALESCE(images.image_urls, cc.image) AS image_urls, cc.created_at,
+			       COALESCE(stats.like_count, 0) AS like_count,
+			       COALESCE(stats.comment_count, 0) AS comment_count,
 			       EXISTS (SELECT 1 FROM community_interactions ci WHERE ci.content_id=cc.content_id AND ci.user_id=? AND ci.interaction_type='LIKE') AS liked,
 			       EXISTS (SELECT 1 FROM community_interactions ci WHERE ci.content_id=cc.content_id AND ci.user_id=? AND ci.interaction_type='BOOKMARK') AS bookmarked
 			FROM community_contents cc JOIN users u ON u.user_id=cc.author_user_id LEFT JOIN community_users cu ON cu.user_id=u.user_id
+			LEFT JOIN community_content_stats stats ON stats.content_id=cc.content_id
+			LEFT JOIN (SELECT content_id, GROUP_CONCAT(image_url ORDER BY image_order SEPARATOR '\n---NEOSTRIDE-IMAGE---\n') AS image_urls FROM community_content_images GROUP BY content_id) images ON images.content_id=cc.content_id
 			WHERE cc.content_type='TIP' AND cc.content_id=?
 			""", (rs, n) -> {
 			String[] parts = decodeTipContent(rs.getString("content_text"));
 			String badge = rs.getString("badge");
 			long contentId = rs.getLong("content_id");
-			return new TipDetailResponse(contentId, rs.getLong("author_user_id"), rs.getString("nickname"), rs.getString("profile_image_url"), badgeOwned(badge), badge, fromTipType(rs.getString("tip_type")), parts[0], parts[1], rs.getBoolean("include_route_detail"), parts[2], null, decodeImages(rs.getString("image")), rs.getInt("like_count"), rs.getInt("comment_count"), rs.getBoolean("liked"), rs.getBoolean("bookmarked"), rs.getLong("author_user_id") == userId, rs.getTimestamp("created_at").toLocalDateTime().format(ISO), commentsForContent(userId, contentId));
+			return new TipDetailResponse(contentId, rs.getLong("author_user_id"), rs.getString("nickname"), rs.getString("profile_image_url"), badgeOwned(badge), badge, fromTipType(rs.getString("tip_type")), parts[0], parts[1], rs.getBoolean("include_route_detail"), parts[2], null, decodeImages(imageUrls(rs)), rs.getInt("like_count"), rs.getInt("comment_count"), rs.getBoolean("liked"), rs.getBoolean("bookmarked"), rs.getLong("author_user_id") == userId, rs.getTimestamp("created_at").toLocalDateTime().format(ISO), commentsForContent(userId, contentId));
 		}, userId, userId, tipId).stream().findFirst().orElse(null);
 	}
 
 	public void updateTip(long userId, long tipId, TipUploadRequest request) {
-		jdbcTemplate.update("UPDATE community_contents SET include_route_detail=?, tip_type=?, content_text=?, image=? WHERE content_id=? AND author_user_id=? AND content_type='TIP'", request.gpsVisible(), normalizeTipType(request.category()), encodeTipContent(request.title(), request.content(), request.routeMapImageUrl()), encodeImages(request.imageUrls()), tipId, userId);
+		int updated = jdbcTemplate.update("UPDATE community_contents SET include_route_detail=?, tip_type=?, content_text=?, image=? WHERE content_id=? AND author_user_id=? AND content_type='TIP'", request.gpsVisible(), normalizeTipType(request.category()), encodeTipContent(request.title(), request.content(), request.routeMapImageUrl()), encodeImages(request.imageUrls()), tipId, userId);
+		if (updated > 0) {
+			replaceContentImages(tipId, request.imageUrls());
+		}
 	}
 
-	public List<FeedUploadResponse> searchFeeds(String keyword, int page, int size) {
-		String predicate = "cc.content_type = 'POST' AND cc.feed_scope <> 'PRIVATE'";
-		Object[] args = pageArgs(page, size);
+	public List<FeedUploadResponse> searchFeeds(String keyword, int page, int size) { return searchFeeds(null, keyword, page, size); }
+	public List<FeedUploadResponse> searchFeeds(Long viewerUserId, String keyword, int page, int size) {
+		String predicate = "cc.content_type = 'POST' AND cc.feed_scope IN ('PUBLIC', 'FRIENDS')";
+		java.util.List<Object> args = new java.util.ArrayList<>();
 		if (!blank(keyword)) {
 			predicate += " AND LOWER(cc.content_text) LIKE ?";
-			args = new Object[]{like(keyword), size, offset(page, size)};
+			args.add(like(keyword));
 		}
-		return feedQueryPaged(predicate, args);
+		if (viewerUserId == null) {
+			args.add(size);
+			args.add(offset(page, size));
+			return feedQueryPaged(predicate, args.toArray());
+		}
+		java.util.List<Object> viewerArgs = new java.util.ArrayList<>(List.of(viewerUserId, viewerUserId, viewerUserId, viewerUserId, viewerUserId));
+		viewerArgs.addAll(args);
+		viewerArgs.add(viewerUserId);
+		viewerArgs.add(viewerUserId);
+		viewerArgs.add(size);
+		viewerArgs.add(offset(page, size));
+		return feedQueryPagedForViewer(predicate + " AND " + blockedByCurrentUserPredicate(), viewerArgs.toArray());
 	}
 
-	public List<TipUploadResponse> searchTips(String keyword, String category, int page, int size) {
+	public List<TipUploadResponse> searchTips(String keyword, String category, int page, int size) { return searchTips(null, keyword, category, page, size); }
+	public List<TipUploadResponse> searchTips(Long viewerUserId, String keyword, String category, int page, int size) {
 		String predicate = "cc.content_type = 'TIP'";
 		List<Object> args = new java.util.ArrayList<>();
 		String normalizedCategory = normalizeSearchCategory(category);
@@ -364,19 +481,37 @@ public class CommunityRepository {
 			predicate += " AND LOWER(cc.content_text) LIKE ?";
 			args.add(like(keyword));
 		}
-		args.add(size);
-		args.add(offset(page, size));
-		return tipQueryPaged(predicate, args.toArray());
+		if (viewerUserId == null) {
+			args.add(size);
+			args.add(offset(page, size));
+			return tipQueryPaged(predicate, args.toArray());
+		}
+		java.util.List<Object> viewerArgs = new java.util.ArrayList<>(List.of(viewerUserId, viewerUserId, viewerUserId, viewerUserId));
+		viewerArgs.addAll(args);
+		viewerArgs.add(viewerUserId);
+		viewerArgs.add(viewerUserId);
+		viewerArgs.add(size);
+		viewerArgs.add(offset(page, size));
+		return tipQueryPagedForViewer(predicate + " AND " + blockedByCurrentUserPredicate(), viewerArgs.toArray());
 	}
 
-	public List<SearchUserResponse> searchProfiles(String keyword, int page, int size) {
+	public List<SearchUserResponse> searchProfiles(String keyword, int page, int size) { return searchProfiles(null, keyword, page, size); }
+	public List<SearchUserResponse> searchProfiles(Long viewerUserId, String keyword, int page, int size) {
 		String predicate = "1=1";
-		Object[] args = pageArgs(page, size);
+		java.util.List<Object> args = new java.util.ArrayList<>();
 		if (!blank(keyword)) {
 			predicate = "LOWER(COALESCE(cu.community_profile_name, u.community_profile_name, u.name)) LIKE ?";
-			args = new Object[]{like(keyword), size, offset(page, size)};
+			args.add(like(keyword));
 		}
-		return userSearchQuery(predicate, "badge_rank DESC, friend_count DESC, u.user_id ASC", args);
+		String filteredPredicate = predicate;
+		if (viewerUserId != null) {
+			filteredPredicate += " AND " + blockedUserPredicate();
+			args.add(viewerUserId);
+			args.add(viewerUserId);
+		}
+		args.add(size);
+		args.add(offset(page, size));
+		return userSearchQuery(filteredPredicate, "badge_rank DESC, friend_count DESC, u.user_id ASC", args.toArray());
 	}
 
 	public List<SearchUserResponse> searchFriends(long userId, String keyword) {
@@ -391,8 +526,12 @@ public class CommunityRepository {
 		return userSearchQuery(predicate, "nickname ASC, u.user_id ASC", args.toArray(), "friends");
 	}
 
-	public List<SearchUserResponse> getTopProfiles(int page, int size) {
-		return userSearchQuery("1=1", "badge_rank DESC, friend_count DESC, u.user_id ASC", pageArgs(page, size));
+	public List<SearchUserResponse> getTopProfiles(int page, int size) { return getTopProfiles(null, page, size); }
+	public List<SearchUserResponse> getTopProfiles(Long viewerUserId, int page, int size) {
+		if (viewerUserId == null) {
+			return userSearchQuery("1=1", "badge_rank DESC, friend_count DESC, u.user_id ASC", pageArgs(page, size));
+		}
+		return userSearchQuery("1=1 AND " + blockedUserPredicate(), "badge_rank DESC, friend_count DESC, u.user_id ASC", new Object[]{viewerUserId, viewerUserId, size, offset(page, size)});
 	}
 
 	public List<SearchUserResponse> getMyFriends(long userId) {
@@ -402,46 +541,111 @@ public class CommunityRepository {
 	private List<FeedUploadResponse> feedQuery(String predicate, Object... args) {
 		return jdbcTemplate.query("""
 			SELECT cc.content_id, cc.author_user_id, FALSE AS mine, COALESCE(cu.profile_photo, u.profile_photo) AS profile_image_url,
-			       COALESCE(cu.community_profile_name, u.community_profile_name, u.name) AS nickname, cc.created_at,
-			       cc.content_text, cc.include_route_detail, cc.image,
+			       COALESCE(cu.community_profile_name, u.community_profile_name, u.name) AS nickname,
+			       COALESCE(cu.badge, 'NONE') AS badge, cc.created_at,
+			       cc.content_text, cc.include_route_detail, COALESCE(images.image_urls, cc.image) AS image_urls,
 			       rr.run_record_id AS joined_running_record_id, COALESCE(rr.total_distance, 0) AS total_distance, rr.duration, rr.pace,
-			       (SELECT COUNT(*) FROM community_interactions ci WHERE ci.content_id=cc.content_id AND ci.interaction_type='TAG') AS tagged_count,
-			       (SELECT COUNT(*) FROM community_interactions ci WHERE ci.content_id=cc.content_id AND ci.interaction_type='LIKE') AS like_count,
-			       (SELECT COUNT(*) FROM community_interactions ci WHERE ci.content_id=cc.content_id AND ci.interaction_type='COMMENT') AS comment_count
-			FROM community_contents cc JOIN users u ON u.user_id=cc.author_user_id LEFT JOIN community_users cu ON cu.user_id=u.user_id
-			LEFT JOIN running_records rr ON rr.run_record_id=cc.running_record_id WHERE
+			       COALESCE(stats.tagged_count, 0) AS tagged_count,
+			       COALESCE(stats.like_count, 0) AS like_count,
+			       COALESCE(stats.comment_count, 0) AS comment_count,
+			       FALSE AS liked, FALSE AS bookmarked, FALSE AS commented, FALSE AS tagged
+			FROM community_contents cc
+			JOIN users u ON u.user_id=cc.author_user_id
+			LEFT JOIN community_users cu ON cu.user_id=u.user_id
+			LEFT JOIN running_records rr ON rr.run_record_id=cc.running_record_id
+			LEFT JOIN community_content_stats stats ON stats.content_id=cc.content_id
+			LEFT JOIN (SELECT content_id, GROUP_CONCAT(image_url ORDER BY image_order SEPARATOR '\n---NEOSTRIDE-IMAGE---\n') AS image_urls FROM community_content_images GROUP BY content_id) images ON images.content_id=cc.content_id
+			WHERE
 			""" + predicate + " ORDER BY cc.created_at DESC, cc.content_id DESC", (rs, n) -> mapFeed(rs), args);
 	}
 
 	private List<FeedUploadResponse> feedQueryForViewer(String predicate, Object... args) {
 		return jdbcTemplate.query("""
 			SELECT cc.content_id, cc.author_user_id, (cc.author_user_id = ?) AS mine, COALESCE(cu.profile_photo, u.profile_photo) AS profile_image_url,
-			       COALESCE(cu.community_profile_name, u.community_profile_name, u.name) AS nickname, cc.created_at,
-			       cc.content_text, cc.include_route_detail, cc.image,
+			       COALESCE(cu.community_profile_name, u.community_profile_name, u.name) AS nickname,
+			       COALESCE(cu.badge, 'NONE') AS badge, cc.created_at,
+			       cc.content_text, cc.include_route_detail, COALESCE(images.image_urls, cc.image) AS image_urls,
 			       rr.run_record_id AS joined_running_record_id, COALESCE(rr.total_distance, 0) AS total_distance, rr.duration, rr.pace,
-			       (SELECT COUNT(*) FROM community_interactions ci WHERE ci.content_id=cc.content_id AND ci.interaction_type='TAG') AS tagged_count,
-			       (SELECT COUNT(*) FROM community_interactions ci WHERE ci.content_id=cc.content_id AND ci.interaction_type='LIKE') AS like_count,
-			       (SELECT COUNT(*) FROM community_interactions ci WHERE ci.content_id=cc.content_id AND ci.interaction_type='COMMENT') AS comment_count
-			FROM community_contents cc JOIN users u ON u.user_id=cc.author_user_id LEFT JOIN community_users cu ON cu.user_id=u.user_id
-			LEFT JOIN running_records rr ON rr.run_record_id=cc.running_record_id WHERE
+			       COALESCE(stats.tagged_count, 0) AS tagged_count,
+			       COALESCE(stats.like_count, 0) AS like_count,
+			       COALESCE(stats.comment_count, 0) AS comment_count,
+			       EXISTS (SELECT 1 FROM community_interactions ci WHERE ci.content_id=cc.content_id AND ci.user_id=? AND ci.interaction_type='LIKE') AS liked,
+			       EXISTS (SELECT 1 FROM community_interactions ci WHERE ci.content_id=cc.content_id AND ci.user_id=? AND ci.interaction_type='BOOKMARK') AS bookmarked,
+			       EXISTS (SELECT 1 FROM community_interactions ci WHERE ci.content_id=cc.content_id AND ci.user_id=? AND ci.interaction_type='COMMENT') AS commented,
+			       EXISTS (SELECT 1 FROM community_interactions ci WHERE ci.content_id=cc.content_id AND ci.tagged_user_id=? AND ci.interaction_type='TAG') AS tagged
+			FROM community_contents cc
+			JOIN users u ON u.user_id=cc.author_user_id
+			LEFT JOIN community_users cu ON cu.user_id=u.user_id
+			LEFT JOIN running_records rr ON rr.run_record_id=cc.running_record_id
+			LEFT JOIN community_content_stats stats ON stats.content_id=cc.content_id
+			LEFT JOIN (SELECT content_id, GROUP_CONCAT(image_url ORDER BY image_order SEPARATOR '\n---NEOSTRIDE-IMAGE---\n') AS image_urls FROM community_content_images GROUP BY content_id) images ON images.content_id=cc.content_id
+			WHERE
 			""" + predicate + " ORDER BY cc.created_at DESC, cc.content_id DESC", (rs, n) -> mapFeed(rs), args);
+	}
+
+	private List<FeedUploadResponse> feedQueryLimited(String predicate, Object... args) {
+		return jdbcTemplate.query("""
+			SELECT cc.content_id, cc.author_user_id, FALSE AS mine, COALESCE(cu.profile_photo, u.profile_photo) AS profile_image_url,
+			       COALESCE(cu.community_profile_name, u.community_profile_name, u.name) AS nickname,
+			       COALESCE(cu.badge, 'NONE') AS badge, cc.created_at,
+			       cc.content_text, cc.include_route_detail, COALESCE(images.image_urls, cc.image) AS image_urls,
+			       rr.run_record_id AS joined_running_record_id, COALESCE(rr.total_distance, 0) AS total_distance, rr.duration, rr.pace,
+			       COALESCE(stats.tagged_count, 0) AS tagged_count,
+			       COALESCE(stats.like_count, 0) AS like_count,
+			       COALESCE(stats.comment_count, 0) AS comment_count,
+			       FALSE AS liked, FALSE AS bookmarked, FALSE AS commented, FALSE AS tagged
+			FROM community_contents cc
+			JOIN users u ON u.user_id=cc.author_user_id
+			LEFT JOIN community_users cu ON cu.user_id=u.user_id
+			LEFT JOIN running_records rr ON rr.run_record_id=cc.running_record_id
+			LEFT JOIN community_content_stats stats ON stats.content_id=cc.content_id
+			LEFT JOIN (SELECT content_id, GROUP_CONCAT(image_url ORDER BY image_order SEPARATOR '\n---NEOSTRIDE-IMAGE---\n') AS image_urls FROM community_content_images GROUP BY content_id) images ON images.content_id=cc.content_id
+			WHERE
+			""" + predicate + " ORDER BY cc.created_at DESC, cc.content_id DESC LIMIT ?", (rs, n) -> mapFeed(rs), args);
+	}
+
+	private List<FeedUploadResponse> feedQueryForViewerLimited(String predicate, Object... args) {
+		return jdbcTemplate.query("""
+			SELECT cc.content_id, cc.author_user_id, (cc.author_user_id = ?) AS mine, COALESCE(cu.profile_photo, u.profile_photo) AS profile_image_url,
+			       COALESCE(cu.community_profile_name, u.community_profile_name, u.name) AS nickname,
+			       COALESCE(cu.badge, 'NONE') AS badge, cc.created_at,
+			       cc.content_text, cc.include_route_detail, COALESCE(images.image_urls, cc.image) AS image_urls,
+			       rr.run_record_id AS joined_running_record_id, COALESCE(rr.total_distance, 0) AS total_distance, rr.duration, rr.pace,
+			       COALESCE(stats.tagged_count, 0) AS tagged_count,
+			       COALESCE(stats.like_count, 0) AS like_count,
+			       COALESCE(stats.comment_count, 0) AS comment_count,
+			       EXISTS (SELECT 1 FROM community_interactions ci WHERE ci.content_id=cc.content_id AND ci.user_id=? AND ci.interaction_type='LIKE') AS liked,
+			       EXISTS (SELECT 1 FROM community_interactions ci WHERE ci.content_id=cc.content_id AND ci.user_id=? AND ci.interaction_type='BOOKMARK') AS bookmarked,
+			       EXISTS (SELECT 1 FROM community_interactions ci WHERE ci.content_id=cc.content_id AND ci.user_id=? AND ci.interaction_type='COMMENT') AS commented,
+			       EXISTS (SELECT 1 FROM community_interactions ci WHERE ci.content_id=cc.content_id AND ci.tagged_user_id=? AND ci.interaction_type='TAG') AS tagged
+			FROM community_contents cc
+			JOIN users u ON u.user_id=cc.author_user_id
+			LEFT JOIN community_users cu ON cu.user_id=u.user_id
+			LEFT JOIN running_records rr ON rr.run_record_id=cc.running_record_id
+			LEFT JOIN community_content_stats stats ON stats.content_id=cc.content_id
+			LEFT JOIN (SELECT content_id, GROUP_CONCAT(image_url ORDER BY image_order SEPARATOR '\n---NEOSTRIDE-IMAGE---\n') AS image_urls FROM community_content_images GROUP BY content_id) images ON images.content_id=cc.content_id
+			WHERE
+			""" + predicate + " ORDER BY cc.created_at DESC, cc.content_id DESC LIMIT ?", (rs, n) -> mapFeed(rs), args);
 	}
 
 	private FeedUploadResponse mapFeed(ResultSet rs) throws SQLException {
 		DecodedFeedContent parts = decodeFeedContent(rs.getString("content_text"));
 		long writerId = rs.getLong("author_user_id");
-		return new FeedUploadResponse(rs.getLong("content_id"), rs.getString("profile_image_url"), rs.getString("nickname"), rs.getTimestamp("created_at").toLocalDateTime().format(ISO), parts.title(), parts.content(), rs.getInt("tagged_count"), rs.getInt("like_count"), rs.getInt("comment_count"), feedDistance(rs, parts), feedDuration(rs, parts), feedPace(rs, parts), rs.getBoolean("include_route_detail"), parts.routeMapImageUri(), decodeImages(rs.getString("image")), rs.getBoolean("mine"), writerId);
+		String badge = rs.getString("badge");
+		return new FeedUploadResponse(rs.getLong("content_id"), rs.getString("profile_image_url"), rs.getString("nickname"), badgeOwned(badge), badge, rs.getTimestamp("created_at").toLocalDateTime().format(ISO), parts.title(), parts.content(), rs.getInt("tagged_count"), rs.getInt("like_count"), rs.getInt("comment_count"), feedDistance(rs, parts), feedDuration(rs, parts), feedPace(rs, parts), rs.getBoolean("include_route_detail"), parts.routeMapImageUri(), decodeImages(imageUrls(rs)), rs.getBoolean("liked"), rs.getBoolean("bookmarked"), rs.getBoolean("commented"), rs.getBoolean("tagged"), rs.getBoolean("mine"), writerId);
 	}
 
 	private List<TipUploadResponse> tipQuery(String predicate, Object... args) {
 		return jdbcTemplate.query("""
 			SELECT cc.content_id, cc.author_user_id, COALESCE(cu.community_profile_name, u.community_profile_name, u.name) AS nickname,
 			       COALESCE(cu.profile_photo, u.profile_photo) AS profile_image_url, COALESCE(cu.badge, 'NONE') AS badge,
-			       cc.tip_type, cc.content_text, cc.include_route_detail, cc.image, cc.created_at,
-			       (SELECT COUNT(*) FROM community_interactions ci WHERE ci.content_id=cc.content_id AND ci.interaction_type='LIKE') AS like_count,
-			       (SELECT COUNT(*) FROM community_interactions ci WHERE ci.content_id=cc.content_id AND ci.interaction_type='COMMENT') AS comment_count,
+			       cc.tip_type, cc.content_text, cc.include_route_detail, COALESCE(images.image_urls, cc.image) AS image_urls, cc.created_at,
+			       COALESCE(stats.like_count, 0) AS like_count,
+			       COALESCE(stats.comment_count, 0) AS comment_count,
 			       FALSE AS liked, FALSE AS bookmarked, FALSE AS commented, FALSE AS mine
 			FROM community_contents cc JOIN users u ON u.user_id=cc.author_user_id LEFT JOIN community_users cu ON cu.user_id=u.user_id
+			LEFT JOIN community_content_stats stats ON stats.content_id=cc.content_id
+			LEFT JOIN (SELECT content_id, GROUP_CONCAT(image_url ORDER BY image_order SEPARATOR '\n---NEOSTRIDE-IMAGE---\n') AS image_urls FROM community_content_images GROUP BY content_id) images ON images.content_id=cc.content_id
 			WHERE
 			""" + predicate + " ORDER BY cc.created_at DESC, cc.content_id DESC", this::mapTip, args);
 	}
@@ -449,14 +653,21 @@ public class CommunityRepository {
 	private List<FeedUploadResponse> feedQueryPaged(String predicate, Object[] args) {
 		return jdbcTemplate.query("""
 			SELECT cc.content_id, cc.author_user_id, FALSE AS mine, COALESCE(cu.profile_photo, u.profile_photo) AS profile_image_url,
-			       COALESCE(cu.community_profile_name, u.community_profile_name, u.name) AS nickname, cc.created_at,
-			       cc.content_text, cc.include_route_detail, cc.image,
+			       COALESCE(cu.community_profile_name, u.community_profile_name, u.name) AS nickname,
+			       COALESCE(cu.badge, 'NONE') AS badge, cc.created_at,
+			       cc.content_text, cc.include_route_detail, COALESCE(images.image_urls, cc.image) AS image_urls,
 			       rr.run_record_id AS joined_running_record_id, COALESCE(rr.total_distance, 0) AS total_distance, rr.duration, rr.pace,
-			       (SELECT COUNT(*) FROM community_interactions ci WHERE ci.content_id=cc.content_id AND ci.interaction_type='TAG') AS tagged_count,
-			       (SELECT COUNT(*) FROM community_interactions ci WHERE ci.content_id=cc.content_id AND ci.interaction_type='LIKE') AS like_count,
-			       (SELECT COUNT(*) FROM community_interactions ci WHERE ci.content_id=cc.content_id AND ci.interaction_type='COMMENT') AS comment_count
-			FROM community_contents cc JOIN users u ON u.user_id=cc.author_user_id LEFT JOIN community_users cu ON cu.user_id=u.user_id
-			LEFT JOIN running_records rr ON rr.run_record_id=cc.running_record_id WHERE
+			       COALESCE(stats.tagged_count, 0) AS tagged_count,
+			       COALESCE(stats.like_count, 0) AS like_count,
+			       COALESCE(stats.comment_count, 0) AS comment_count,
+			       FALSE AS liked, FALSE AS bookmarked, FALSE AS commented, FALSE AS tagged
+			FROM community_contents cc
+			JOIN users u ON u.user_id=cc.author_user_id
+			LEFT JOIN community_users cu ON cu.user_id=u.user_id
+			LEFT JOIN running_records rr ON rr.run_record_id=cc.running_record_id
+			LEFT JOIN community_content_stats stats ON stats.content_id=cc.content_id
+			LEFT JOIN (SELECT content_id, GROUP_CONCAT(image_url ORDER BY image_order SEPARATOR '\n---NEOSTRIDE-IMAGE---\n') AS image_urls FROM community_content_images GROUP BY content_id) images ON images.content_id=cc.content_id
+			WHERE
 			""" + predicate + " ORDER BY cc.created_at DESC, cc.content_id DESC LIMIT ? OFFSET ?", (rs, n) -> mapFeed(rs), args);
 	}
 
@@ -464,11 +675,55 @@ public class CommunityRepository {
 		return jdbcTemplate.query("""
 			SELECT cc.content_id, cc.author_user_id, COALESCE(cu.community_profile_name, u.community_profile_name, u.name) AS nickname,
 			       COALESCE(cu.profile_photo, u.profile_photo) AS profile_image_url, COALESCE(cu.badge, 'NONE') AS badge,
-			       cc.tip_type, cc.content_text, cc.include_route_detail, cc.image, cc.created_at,
-			       (SELECT COUNT(*) FROM community_interactions ci WHERE ci.content_id=cc.content_id AND ci.interaction_type='LIKE') AS like_count,
-			       (SELECT COUNT(*) FROM community_interactions ci WHERE ci.content_id=cc.content_id AND ci.interaction_type='COMMENT') AS comment_count,
+			       cc.tip_type, cc.content_text, cc.include_route_detail, COALESCE(images.image_urls, cc.image) AS image_urls, cc.created_at,
+			       COALESCE(stats.like_count, 0) AS like_count,
+			       COALESCE(stats.comment_count, 0) AS comment_count,
 			       FALSE AS liked, FALSE AS bookmarked, FALSE AS commented, FALSE AS mine
 			FROM community_contents cc JOIN users u ON u.user_id=cc.author_user_id LEFT JOIN community_users cu ON cu.user_id=u.user_id
+			LEFT JOIN community_content_stats stats ON stats.content_id=cc.content_id
+			LEFT JOIN (SELECT content_id, GROUP_CONCAT(image_url ORDER BY image_order SEPARATOR '\n---NEOSTRIDE-IMAGE---\n') AS image_urls FROM community_content_images GROUP BY content_id) images ON images.content_id=cc.content_id
+			WHERE
+			""" + predicate + " ORDER BY cc.created_at DESC, cc.content_id DESC LIMIT ? OFFSET ?", this::mapTip, args);
+	}
+
+	private List<FeedUploadResponse> feedQueryPagedForViewer(String predicate, Object[] args) {
+		return jdbcTemplate.query("""
+			SELECT cc.content_id, cc.author_user_id, (cc.author_user_id = ?) AS mine, COALESCE(cu.profile_photo, u.profile_photo) AS profile_image_url,
+			       COALESCE(cu.community_profile_name, u.community_profile_name, u.name) AS nickname,
+			       COALESCE(cu.badge, 'NONE') AS badge, cc.created_at,
+			       cc.content_text, cc.include_route_detail, COALESCE(images.image_urls, cc.image) AS image_urls,
+			       rr.run_record_id AS joined_running_record_id, COALESCE(rr.total_distance, 0) AS total_distance, rr.duration, rr.pace,
+			       COALESCE(stats.tagged_count, 0) AS tagged_count,
+			       COALESCE(stats.like_count, 0) AS like_count,
+			       COALESCE(stats.comment_count, 0) AS comment_count,
+			       EXISTS (SELECT 1 FROM community_interactions ci WHERE ci.content_id=cc.content_id AND ci.user_id=? AND ci.interaction_type='LIKE') AS liked,
+			       EXISTS (SELECT 1 FROM community_interactions ci WHERE ci.content_id=cc.content_id AND ci.user_id=? AND ci.interaction_type='BOOKMARK') AS bookmarked,
+			       EXISTS (SELECT 1 FROM community_interactions ci WHERE ci.content_id=cc.content_id AND ci.user_id=? AND ci.interaction_type='COMMENT') AS commented,
+			       EXISTS (SELECT 1 FROM community_interactions ci WHERE ci.content_id=cc.content_id AND ci.tagged_user_id=? AND ci.interaction_type='TAG') AS tagged
+			FROM community_contents cc
+			JOIN users u ON u.user_id=cc.author_user_id
+			LEFT JOIN community_users cu ON cu.user_id=u.user_id
+			LEFT JOIN running_records rr ON rr.run_record_id=cc.running_record_id
+			LEFT JOIN community_content_stats stats ON stats.content_id=cc.content_id
+			LEFT JOIN (SELECT content_id, GROUP_CONCAT(image_url ORDER BY image_order SEPARATOR '\n---NEOSTRIDE-IMAGE---\n') AS image_urls FROM community_content_images GROUP BY content_id) images ON images.content_id=cc.content_id
+			WHERE
+			""" + predicate + " ORDER BY cc.created_at DESC, cc.content_id DESC LIMIT ? OFFSET ?", (rs, n) -> mapFeed(rs), args);
+	}
+
+	private List<TipUploadResponse> tipQueryPagedForViewer(String predicate, Object[] args) {
+		return jdbcTemplate.query("""
+			SELECT cc.content_id, cc.author_user_id, COALESCE(cu.community_profile_name, u.community_profile_name, u.name) AS nickname,
+			       COALESCE(cu.profile_photo, u.profile_photo) AS profile_image_url, COALESCE(cu.badge, 'NONE') AS badge,
+			       cc.tip_type, cc.content_text, cc.include_route_detail, COALESCE(images.image_urls, cc.image) AS image_urls, cc.created_at,
+			       COALESCE(stats.like_count, 0) AS like_count,
+			       COALESCE(stats.comment_count, 0) AS comment_count,
+			       EXISTS (SELECT 1 FROM community_interactions ci WHERE ci.content_id=cc.content_id AND ci.user_id=? AND ci.interaction_type='LIKE') AS liked,
+			       EXISTS (SELECT 1 FROM community_interactions ci WHERE ci.content_id=cc.content_id AND ci.user_id=? AND ci.interaction_type='BOOKMARK') AS bookmarked,
+			       EXISTS (SELECT 1 FROM community_interactions ci WHERE ci.content_id=cc.content_id AND ci.user_id=? AND ci.interaction_type='COMMENT') AS commented,
+			       (cc.author_user_id = ?) AS mine
+			FROM community_contents cc JOIN users u ON u.user_id=cc.author_user_id LEFT JOIN community_users cu ON cu.user_id=u.user_id
+			LEFT JOIN community_content_stats stats ON stats.content_id=cc.content_id
+			LEFT JOIN (SELECT content_id, GROUP_CONCAT(image_url ORDER BY image_order SEPARATOR '\n---NEOSTRIDE-IMAGE---\n') AS image_urls FROM community_content_images GROUP BY content_id) images ON images.content_id=cc.content_id
 			WHERE
 			""" + predicate + " ORDER BY cc.created_at DESC, cc.content_id DESC LIMIT ? OFFSET ?", this::mapTip, args);
 	}
@@ -477,14 +732,16 @@ public class CommunityRepository {
 		return jdbcTemplate.query("""
 			SELECT cc.content_id, cc.author_user_id, COALESCE(cu.community_profile_name, u.community_profile_name, u.name) AS nickname,
 			       COALESCE(cu.profile_photo, u.profile_photo) AS profile_image_url, COALESCE(cu.badge, 'NONE') AS badge,
-			       cc.tip_type, cc.content_text, cc.include_route_detail, cc.image, cc.created_at,
-			       (SELECT COUNT(*) FROM community_interactions ci WHERE ci.content_id=cc.content_id AND ci.interaction_type='LIKE') AS like_count,
-			       (SELECT COUNT(*) FROM community_interactions ci WHERE ci.content_id=cc.content_id AND ci.interaction_type='COMMENT') AS comment_count,
+			       cc.tip_type, cc.content_text, cc.include_route_detail, COALESCE(images.image_urls, cc.image) AS image_urls, cc.created_at,
+			       COALESCE(stats.like_count, 0) AS like_count,
+			       COALESCE(stats.comment_count, 0) AS comment_count,
 			       EXISTS (SELECT 1 FROM community_interactions ci WHERE ci.content_id=cc.content_id AND ci.user_id=? AND ci.interaction_type='LIKE') AS liked,
 			       EXISTS (SELECT 1 FROM community_interactions ci WHERE ci.content_id=cc.content_id AND ci.user_id=? AND ci.interaction_type='BOOKMARK') AS bookmarked,
 			       EXISTS (SELECT 1 FROM community_interactions ci WHERE ci.content_id=cc.content_id AND ci.user_id=? AND ci.interaction_type='COMMENT') AS commented,
 			       (cc.author_user_id = ?) AS mine
 			FROM community_contents cc JOIN users u ON u.user_id=cc.author_user_id LEFT JOIN community_users cu ON cu.user_id=u.user_id
+			LEFT JOIN community_content_stats stats ON stats.content_id=cc.content_id
+			LEFT JOIN (SELECT content_id, GROUP_CONCAT(image_url ORDER BY image_order SEPARATOR '\n---NEOSTRIDE-IMAGE---\n') AS image_urls FROM community_content_images GROUP BY content_id) images ON images.content_id=cc.content_id
 			WHERE
 			""" + predicate + " ORDER BY cc.created_at DESC, cc.content_id DESC", this::mapTip, args);
 	}
@@ -494,7 +751,7 @@ public class CommunityRepository {
 		String badge = rs.getString("badge");
 		long writerId = rs.getLong("author_user_id");
 		boolean mine = rs.getBoolean("mine");
-		return new TipUploadResponse(rs.getLong("content_id"), writerId, rs.getString("nickname"), rs.getString("profile_image_url"), badgeOwned(badge), badge, fromTipType(rs.getString("tip_type")), parts[0], parts[1], rs.getBoolean("include_route_detail"), parts[2], decodeImages(rs.getString("image")), rs.getInt("like_count"), rs.getInt("comment_count"), rs.getBoolean("liked"), rs.getBoolean("bookmarked"), rs.getBoolean("commented"), mine, rs.getTimestamp("created_at").toLocalDateTime().format(ISO));
+		return new TipUploadResponse(rs.getLong("content_id"), writerId, rs.getString("nickname"), rs.getString("profile_image_url"), badgeOwned(badge), badge, fromTipType(rs.getString("tip_type")), parts[0], parts[1], rs.getBoolean("include_route_detail"), parts[2], decodeImages(imageUrls(rs)), rs.getInt("like_count"), rs.getInt("comment_count"), rs.getBoolean("liked"), rs.getBoolean("bookmarked"), rs.getBoolean("commented"), mine, rs.getTimestamp("created_at").toLocalDateTime().format(ISO));
 	}
 
 	private List<SearchUserResponse> userSearchQuery(String predicate, String orderBy, Object[] args) {
@@ -542,6 +799,58 @@ public class CommunityRepository {
 		long writerId = rs.getLong("user_id");
 		return new CommentResponse(rs.getLong("interaction_id"), writerId, rs.getString("nickname"), rs.getString("profile_image_url"), rs.getString("comment_text"), rs.getTimestamp("created_at").toLocalDateTime().format(ISO), badgeOwned(badge), badge, writerId == viewerUserId);
 	}
+
+	private void notifyFriendRequest(long requesterUserId, long targetUserId) {
+		if (requesterUserId == targetUserId) return;
+		createNotification(targetUserId, "FRIEND_REQUEST", notificationActorName(requesterUserId) + "님이 친구 요청을 보냈습니다.", "/community/friends");
+	}
+
+	private void notifyTaggedUser(long senderUserId, long contentId, long taggedUserId) {
+		if (senderUserId == taggedUserId) return;
+		createNotification(taggedUserId, "FEED_TAG", notificationActorName(senderUserId) + "님이 회원님을 피드에 태그했습니다.", "/api/community/feeds/" + contentId);
+	}
+
+	private void notifyContentInteraction(long actorUserId, long contentId, String interactionType) {
+		ContentOwner owner = contentOwner(contentId);
+		if (owner == null || owner.authorUserId() == actorUserId) return;
+		String actorName = notificationActorName(actorUserId);
+		boolean tip = "TIP".equalsIgnoreCase(owner.contentType());
+		String endpoint = tip ? "/api/community/tips/" + contentId : "/api/community/feeds/" + contentId;
+		if ("LIKE".equalsIgnoreCase(interactionType)) {
+			createNotification(owner.authorUserId(), tip ? "TIP_LIKE" : "FEED_LIKE", actorName + "님이 회원님의 " + (tip ? "팁" : "피드") + "을 좋아합니다.", endpoint);
+		}
+		if ("COMMENT".equalsIgnoreCase(interactionType)) {
+			createNotification(owner.authorUserId(), tip ? "TIP_COMMENT" : "FEED_COMMENT", actorName + "님이 회원님의 " + (tip ? "팁" : "피드") + "에 댓글을 남겼습니다.", endpoint);
+		}
+	}
+
+	private ContentOwner contentOwner(long contentId) {
+		List<ContentOwner> rows = jdbcTemplate.query("""
+			SELECT author_user_id, content_type
+			FROM community_contents
+			WHERE content_id = ?
+			""", (rs, n) -> new ContentOwner(rs.getLong("author_user_id"), rs.getString("content_type")), contentId);
+		return rows == null || rows.isEmpty() ? null : rows.getFirst();
+	}
+
+	private String notificationActorName(long userId) {
+		List<String> rows = jdbcTemplate.query("""
+			SELECT COALESCE(cu.community_profile_name, u.community_profile_name, u.name) AS nickname
+			FROM users u LEFT JOIN community_users cu ON cu.user_id = u.user_id
+			WHERE u.user_id = ?
+			""", (rs, n) -> rs.getString("nickname"), userId);
+		return rows == null || rows.isEmpty() || rows.getFirst() == null || rows.getFirst().isBlank() ? "러너" : rows.getFirst();
+	}
+
+	private void createNotification(long userId, String type, String message, String endpoint) {
+		if (userId <= 0 || type == null || type.isBlank() || message == null || message.isBlank()) return;
+		jdbcTemplate.update("""
+			INSERT INTO notifications (user_id, notification_type, message, endpoint, is_read, created_at)
+			VALUES (?, ?, ?, ?, FALSE, NOW())
+			""", userId, type, message, endpoint);
+	}
+
+	private record ContentOwner(long authorUserId, String contentType) {}
 
 	private static String toRelationshipStatus(String status) { return switch ((status == null ? "friends" : status).toLowerCase(Locale.ROOT)) { case "sent", "received" -> "REQUESTED"; case "blocked" -> "BLOCKED"; default -> "ACCEPTED"; }; }
 	private static String feedPredicate(String predicate) { return "cc.content_type = 'POST' AND (" + predicate + ")"; }
@@ -672,7 +981,8 @@ public class CommunityRepository {
 		try {
 			BigDecimal pace = value instanceof BigDecimal decimal ? decimal : new BigDecimal(value.toString());
 			if (pace.scale() <= 0 && pace.intValue() > 59) {
-				return pace.intValue();
+				int seconds = pace.intValue();
+				return seconds > 3600 ? null : seconds;
 			}
 			BigDecimal normalized = pace.stripTrailingZeros();
 			BigDecimal absolute = normalized.abs();
@@ -681,7 +991,8 @@ public class CommunityRepository {
 			if (absolute.scale() > 0 && absolute.scale() <= 2 && secondsPart < 60) {
 				return minutes * 60 + secondsPart;
 			}
-			return Math.round(pace.multiply(BigDecimal.valueOf(60)).floatValue());
+			int seconds = Math.round(pace.multiply(BigDecimal.valueOf(60)).floatValue());
+			return seconds > 3600 ? null : seconds;
 		} catch (NumberFormatException | ArithmeticException exception) {
 			return null;
 		}
@@ -740,9 +1051,39 @@ public class CommunityRepository {
 	private record DecodedFeedContent(String title, String content, String routeMapImageUri, String distance, String duration, String pace) {}
 	private static String encodeTipContent(String title, String content, String routeMapImageUrl) { return (title == null ? "" : title) + "\n---NEOSTRIDE-TIP---\n" + (content == null ? "" : content) + "\n---NEOSTRIDE-ROUTE---\n" + (routeMapImageUrl == null ? "" : routeMapImageUrl); }
 	private static String[] decodeTipContent(String raw) { String[] first = (raw == null ? "" : raw).split("\\n---NEOSTRIDE-TIP---\\n", 2); String title = first.length > 0 ? first[0] : ""; String rest = first.length > 1 ? first[1] : ""; String[] second = rest.split("\\n---NEOSTRIDE-ROUTE---\\n", 2); return new String[]{title, second.length > 0 ? second[0] : rest, second.length > 1 && !second[1].isBlank() ? second[1] : null}; }
+	private void insertContentImages(long contentId, List<String> images) {
+		List<String> normalized = normalizeImages(images);
+		for (int index = 0; index < normalized.size(); index++) {
+			jdbcTemplate.update("INSERT INTO community_content_images (content_id, image_order, image_url) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE image_url = VALUES(image_url)", contentId, index, normalized.get(index));
+		}
+	}
+
+	private void replaceContentImages(long contentId, List<String> images) {
+		jdbcTemplate.update("DELETE FROM community_content_images WHERE content_id=?", contentId);
+		insertContentImages(contentId, images);
+	}
+
+	private static String imageUrls(ResultSet rs) throws SQLException {
+		try {
+			String normalized = rs.getString("image_urls");
+			if (normalized != null) return normalized;
+		} catch (SQLException ignored) {
+			// Older tests and fallback queries may only expose the legacy image column.
+		}
+		try {
+			return rs.getString("image");
+		} catch (SQLException ignored) {
+			return null;
+		}
+	}
+
+	private static List<String> normalizeImages(List<String> images) {
+		if (images == null || images.isEmpty()) return List.of();
+		return images.stream().filter(value -> value != null && !value.isBlank()).map(String::trim).toList();
+	}
+
 	private static String encodeImages(List<String> images) {
-		if (images == null || images.isEmpty()) return null;
-		List<String> normalized = images.stream().filter(value -> value != null && !value.isBlank()).map(String::trim).toList();
+		List<String> normalized = normalizeImages(images);
 		return normalized.isEmpty() ? null : String.join(IMAGE_DELIMITER, normalized);
 	}
 	private static List<String> decodeImages(String raw) {
@@ -763,6 +1104,15 @@ public class CommunityRepository {
 			"		  AND ((r.user1_id = ? AND r.user2_id = cc.author_user_id)\n" +
 			"		   OR (r.user2_id = ? AND r.user1_id = cc.author_user_id))\n" +
 		")" +
+		")";
+	}
+
+	private static String blockedUserPredicate() {
+		return "NOT EXISTS (" +
+			"SELECT 1 FROM relationships r " +
+			"WHERE r.status = 'BLOCKED' " +
+			"AND ((r.user1_id = ? AND r.user2_id = u.user_id) " +
+			"OR (r.user2_id = ? AND r.user1_id = u.user_id))" +
 		")";
 	}
 

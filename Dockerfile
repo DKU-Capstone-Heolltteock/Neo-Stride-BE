@@ -7,8 +7,20 @@ RUN mvn -B -ntp dependency:go-offline
 COPY src ./src
 RUN mvn -B -ntp clean package -DskipTests
 
+FROM eclipse-temurin:21-jre AS webp-tools
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends webp \
+    && rm -rf /var/lib/apt/lists/*
+RUN mkdir -p /webp/bin /webp/lib \
+    && cp /usr/bin/cwebp /webp/bin/cwebp \
+    && ldd /usr/bin/cwebp | awk '$3 ~ /^\// { print $3 }' | xargs -I '{}' cp -L '{}' /webp/lib/
+
 FROM eclipse-temurin:21-jre
 WORKDIR /app
+
+COPY --from=webp-tools /webp/bin/cwebp /usr/bin/cwebp
+COPY --from=webp-tools /webp/lib/ /usr/local/lib/
+ENV LD_LIBRARY_PATH=/usr/local/lib
 
 RUN addgroup --system spring && adduser --system spring --ingroup spring
 USER spring:spring

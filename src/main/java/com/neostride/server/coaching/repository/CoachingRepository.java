@@ -79,6 +79,23 @@ public class CoachingRepository {
 		});
 	}
 
+	public void updatePlanDayTargets(long userId, long goalId, List<PlanDayInsertCommand> commands) {
+		if (commands == null || commands.isEmpty()) {
+			return;
+		}
+		jdbcTemplate.batchUpdate("""
+				UPDATE plans
+				SET target_distance = ?, target_pace = ?
+				WHERE user_id = ? AND goal_id = ? AND plan_date = ? AND is_completed = FALSE
+				""", commands, commands.size(), (ps, command) -> {
+			ps.setBigDecimal(1, command.targetDistance());
+			ps.setBigDecimal(2, command.targetPace());
+			ps.setLong(3, userId);
+			ps.setLong(4, goalId);
+			ps.setObject(5, command.planDate());
+		});
+	}
+
 	public GoalRow findActiveGoalByUserId(long userId) {
 		List<GoalRow> rows = jdbcTemplate.query("""
 				SELECT

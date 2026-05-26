@@ -267,6 +267,16 @@ public class CommunityController {
 			@RequestHeader(value = "Authorization", required = false) String authorization,
 			@RequestHeader(value = "X-User-Id", required = false) Long headerUserId
 	) { return ResponseEntity.ok(service.getFeedList(optionalUserId(authorization, headerUserId))); }
+	@GetMapping("/api/community/feeds/page")
+	public ResponseEntity<FeedPageResponse> getCommunityFeedPage(
+			@RequestHeader(value = "Authorization", required = false) String authorization,
+			@RequestHeader(value = "X-User-Id", required = false) Long headerUserId,
+			@RequestParam(defaultValue = "20") int limit,
+			@RequestParam(value = "cursorCreatedAt", required = false) String cursorCreatedAt,
+			@RequestParam(value = "cursor_created_at", required = false) String cursorCreatedAtSnake,
+			@RequestParam(value = "cursorId", required = false) Long cursorId,
+			@RequestParam(value = "cursor_id", required = false) Long cursorIdSnake
+	) { return ResponseEntity.ok(service.getFeedPage(optionalUserId(authorization, headerUserId), firstNonBlank(cursorCreatedAt, cursorCreatedAtSnake), firstNonNull(cursorId, cursorIdSnake), limit)); }
 	@PostMapping("/api/tips")
 	public ResponseEntity<TipUploadResponse> uploadTip(
 			@RequestHeader(value = "Authorization", required = false) String authorization,
@@ -379,25 +389,31 @@ public class CommunityController {
 
 	@GetMapping("/api/community/search/feeds")
 	public ResponseEntity<List<FeedUploadResponse>> searchFeeds(
+			@RequestHeader(value = "Authorization", required = false) String authorization,
+			@RequestHeader(value = "X-User-Id", required = false) Long headerUserId,
 			@RequestParam(value = "keyword", required = false) String keyword,
 			@RequestParam(defaultValue = "0") int page,
 			@RequestParam(defaultValue = "10") int size
-	) { return ResponseEntity.ok(service.searchFeeds(keyword, page, size)); }
+	) { return ResponseEntity.ok(service.searchFeeds(optionalUserId(authorization, headerUserId), keyword, page, size)); }
 
 	@GetMapping("/api/community/search/tips")
 	public ResponseEntity<List<TipUploadResponse>> searchTips(
+			@RequestHeader(value = "Authorization", required = false) String authorization,
+			@RequestHeader(value = "X-User-Id", required = false) Long headerUserId,
 			@RequestParam(value = "keyword", required = false) String keyword,
 			@RequestParam(value = "category", required = false, defaultValue = "ALL") String category,
 			@RequestParam(defaultValue = "0") int page,
 			@RequestParam(defaultValue = "10") int size
-	) { return ResponseEntity.ok(service.searchTips(keyword, category, page, size)); }
+	) { return ResponseEntity.ok(service.searchTips(optionalUserId(authorization, headerUserId), keyword, category, page, size)); }
 
 	@GetMapping("/api/community/search/profiles")
 	public ResponseEntity<List<SearchUserResponse>> searchProfiles(
+			@RequestHeader(value = "Authorization", required = false) String authorization,
+			@RequestHeader(value = "X-User-Id", required = false) Long headerUserId,
 			@RequestParam(value = "keyword", required = false) String keyword,
 			@RequestParam(defaultValue = "0") int page,
 			@RequestParam(defaultValue = "10") int size
-	) { return ResponseEntity.ok(service.searchProfiles(keyword, page, size)); }
+	) { return ResponseEntity.ok(service.searchProfiles(optionalUserId(authorization, headerUserId), keyword, page, size)); }
 
 	@GetMapping("/api/community/search/friends")
 	public ResponseEntity<List<SearchUserResponse>> searchFriends(
@@ -408,9 +424,11 @@ public class CommunityController {
 
 	@GetMapping("/api/community/search/top-profiles")
 	public ResponseEntity<List<SearchUserResponse>> getTopProfiles(
+			@RequestHeader(value = "Authorization", required = false) String authorization,
+			@RequestHeader(value = "X-User-Id", required = false) Long headerUserId,
 			@RequestParam(defaultValue = "0") int page,
 			@RequestParam(defaultValue = "10") int size
-	) { return ResponseEntity.ok(service.getTopProfiles(page, size)); }
+	) { return ResponseEntity.ok(service.getTopProfiles(optionalUserId(authorization, headerUserId), page, size)); }
 
 	@GetMapping("/api/community/search/my-friends")
 	public ResponseEntity<List<SearchUserResponse>> getMyFriends(
@@ -418,6 +436,23 @@ public class CommunityController {
 			@RequestHeader(value = "X-User-Id", required = false) Long headerUserId
 	) { return ResponseEntity.ok(asFriends(service.getMyFriends(authenticatedUserId(authorization, headerUserId)))); }
 
+	public ResponseEntity<List<FeedUploadResponse>> searchFeeds(String keyword, int page, int size) { return ResponseEntity.ok(service.searchFeeds(keyword, page, size)); }
+	public ResponseEntity<List<TipUploadResponse>> searchTips(String keyword, String category, int page, int size) { return ResponseEntity.ok(service.searchTips(keyword, category, page, size)); }
+	public ResponseEntity<List<SearchUserResponse>> searchProfiles(String keyword, int page, int size) { return ResponseEntity.ok(service.searchProfiles(keyword, page, size)); }
+	public ResponseEntity<List<SearchUserResponse>> getTopProfiles(int page, int size) { return ResponseEntity.ok(service.getTopProfiles(page, size)); }
+
+	private static String firstNonBlank(String... values) {
+		for (String value : values) {
+			if (value != null && !value.isBlank()) return value.trim();
+		}
+		return null;
+	}
+	private static Long firstNonNull(Long... values) {
+		for (Long value : values) {
+			if (value != null) return value;
+		}
+		return null;
+	}
 	private static String first(Map<String, String> fields, String... names) {
 		for (String name : names) {
 			String value = fields.get(name);

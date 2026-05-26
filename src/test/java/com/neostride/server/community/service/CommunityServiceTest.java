@@ -1,7 +1,9 @@
 package com.neostride.server.community.service;
 
+import com.neostride.server.community.dto.FeedUploadResponse;
 import com.neostride.server.community.dto.SearchUserResponse;
 import com.neostride.server.community.repository.CommunityRepository;
+import java.time.LocalDateTime;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 
@@ -16,6 +18,29 @@ class CommunityServiceTest {
 
 	private final CommunityRepository repository = mock(CommunityRepository.class);
 	private final CommunityService service = new CommunityService(repository);
+
+	@Test
+	void getFeedPage_requestsOneExtraRowAndBuildsNextCursor() {
+		FeedUploadResponse first = new FeedUploadResponse(76L, null, "neo", "2026-05-26T22:14:32", "title", "body", 0, 0, 0, "1.00 km", null, null, false, null, List.of());
+		FeedUploadResponse second = new FeedUploadResponse(72L, null, "neo", "2026-05-26T20:40:39", "title", "body", 0, 0, 0, "1.00 km", null, null, false, null, List.of());
+		when(repository.listFeedsPage(1L, LocalDateTime.parse("2026-05-26T23:00:00"), 80L, 2)).thenReturn(List.of(first, second));
+
+		var result = service.getFeedPage(1L, "2026-05-26T23:00:00", 80L, 1);
+
+		assertThat(result.items()).containsExactly(first);
+		assertThat(result.hasMore()).isTrue();
+		assertThat(result.nextCursor().createdAt()).isEqualTo("2026-05-26T22:14:32");
+		assertThat(result.nextCursor().feedId()).isEqualTo(76L);
+	}
+
+	@Test
+	void getFeedPage_rejectsPartialCursor() {
+		assertThatThrownBy(() -> service.getFeedPage(null, "2026-05-26T23:00:00", null, 20))
+				.isInstanceOf(IllegalArgumentException.class)
+				.hasMessageContaining("cursorCreatedAt");
+
+		verify(repository, never()).listFeedsPage(null, LocalDateTime.parse("2026-05-26T23:00:00"), null, 21);
+	}
 
 	@Test
 	void searchProfiles_returnsTopProfilesWhenKeywordIsBlank() {

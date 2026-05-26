@@ -3,6 +3,8 @@ package com.neostride.server.community.controller;
 import com.neostride.server.auth.service.AuthenticatedUserService;
 import com.neostride.server.community.dto.BadgeDetailResponse;
 import com.neostride.server.community.dto.CommunityContentResponse;
+import com.neostride.server.community.dto.FeedCursorResponse;
+import com.neostride.server.community.dto.FeedPageResponse;
 import com.neostride.server.community.dto.FeedUploadRequest;
 import com.neostride.server.community.dto.FeedUploadResponse;
 import com.neostride.server.community.dto.FriendRequest;
@@ -290,6 +292,19 @@ class CommunityControllerTest {
 		assertThat(controller.uploadTip(AUTHORIZATION, 1L, tipRequest).getStatusCode()).isEqualTo(HttpStatus.CREATED);
 		assertThat(controller.uploadTip(AUTHORIZATION, 1L, tipRequest).getBody()).isSameAs(tip);
 		assertThat(controller.getTips(AUTHORIZATION, 1L).getBody()).isSameAs(tipList);
+	}
+
+	@Test
+	void getCommunityFeedPage_supportsCursorAliasesWithoutChangingLegacyList() {
+		FeedUploadResponse feed = new FeedUploadResponse(99L, null, "neo", "2026-05-11T00:00:00", "title", "content", 1, 0, 0, "3.20 km", "20:00", "6'15\"", true, "route.png", List.of("image.png"));
+		FeedPageResponse page = new FeedPageResponse(List.of(feed), new FeedCursorResponse("2026-05-11T00:00:00", 99L), true);
+		authenticate();
+		when(service.getFeedPage(1L, "2026-05-26T22:14:32", 76L, 10)).thenReturn(page);
+
+		var response = controller.getCommunityFeedPage(AUTHORIZATION, 1L, 10, null, "2026-05-26T22:14:32", null, 76L);
+
+		assertThat(response.getBody()).isSameAs(page);
+		verify(service).getFeedPage(1L, "2026-05-26T22:14:32", 76L, 10);
 	}
 
 	@Test

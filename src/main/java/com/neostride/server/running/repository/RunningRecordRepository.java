@@ -67,6 +67,7 @@ public class RunningRecordRepository {
 		if (generatedId == null) {
 			throw new IllegalStateException("러닝 기록 ID를 생성하지 못했습니다.");
 		}
+		updateBadgeAndNotifyIfImproved(request.userId(), request.badge());
 		return generatedId.longValue();
 	}
 
@@ -154,6 +155,66 @@ public class RunningRecordRepository {
 				null,
 				null
 		), recordId);
+	}
+
+	private void updateBadgeAndNotifyIfImproved(long userId, String rawBadge) {
+		String badge = normalizeBadge(rawBadge);
+		if (badge == null || "NONE".equals(badge)) {
+			return;
+		}
+		String previousBadge = currentBadge(userId);
+		if (badgeRank(badge) <= badgeRank(previousBadge)) {
+			return;
+		}
+		jdbcTemplate.update("""
+			INSERT INTO community_users (user_id, community_profile_name, profile_photo, badge)
+			SELECT user_id, COALESCE(community_profile_name, name), profile_photo, ?
+			FROM users
+			WHERE user_id = ?
+			ON DUPLICATE KEY UPDATE badge = VALUES(badge)
+			""", badge, userId);
+		jdbcTemplate.update("""
+			INSERT INTO notifications (user_id, notification_type, message, endpoint, is_read, created_at)
+			VALUES (?, 'GRADE', ?, '/users/me/badge', FALSE, NOW())
+			""", userId, badge + " 배지를 달성했습니다.");
+	}
+
+	private String currentBadge(long userId) {
+		List<String> rows = jdbcTemplate.query("""
+			SELECT COALESCE(cu.badge, 'NONE') AS badge
+			FROM users u LEFT JOIN community_users cu ON cu.user_id = u.user_id
+			WHERE u.user_id = ?
+			""", (rs, rowNum) -> rs.getString("badge"), userId);
+		return rows == null || rows.isEmpty() || rows.getFirst() == null ? "NONE" : rows.getFirst();
+	}
+
+	private static String normalizeBadge(String value) {
+		if (value == null || value.isBlank()) {
+			return null;
+		}
+		return switch (value.trim().toUpperCase(java.util.Locale.ROOT)) {
+			case "BRONZE" -> "BRONZE";
+			case "SILVER" -> "SILVER";
+			case "GOLD" -> "GOLD";
+			case "PLATINUM" -> "PLATINUM";
+			case "DIAMOND" -> "DIAMOND";
+			case "MASTER" -> "MASTER";
+			case "CHALLENGER" -> "CHALLENGER";
+			default -> "NONE";
+		};
+	}
+
+	private static int badgeRank(String badge) {
+		return switch (badge == null ? "NONE" : badge.trim().toUpperCase(java.util.Locale.ROOT)) {
+			case "BRONZE" -> 1;
+			case "SILVER" -> 2;
+			case "GOLD" -> 3;
+			case "PLATINUM" -> 4;
+			case "DIAMOND" -> 5;
+			case "MASTER" -> 6;
+			case "CHALLENGER" -> 7;
+			default -> 0;
+		};
 	}
 
 	private LocalDateTime parseTraceTime(String time) {

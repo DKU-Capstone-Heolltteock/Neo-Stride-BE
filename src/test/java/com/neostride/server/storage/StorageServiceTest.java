@@ -34,6 +34,25 @@ class StorageServiceTest {
 	}
 
 	@Test
+	void storeImage_createsThumbnailForJpegUpload() throws Exception {
+		StorageService storageService = new StorageService(tempDir, "/uploads");
+		byte[] imageBytes = imageBytes("jpg", 1600, 900);
+		MockMultipartFile file = new MockMultipartFile("image", "wide.jpg", "image/jpeg", imageBytes);
+
+		String url = storageService.storeImage(file, "community");
+
+		Path storedPath = tempDir.resolve(url.replaceFirst("^/uploads/", ""));
+		String filename = storedPath.getFileName().toString();
+		String basename = filename.substring(0, filename.lastIndexOf('.'));
+		Path thumbnail = storedPath.getParent().resolve("_thumbs").resolve(basename + "_480.jpg");
+		assertThat(Files.exists(thumbnail)).isTrue();
+		assertThat(Files.size(thumbnail)).isGreaterThan(0);
+		BufferedImage thumbnailImage = ImageIO.read(thumbnail.toFile());
+		assertThat(thumbnailImage.getWidth()).isEqualTo(480);
+		assertThat(thumbnailImage.getHeight()).isEqualTo(270);
+	}
+
+	@Test
 	void storeImage_rejectsEmptyFile() {
 		StorageService storageService = new StorageService(tempDir, "/uploads");
 		MockMultipartFile file = new MockMultipartFile("image", "empty.png", "image/png", new byte[0]);
@@ -120,8 +139,12 @@ class StorageServiceTest {
 	}
 
 	private static byte[] imageBytes(String format) {
+		return imageBytes(format, 1, 1);
+	}
+
+	private static byte[] imageBytes(String format, int width, int height) {
 		try {
-			BufferedImage image = new BufferedImage(1, 1, BufferedImage.TYPE_INT_RGB);
+			BufferedImage image = new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB);
 			ByteArrayOutputStream output = new ByteArrayOutputStream();
 			if (!ImageIO.write(image, format, output)) {
 				throw new IllegalStateException("No ImageIO writer for " + format);
