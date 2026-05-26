@@ -22,7 +22,7 @@
 
 - AI 피드백 API `POST /api/coaching/plans/{plan_day_id}/feedback`를 현재 Android/Backend 기준으로 명시했습니다.
 - Android 최신 main에 추가된 피드 상세/수정/삭제/좋아요/북마크/댓글/태그된 사용자 목록, 팁 상세/수정/삭제/좋아요/북마크/댓글, 검색, 알림 API를 반영했습니다.
-- 사진/이미지 업로드는 현재 백엔드 구현 기준으로 실제 로컬 파일 저장 후 `/uploads/...` public URL을 DB에 저장/응답합니다. 다중 이미지와 multipart 회원가입 사진은 아직 정식 지원하지 않습니다.
+- 사진/이미지 업로드는 현재 백엔드 구현 기준으로 실제 로컬 파일 저장 후 `/uploads/...` public URL을 DB에 저장/응답합니다. 피드/팁은 최대 3장 이미지 업로드를 지원하고, multipart 회원가입 프로필 사진도 지원합니다.
 - 신규 Android API `GET /api/community/feeds/{feedId}/tagged-users`는 피드 상세 화면의 태그 아이콘 클릭 시 태그된 사용자 목록을 조회하기 위해 추가되었습니다. 현재 백엔드에 직접 매핑을 추가해 구현됨으로 표시했습니다.
 - Android `ApiClient`는 현재 `Mockserver` interceptor를 공통 클라이언트에 추가해 실제 네트워크 전송 전에 mock 응답을 반환할 수 있습니다. 백엔드 연동 검증 시 제거/비활성화가 필요합니다.
 - Android `BuildConfig`에는 `BASE_URL` 외에 `MAPS_API_KEY` manifest placeholder가 추가되었습니다. API endpoint는 아니지만 빌드/환경 설정 변경으로 기록합니다.
@@ -89,12 +89,12 @@ MAPS_API_KEY=***
 - public URL prefix: `neostride.upload.public-prefix=/uploads`
 - 정적 파일 조회: `/uploads/**` 요청을 업로드 디렉터리에서 서빙합니다.
 - 파일 크기 제한: `spring.servlet.multipart.max-file-size=10MB`, `spring.servlet.multipart.max-request-size=30MB`
-- 허용 확장자: `jpg`, `jpeg`, `png`, `webp`
-- 허용 MIME type: `image/jpeg`, `image/png`, `image/webp`
+- 허용 확장자: `jpg`, `jpeg`, `png`, `webp`, `heic`, `heif`
+- 허용 MIME type: `image/jpeg`, `image/png`, `image/webp`, `image/heic`, `image/heif`, 일부 Android 갤러리 `application/octet-stream`
 - 서버는 빈 파일, MIME/확장자 불일치, magic byte 불일치 파일을 `400 Bad Request`로 거부합니다.
 - 저장 파일명은 원본 파일명을 사용하지 않고 UUID 기반으로 생성합니다.
 - `PATCH /users/me/profile-image`는 `profile_image_url` 또는 multipart part `image` 중 하나가 필수입니다. 둘 다 없거나 빈 문자열이면 기존 `profile_photo`를 null로 덮지 않고 `400 Bad Request`를 반환합니다.
-- `POST /api/community/feeds`, `POST /api/community/tips` multipart 업로드는 현재 DB 스키마가 단일 image 컬럼만 지원하므로 `images` part는 최대 1개만 허용합니다. 2개 이상이면 `400 Bad Request`입니다.
+- `POST /api/community/feeds`, `POST /api/community/tips` multipart 업로드는 `images` part를 최대 3개까지 허용합니다. 저장 URL 목록은 기존 응답의 `imageUrls` 배열로 반환됩니다.
 - route image는 `route_image` 또는 `routeMapImage` part로 받을 수 있고, 실제 저장 후 반환된 URL을 기존 content text delimiter 영역에 저장합니다. route image 전용 컬럼/테이블 분리는 후속 작업입니다.
 
 ## API 목록
@@ -105,7 +105,7 @@ MAPS_API_KEY=***
 | 계정/프로필/배지 | `PATCH` | `/users/me/nickname` | `com/neostride/app/feature/account/api/AccountApi.java:21 updateNickname()` | 구현됨 |
 | 계정/프로필/배지 | `DELETE` | `/users/me` | `com/neostride/app/feature/account/api/AccountApi.java:25 deleteAccount()` | 구현됨 |
 | 인증 | `POST` | `/api/auth/login` | `com/neostride/app/feature/auth/api/AuthApi.java:19 login()` | 구현됨 |
-| 인증 | `POST` | `/api/auth/signup` | `com/neostride/app/feature/auth/api/AuthApi.java:23 signup()`, `com/neostride/app/feature/auth/api/AuthApi.java:29 signupWithPhoto()` | 구현됨. multipart 가입은 request content type 불일치 주의 |
+| 인증 | `POST` | `/api/auth/signup` | `com/neostride/app/feature/auth/api/AuthApi.java:23 signup()`, `com/neostride/app/feature/auth/api/AuthApi.java:29 signupWithPhoto()` | 구현됨. JSON 가입과 multipart 프로필 사진 가입 모두 지원 |
 | 계정/프로필/배지 | `GET` | `/users/me/badge` | `com/neostride/app/feature/badge/api/BadgeService.java:15 getBadgeDetail()` | 구현됨 |
 | 계정/프로필/배지 | `GET` | `/users/{userId}/badge` | `com/neostride/app/feature/badge/api/BadgeService.java:19 getBadgeDetailByUserId()`, `com/neostride/app/feature/community/runnerpage/api/RunnerPageService.java:25 getRunnerBadge()` | 구현됨 |
 | 피드 | `POST` | `/api/community/feeds` | `com/neostride/app/feature/community/feed/api/FeedApi.java:44 uploadFeed()` | 구현됨. multipart 사진은 최대 1장 + route image 저장 URL 지원 |
@@ -200,11 +200,11 @@ Response 예시:
 
 백엔드 상태:
 
-- `AuthController.signup()` 구현됨.
+- `AuthController.signup()` JSON 가입 구현됨.
+- `AuthController.signupWithPhoto()` multipart 가입 구현됨. text part `email`, `name`, `password`와 선택 file part `profile_photo`를 받습니다.
 - 성공: `201 Created`
 - 이메일 형식/필수값 오류: `400 Bad Request`
 - 중복 이메일: `409 Conflict`
-- 주의: Android에는 multipart 사진 포함 가입 선언이 있지만, 현재 백엔드 `AuthController.signup()`은 JSON `SignupRequest`만 받습니다. multipart 가입 사진 업로드는 아직 미지원이며 별도 작업으로 분리해야 합니다.
 
 ### POST /api/auth/login
 

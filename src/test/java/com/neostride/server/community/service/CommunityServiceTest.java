@@ -18,10 +18,14 @@ class CommunityServiceTest {
 	private final CommunityService service = new CommunityService(repository);
 
 	@Test
-	void searchProfiles_returnsEmptyListWithoutDatabaseScanWhenKeywordIsBlank() {
+	void searchProfiles_returnsTopProfilesWhenKeywordIsBlank() {
+		SearchUserResponse user = new SearchUserResponse(1L, "neo", null, null, 0, "GOLD", "none");
+		when(repository.getTopProfiles(0, 10)).thenReturn(List.of(user));
+
 		List<SearchUserResponse> result = service.searchProfiles("   ", 0, 10);
 
-		assertThat(result).isEmpty();
+		assertThat(result).containsExactly(user);
+		verify(repository).getTopProfiles(0, 10);
 		verify(repository, never()).searchProfiles("   ", 0, 10);
 	}
 
@@ -46,10 +50,13 @@ class CommunityServiceTest {
 	}
 
 	@Test
-	void getTopProfiles_returnsEmptyListWithoutListingAllUsers() {
+	void getTopProfiles_delegatesToRepository() {
+		SearchUserResponse user = new SearchUserResponse(1L, "neo", null, null, 0, "GOLD", "none");
+		when(repository.getTopProfiles(0, 10)).thenReturn(List.of(user));
+
 		List<SearchUserResponse> result = service.getTopProfiles(0, 10);
 
-		assertThat(result).isEmpty();
-		verify(repository, never()).getTopProfiles(0, 10);
+		assertThat(result).containsExactly(user);
+		verify(repository).getTopProfiles(0, 10);
 	}
 }

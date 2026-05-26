@@ -59,6 +59,20 @@ class RunningRecordRepositoryTest {
 
 	@Test
 	@SuppressWarnings({"unchecked", "rawtypes"})
+	void findByUserIdSelectsPlanIdForCoachingRecords() {
+		JdbcTemplate jdbcTemplate = mock(JdbcTemplate.class);
+		when(jdbcTemplate.query(anyString(), any(RowMapper.class), eq(7L))).thenReturn(List.of());
+		RunningRecordRepository repository = new RunningRecordRepository(jdbcTemplate);
+
+		repository.findByUserId(7L);
+
+		var sqlCaptor = org.mockito.ArgumentCaptor.forClass(String.class);
+		verify(jdbcTemplate).query(sqlCaptor.capture(), any(RowMapper.class), eq(7L));
+		assertThat(sqlCaptor.getValue()).contains("plan_id");
+	}
+
+	@Test
+	@SuppressWarnings({"unchecked", "rawtypes"})
 	void insertGpsTracesPersistsNullableHeartRateAndCadenceColumns() throws Exception {
 		JdbcTemplate jdbcTemplate = mock(JdbcTemplate.class);
 		when(jdbcTemplate.queryForObject(anyString(), eq(Integer.class))).thenReturn(2);

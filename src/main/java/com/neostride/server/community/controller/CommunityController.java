@@ -409,12 +409,16 @@ public class CommunityController {
 	}
 	private List<String> storedImageUris(List<MultipartFile> files) {
 		if (files == null || files.isEmpty()) return List.of();
-		if (files.size() > 1) {
-			throw new IllegalArgumentException("현재 피드/팁 업로드는 단일 이미지만 지원합니다.");
+		if (files.size() > 3) {
+			throw new IllegalArgumentException("피드/팁 이미지는 최대 3장까지 업로드할 수 있습니다.");
 		}
-		MultipartFile file = files.get(0);
-		if (file == null) return List.of();
-		return List.of(storageService.storeImage(file, "community"));
+		List<String> stored = new ArrayList<>();
+		for (MultipartFile file : files) {
+			if (file != null && !file.isEmpty()) {
+				stored.add(storageService.storeImage(file, "community"));
+			}
+		}
+		return stored;
 	}
 
 	private String storedRouteUri(MultipartFile file) {

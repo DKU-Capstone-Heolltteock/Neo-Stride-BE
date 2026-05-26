@@ -1,5 +1,6 @@
 package com.neostride.server.coaching.repository;
 
+import java.math.BigDecimal;
 import java.sql.PreparedStatement;
 import java.sql.Statement;
 import java.time.LocalDate;
@@ -158,10 +159,54 @@ public class CoachingRepository {
 		return rows.isEmpty() ? null : rows.getFirst();
 	}
 
+	public List<PlanPerformanceRow> findRecentPlanPerformances(long userId, long goalId, int limit) {
+		return jdbcTemplate.query("""
+				SELECT p.plan_id, p.target_distance, p.target_pace, rr.total_distance, rr.pace
+				FROM plans p
+				JOIN running_records rr ON rr.plan_id = p.plan_id
+				WHERE p.user_id = ? AND p.goal_id = ?
+				ORDER BY rr.created_at DESC, rr.run_record_id DESC
+				LIMIT ?
+				""", (rs, rowNum) -> new PlanPerformanceRow(
+				rs.getLong("plan_id"),
+				rs.getBigDecimal("target_distance"),
+				rs.getBigDecimal("target_pace"),
+				rs.getBigDecimal("total_distance"),
+				rs.getBigDecimal("pace")
+		), userId, goalId, limit);
+	}
+
+	public int countPlanDaysThrough(long goalId, LocalDate throughDate) {
+		Integer count = jdbcTemplate.queryForObject("""
+				SELECT COUNT(*)
+				FROM plans
+				WHERE goal_id = ? AND plan_date <= ?
+				""", Integer.class, goalId, throughDate);
+		return count == null ? 0 : count;
+	}
+
+	public int countCompletedPlanDaysThrough(long goalId, LocalDate throughDate) {
+		Integer count = jdbcTemplate.queryForObject("""
+				SELECT COUNT(*)
+				FROM plans
+				WHERE goal_id = ? AND plan_date <= ? AND is_completed = TRUE
+				""", Integer.class, goalId, throughDate);
+		return count == null ? 0 : count;
+	}
+
+	public int adjustFuturePlanTargets(long userId, long goalId, LocalDate afterDate, BigDecimal distanceFactor, BigDecimal paceFactor) {
+		return jdbcTemplate.update("""
+				UPDATE plans
+				SET target_distance = GREATEST(0.10, ROUND(target_distance * ?, 2)),
+					target_pace = GREATEST(3.00, ROUND(target_pace * ?, 2))
+				WHERE user_id = ? AND goal_id = ? AND plan_date > ? AND is_completed = FALSE
+				""", distanceFactor, paceFactor, userId, goalId, afterDate);
+	}
+
 	public boolean updateFeedbackForUser(long userId, long planDayId, String feedback) {
 		int updated = jdbcTemplate.update("""
 				UPDATE plans
-				SET is_completed = TRUE, feedback = ?
+				SET is_completed = TRUE, feedback = ?, updated_at = CURRENT_TIMESTAMP
 				WHERE plan_id = ? AND user_id = ?
 				""", feedback, planDayId, userId);
 		return updated > 0;

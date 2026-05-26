@@ -22,6 +22,10 @@ public record RunningRecordResponse(
 		@JsonProperty("run_record_id")
 		Long runRecordId,
 
+		@Schema(description = "연동된 코칭 플랜 ID. 일반 러닝이면 null", example = "20", nullable = true)
+		@JsonProperty("plan_id")
+		Long planId,
+
 		@Schema(description = "기록 생성 시각", example = "2026-04-28T14:30:00")
 		@JsonProperty("created_at")
 		String createdAt,
@@ -51,22 +55,34 @@ public record RunningRecordResponse(
 		List<BigDecimal> segmentPaces
 ) {
 	public static RunningRecordResponse success(String message, long runRecordId) {
-		return new RunningRecordResponse("success", message, runRecordId, null, null, null, null, null, null, null);
+		return new RunningRecordResponse("success", message, runRecordId, null, null, null, null, null, null, null, null);
 	}
 
 	public static RunningRecordResponse error(String message) {
-		return new RunningRecordResponse("error", message, 0L, null, null, null, null, null, null, null);
+		return new RunningRecordResponse("error", message, 0L, null, null, null, null, null, null, null, null);
+	}
+
+	public static RunningRecordResponse record(long runRecordId, Long planId, String createdAt, BigDecimal totalDistance,
+			Integer duration, BigDecimal pace, Integer calories,
+			List<GpsTraceRequest> gpsTraces, List<BigDecimal> segmentPaces) {
+		return new RunningRecordResponse(null, null, runRecordId, planId, createdAt, totalDistance, duration, pace, calories, gpsTraces, segmentPaces);
 	}
 
 	public static RunningRecordResponse record(long runRecordId, String createdAt, BigDecimal totalDistance,
 			Integer duration, BigDecimal pace, Integer calories,
 			List<GpsTraceRequest> gpsTraces, List<BigDecimal> segmentPaces) {
-		return new RunningRecordResponse(null, null, runRecordId, createdAt, totalDistance, duration, pace, calories, gpsTraces, segmentPaces);
+		return record(runRecordId, null, createdAt, totalDistance, duration, pace, calories, gpsTraces, segmentPaces);
+	}
+
+	public static RunningRecordResponse record(long runRecordId, Long planId, String createdAt, String totalDistance,
+			Integer duration, BigDecimal pace, Integer calories,
+			List<GpsTraceRequest> gpsTraces, List<BigDecimal> segmentPaces) {
+		return record(runRecordId, planId, createdAt, new BigDecimal(totalDistance), duration, pace, calories, gpsTraces, segmentPaces);
 	}
 
 	public static RunningRecordResponse record(long runRecordId, String createdAt, String totalDistance,
 			Integer duration, BigDecimal pace, Integer calories,
 			List<GpsTraceRequest> gpsTraces, List<BigDecimal> segmentPaces) {
-		return record(runRecordId, createdAt, new BigDecimal(totalDistance), duration, pace, calories, gpsTraces, segmentPaces);
+		return record(runRecordId, null, createdAt, totalDistance, duration, pace, calories, gpsTraces, segmentPaces);
 	}
 }

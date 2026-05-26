@@ -27,6 +27,7 @@ public class RunningRecordRepository {
 
 	private final RowMapper<RunningRecordResponse> runningRecordRowMapper = (rs, rowNum) -> RunningRecordResponse.record(
 			rs.getLong("run_record_id"),
+			nullableLong(rs.getObject("plan_id")),
 			rs.getTimestamp("created_at").toLocalDateTime().format(RESPONSE_TIME_FORMATTER),
 			rs.getBigDecimal("total_distance"),
 			nullableInt(rs.getObject("duration")),
@@ -100,7 +101,7 @@ public class RunningRecordRepository {
 
 	public List<RunningRecordResponse> findByUserId(long userId) {
 		return jdbcTemplate.query("""
-				SELECT run_record_id, created_at, total_distance, duration, pace, calories
+				SELECT run_record_id, plan_id, created_at, total_distance, duration, pace, calories
 				FROM running_records
 				WHERE user_id = ?
 				ORDER BY created_at DESC, run_record_id DESC
@@ -109,7 +110,7 @@ public class RunningRecordRepository {
 
 	public List<RunningRecordResponse> findByUserIdAndMonth(long userId, int year, int month) {
 		return jdbcTemplate.query("""
-				SELECT run_record_id, created_at, total_distance, duration, pace, calories
+				SELECT run_record_id, plan_id, created_at, total_distance, duration, pace, calories
 				FROM running_records
 				WHERE user_id = ? AND YEAR(created_at) = ? AND MONTH(created_at) = ?
 				ORDER BY created_at DESC, run_record_id DESC
@@ -118,7 +119,7 @@ public class RunningRecordRepository {
 
 	public RunningRecordResponse findByRecordIdForUser(long userId, long recordId) {
 		List<RunningRecordResponse> records = jdbcTemplate.query("""
-				SELECT run_record_id, created_at, total_distance, duration, pace, calories
+				SELECT run_record_id, plan_id, created_at, total_distance, duration, pace, calories
 				FROM running_records
 				WHERE user_id = ? AND run_record_id = ?
 				""", runningRecordRowMapper, userId, recordId);
@@ -191,5 +192,9 @@ public class RunningRecordRepository {
 
 	private static Integer nullableInt(Object value) {
 		return value == null ? null : ((Number) value).intValue();
+	}
+
+	private static Long nullableLong(Object value) {
+		return value == null ? null : ((Number) value).longValue();
 	}
 }

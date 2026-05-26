@@ -15,6 +15,7 @@ import org.springframework.stereotype.Repository;
 @Repository
 public class CommunityRepository {
 	private static final DateTimeFormatter ISO = DateTimeFormatter.ISO_LOCAL_DATE_TIME;
+	private static final String IMAGE_DELIMITER = "\n---NEOSTRIDE-IMAGE---\n";
 	private final JdbcTemplate jdbcTemplate;
 
 	public CommunityRepository(JdbcTemplate jdbcTemplate) { this.jdbcTemplate = jdbcTemplate; }
@@ -141,7 +142,7 @@ public class CommunityRepository {
 				INSERT INTO community_contents (author_user_id, include_route_detail, content_type, feed_scope, content_text, image)
 				VALUES (?, ?, 'POST', ?, ?, ?)
 				""", Statement.RETURN_GENERATED_KEYS);
-			ps.setLong(1, userId); ps.setBoolean(2, request.mapVisible()); ps.setString(3, normalizeScope(request.privacy())); ps.setString(4, encodeFeedContent(request.title(), request.content(), request.routeMapImageUri())); ps.setString(5, firstImage(request.imageUrls())); return ps;
+			ps.setLong(1, userId); ps.setBoolean(2, request.mapVisible()); ps.setString(3, normalizeScope(request.privacy())); ps.setString(4, encodeFeedContent(request.title(), request.content(), request.routeMapImageUri())); ps.setString(5, encodeImages(request.imageUrls())); return ps;
 		}, kh);
 		long contentId = generatedKey(kh, "피드 ID를 생성하지 못했습니다.");
 		if (request.taggedUserIds() != null) for (Long tagged : request.taggedUserIds()) if (tagged != null) jdbcTemplate.update("INSERT INTO community_interactions (user_id, content_id, interaction_type, tagged_user_id) VALUES (?, ?, 'TAG', ?)", userId, contentId, tagged);
@@ -168,7 +169,7 @@ public class CommunityRepository {
 			String[] parts = decodeFeedContent(rs.getString("content_text"));
 			String badge = rs.getString("badge");
 			long contentId = rs.getLong("content_id");
-			return new FeedDetailResponse(contentId, rs.getLong("author_user_id"), rs.getString("profile_image_url"), rs.getString("nickname"), badgeOwned(badge), badge, rs.getTimestamp("created_at").toLocalDateTime().format(ISO), parts[0], parts[1], rs.getInt("tagged_count"), rs.getInt("like_count"), rs.getInt("comment_count"), rs.getBoolean("liked"), rs.getBoolean("bookmarked"), rs.getLong("author_user_id") == userId, String.format(Locale.KOREA, "%.2f km", rs.getBigDecimal("total_distance")), rs.getObject("duration") == null ? null : String.valueOf(rs.getInt("duration")), rs.getObject("pace") == null ? null : String.valueOf(rs.getInt("pace")), rs.getBoolean("include_route_detail"), parts[2], rs.getString("image") == null ? List.of() : List.of(rs.getString("image")), commentsForContent(userId, contentId));
+			return new FeedDetailResponse(contentId, rs.getLong("author_user_id"), rs.getString("profile_image_url"), rs.getString("nickname"), badgeOwned(badge), badge, rs.getTimestamp("created_at").toLocalDateTime().format(ISO), parts[0], parts[1], rs.getInt("tagged_count"), rs.getInt("like_count"), rs.getInt("comment_count"), rs.getBoolean("liked"), rs.getBoolean("bookmarked"), rs.getLong("author_user_id") == userId, String.format(Locale.KOREA, "%.2f km", rs.getBigDecimal("total_distance")), rs.getObject("duration") == null ? null : String.valueOf(rs.getInt("duration")), rs.getObject("pace") == null ? null : String.valueOf(rs.getInt("pace")), rs.getBoolean("include_route_detail"), parts[2], decodeImages(rs.getString("image")), commentsForContent(userId, contentId));
 		}, userId, userId, feedId).stream().findFirst().orElse(null);
 	}
 
@@ -204,7 +205,7 @@ public class CommunityRepository {
 	}
 
 	public void updateFeed(long userId, long feedId, FeedUploadRequest request) {
-		jdbcTemplate.update("UPDATE community_contents SET include_route_detail=?, feed_scope=?, content_text=?, image=? WHERE content_id=? AND author_user_id=? AND content_type='POST'", request.mapVisible(), normalizeScope(request.privacy()), encodeFeedContent(request.title(), request.content(), request.routeMapImageUri()), firstImage(request.imageUrls()), feedId, userId);
+		jdbcTemplate.update("UPDATE community_contents SET include_route_detail=?, feed_scope=?, content_text=?, image=? WHERE content_id=? AND author_user_id=? AND content_type='POST'", request.mapVisible(), normalizeScope(request.privacy()), encodeFeedContent(request.title(), request.content(), request.routeMapImageUri()), encodeImages(request.imageUrls()), feedId, userId);
 	}
 
 	public void deleteContent(long userId, long contentId, String contentType) {
@@ -234,7 +235,7 @@ public class CommunityRepository {
 			ps.setBoolean(2, request != null && request.gpsVisible());
 			ps.setString(3, normalizeTipType(request == null ? null : request.category()));
 			ps.setString(4, encodeTipContent(request == null ? null : request.title(), request == null ? null : request.content(), request == null ? null : request.routeMapImageUrl()));
-			ps.setString(5, firstImage(request == null ? null : request.imageUrls()));
+			ps.setString(5, encodeImages(request == null ? null : request.imageUrls()));
 			return ps;
 		}, kh);
 		return generatedKey(kh, "팁 ID를 생성하지 못했습니다.");
@@ -260,12 +261,12 @@ public class CommunityRepository {
 			String[] parts = decodeTipContent(rs.getString("content_text"));
 			String badge = rs.getString("badge");
 			long contentId = rs.getLong("content_id");
-			return new TipDetailResponse(contentId, rs.getLong("author_user_id"), rs.getString("nickname"), rs.getString("profile_image_url"), badgeOwned(badge), badge, fromTipType(rs.getString("tip_type")), parts[0], parts[1], rs.getBoolean("include_route_detail"), parts[2], null, rs.getString("image") == null ? List.of() : List.of(rs.getString("image")), rs.getInt("like_count"), rs.getInt("comment_count"), rs.getBoolean("liked"), rs.getBoolean("bookmarked"), rs.getLong("author_user_id") == userId, rs.getTimestamp("created_at").toLocalDateTime().format(ISO), commentsForContent(userId, contentId));
+			return new TipDetailResponse(contentId, rs.getLong("author_user_id"), rs.getString("nickname"), rs.getString("profile_image_url"), badgeOwned(badge), badge, fromTipType(rs.getString("tip_type")), parts[0], parts[1], rs.getBoolean("include_route_detail"), parts[2], null, decodeImages(rs.getString("image")), rs.getInt("like_count"), rs.getInt("comment_count"), rs.getBoolean("liked"), rs.getBoolean("bookmarked"), rs.getLong("author_user_id") == userId, rs.getTimestamp("created_at").toLocalDateTime().format(ISO), commentsForContent(userId, contentId));
 		}, userId, userId, tipId).stream().findFirst().orElse(null);
 	}
 
 	public void updateTip(long userId, long tipId, TipUploadRequest request) {
-		jdbcTemplate.update("UPDATE community_contents SET include_route_detail=?, tip_type=?, content_text=?, image=? WHERE content_id=? AND author_user_id=? AND content_type='TIP'", request.gpsVisible(), normalizeTipType(request.category()), encodeTipContent(request.title(), request.content(), request.routeMapImageUrl()), firstImage(request.imageUrls()), tipId, userId);
+		jdbcTemplate.update("UPDATE community_contents SET include_route_detail=?, tip_type=?, content_text=?, image=? WHERE content_id=? AND author_user_id=? AND content_type='TIP'", request.gpsVisible(), normalizeTipType(request.category()), encodeTipContent(request.title(), request.content(), request.routeMapImageUrl()), encodeImages(request.imageUrls()), tipId, userId);
 	}
 
 	public List<FeedUploadResponse> searchFeeds(String keyword, int page, int size) {
@@ -342,7 +343,7 @@ public class CommunityRepository {
 
 	private FeedUploadResponse mapFeed(java.sql.ResultSet rs) throws java.sql.SQLException {
 		String[] parts = decodeFeedContent(rs.getString("content_text"));
-		return new FeedUploadResponse(rs.getLong("content_id"), rs.getString("profile_image_url"), rs.getString("nickname"), rs.getTimestamp("created_at").toLocalDateTime().format(ISO), parts[0], parts[1], rs.getInt("tagged_count"), rs.getInt("like_count"), rs.getInt("comment_count"), String.format(Locale.KOREA, "%.2f km", rs.getBigDecimal("total_distance")), rs.getObject("duration") == null ? null : String.valueOf(rs.getInt("duration")), rs.getObject("pace") == null ? null : String.valueOf(rs.getInt("pace")), rs.getBoolean("include_route_detail"), parts[2], rs.getString("image") == null ? List.of() : List.of(rs.getString("image")));
+		return new FeedUploadResponse(rs.getLong("content_id"), rs.getString("profile_image_url"), rs.getString("nickname"), rs.getTimestamp("created_at").toLocalDateTime().format(ISO), parts[0], parts[1], rs.getInt("tagged_count"), rs.getInt("like_count"), rs.getInt("comment_count"), String.format(Locale.KOREA, "%.2f km", rs.getBigDecimal("total_distance")), rs.getObject("duration") == null ? null : String.valueOf(rs.getInt("duration")), rs.getObject("pace") == null ? null : String.valueOf(rs.getInt("pace")), rs.getBoolean("include_route_detail"), parts[2], decodeImages(rs.getString("image")));
 	}
 
 	private List<TipUploadResponse> tipQuery(String predicate, Long id) {
@@ -407,7 +408,7 @@ public class CommunityRepository {
 		String badge = rs.getString("badge");
 		long writerId = rs.getLong("author_user_id");
 		boolean mine = rs.getBoolean("mine");
-		return new TipUploadResponse(rs.getLong("content_id"), writerId, rs.getString("nickname"), rs.getString("profile_image_url"), badgeOwned(badge), badge, fromTipType(rs.getString("tip_type")), parts[0], parts[1], rs.getBoolean("include_route_detail"), parts[2], rs.getString("image") == null ? List.of() : List.of(rs.getString("image")), rs.getInt("like_count"), rs.getInt("comment_count"), rs.getBoolean("liked"), rs.getBoolean("bookmarked"), rs.getBoolean("commented"), mine, rs.getTimestamp("created_at").toLocalDateTime().format(ISO));
+		return new TipUploadResponse(rs.getLong("content_id"), writerId, rs.getString("nickname"), rs.getString("profile_image_url"), badgeOwned(badge), badge, fromTipType(rs.getString("tip_type")), parts[0], parts[1], rs.getBoolean("include_route_detail"), parts[2], decodeImages(rs.getString("image")), rs.getInt("like_count"), rs.getInt("comment_count"), rs.getBoolean("liked"), rs.getBoolean("bookmarked"), rs.getBoolean("commented"), mine, rs.getTimestamp("created_at").toLocalDateTime().format(ISO));
 	}
 
 	private List<SearchUserResponse> userSearchQuery(String predicate, String orderBy, Object[] args) {
@@ -470,7 +471,18 @@ public class CommunityRepository {
 	private static String[] decodeFeedContent(String raw) { String[] first = (raw == null ? "" : raw).split("\\n---NEOSTRIDE-FEED---\\n", 2); if (first.length == 1) return new String[]{null, first[0], null}; String rest = first[1]; String[] second = rest.split("\\n---NEOSTRIDE-ROUTE---\\n", 2); return new String[]{first[0], second.length > 0 ? second[0] : rest, second.length > 1 && !second[1].isBlank() ? second[1] : null}; }
 	private static String encodeTipContent(String title, String content, String routeMapImageUrl) { return (title == null ? "" : title) + "\n---NEOSTRIDE-TIP---\n" + (content == null ? "" : content) + "\n---NEOSTRIDE-ROUTE---\n" + (routeMapImageUrl == null ? "" : routeMapImageUrl); }
 	private static String[] decodeTipContent(String raw) { String[] first = (raw == null ? "" : raw).split("\\n---NEOSTRIDE-TIP---\\n", 2); String title = first.length > 0 ? first[0] : ""; String rest = first.length > 1 ? first[1] : ""; String[] second = rest.split("\\n---NEOSTRIDE-ROUTE---\\n", 2); return new String[]{title, second.length > 0 ? second[0] : rest, second.length > 1 && !second[1].isBlank() ? second[1] : null}; }
-	private static String firstImage(List<String> images) { return images == null || images.isEmpty() ? null : images.getFirst(); }
+	private static String encodeImages(List<String> images) {
+		if (images == null || images.isEmpty()) return null;
+		List<String> normalized = images.stream().filter(value -> value != null && !value.isBlank()).map(String::trim).toList();
+		return normalized.isEmpty() ? null : String.join(IMAGE_DELIMITER, normalized);
+	}
+	private static List<String> decodeImages(String raw) {
+		if (raw == null || raw.isBlank()) return List.of();
+		return java.util.Arrays.stream(raw.split(java.util.regex.Pattern.quote(IMAGE_DELIMITER)))
+				.filter(value -> value != null && !value.isBlank())
+				.map(String::trim)
+				.toList();
+	}
 	private static Integer nullableInt(Object value) { return value == null ? null : ((Number) value).intValue(); }
 	private static Long nullableLong(Object value) { return value == null ? null : ((Number) value).longValue(); }
 	private static BigDecimal nullToZero(BigDecimal value) { return value == null ? BigDecimal.ZERO : value; }

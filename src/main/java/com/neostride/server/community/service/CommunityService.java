@@ -60,10 +60,10 @@ public class CommunityService {
 	public List<SearchUserResponse> searchProfiles(String keyword, int page, int size) {
 		validatePage(page, size);
 		String normalizedKeyword = validateSearchKeyword(keyword);
-		return normalizedKeyword == null ? List.of() : repository.searchProfiles(normalizedKeyword, page, size);
+		return normalizedKeyword == null ? repository.getTopProfiles(page, size) : repository.searchProfiles(normalizedKeyword, page, size);
 	}
 	public List<SearchUserResponse> searchFriends(long userId, String keyword) { validatePositive(userId, "user_id"); return repository.searchFriends(userId, keyword); }
-	public List<SearchUserResponse> getTopProfiles(int page, int size) { validatePage(page, size); return List.of(); }
+	public List<SearchUserResponse> getTopProfiles(int page, int size) { validatePage(page, size); return repository.getTopProfiles(page, size); }
 	public List<SearchUserResponse> getMyFriends(long userId) { validatePositive(userId, "user_id"); return repository.getMyFriends(userId); }
 
 	private Map<String, String> interactionResult(String key, boolean enabled) {

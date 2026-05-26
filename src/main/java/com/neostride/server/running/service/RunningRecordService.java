@@ -1,5 +1,6 @@
 package com.neostride.server.running.service;
 
+import com.neostride.server.coaching.service.CoachingService;
 import com.neostride.server.running.dto.GpsTraceRequest;
 import com.neostride.server.running.dto.RunningRecordRequest;
 import com.neostride.server.running.dto.RunningRecordResponse;
@@ -10,6 +11,7 @@ import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import java.util.List;
 import java.util.Optional;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -19,9 +21,16 @@ public class RunningRecordService {
 	private static final DateTimeFormatter TRACE_TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
 	private final RunningRecordRepository runningRecordRepository;
+	private final CoachingService coachingService;
 
-	public RunningRecordService(RunningRecordRepository runningRecordRepository) {
+	@Autowired
+	public RunningRecordService(RunningRecordRepository runningRecordRepository, CoachingService coachingService) {
 		this.runningRecordRepository = runningRecordRepository;
+		this.coachingService = coachingService;
+	}
+
+	RunningRecordService(RunningRecordRepository runningRecordRepository) {
+		this(runningRecordRepository, null);
 	}
 
 	@Transactional
@@ -30,6 +39,15 @@ public class RunningRecordService {
 
 		long runRecordId = runningRecordRepository.insertRunningRecord(request);
 		runningRecordRepository.insertGpsTraces(runRecordId, request.gpsTraces());
+		if (request.planId() != null && coachingService != null) {
+			coachingService.completePlanWithRunningRecord(
+					request.userId(),
+					request.planId(),
+					request.totalDistance(),
+					roundedInt(request.duration()),
+					request.pace()
+			);
+		}
 		return runRecordId;
 	}
 
@@ -105,6 +123,10 @@ public class RunningRecordService {
 		if (value == null || value.compareTo(BigDecimal.ZERO) < 0) {
 			throw new IllegalArgumentException(fieldName + "는 0 이상의 값이어야 합니다.");
 		}
+	}
+
+	private int roundedInt(BigDecimal value) {
+		return value.setScale(0, java.math.RoundingMode.HALF_UP).intValueExact();
 	}
 
 	private LocalDateTime parseTraceTime(String time) {

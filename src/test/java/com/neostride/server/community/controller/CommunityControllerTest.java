@@ -180,17 +180,21 @@ class CommunityControllerTest {
 	}
 
 	@Test
-	void uploadFeedMultipart_rejectsMultipleImagesUntilSchemaSupportsLists() {
+	void uploadFeedMultipart_storesMultipleImagesBeforeServiceCall() {
 		MockMultipartFile first = new MockMultipartFile("images", "first.jpg", "image/jpeg", new byte[] {(byte) 0xff, (byte) 0xd8, (byte) 0xff});
 		MockMultipartFile second = new MockMultipartFile("images", "second.jpg", "image/jpeg", new byte[] {(byte) 0xff, (byte) 0xd8, (byte) 0xff});
+		FeedUploadRequest expected = new FeedUploadRequest("title", null, null, false, null, List.of(), List.of("/uploads/community/first.jpg", "/uploads/community/second.jpg"), null, null, null, 0);
+		FeedUploadResponse uploaded = new FeedUploadResponse(99L, null, "neo", "2026-05-11T00:00:00", "title", null, 0, 0, 0, "0.00 km", null, null, false, null, List.of("/uploads/community/first.jpg", "/uploads/community/second.jpg"));
 		authenticate();
+		when(storageService.storeImage(first, "community")).thenReturn("/uploads/community/first.jpg");
+		when(storageService.storeImage(second, "community")).thenReturn("/uploads/community/second.jpg");
+		when(service.uploadFeed(1L, expected)).thenReturn(uploaded);
 
-		assertThatThrownBy(() -> controller.uploadFeedMultipart(AUTHORIZATION, 1L, Map.of("title", "title"), List.of(first, second), null, null))
-				.isInstanceOf(IllegalArgumentException.class)
-				.hasMessageContaining("단일 이미지만");
+		var response = controller.uploadFeedMultipart(AUTHORIZATION, 1L, Map.of("title", "title"), List.of(first, second), null, null);
 
-		verify(storageService, never()).storeImage(any(), any());
-		verify(service, never()).uploadFeed(anyLong(), any());
+		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+		assertThat(response.getBody()).isSameAs(uploaded);
+		verify(service).uploadFeed(1L, expected);
 	}
 
 	@Test

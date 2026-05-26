@@ -5,11 +5,14 @@ import com.neostride.server.auth.dto.LoginResponse;
 import com.neostride.server.auth.dto.SignupRequest;
 import com.neostride.server.auth.dto.SignupResponse;
 import com.neostride.server.auth.service.AuthService;
+import com.neostride.server.storage.StorageService;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
+import org.springframework.mock.web.MockMultipartFile;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class AuthControllerTest {
@@ -30,6 +33,25 @@ class AuthControllerTest {
 		assertThat(response.getBody().userId()).isEqualTo(1L);
 		assertThat(response.getBody().email()).isEqualTo("runner@example.com");
 		assertThat(response.getBody().name()).isEqualTo("홍길동");
+	}
+
+	@Test
+	void signupWithPhoto_storesProfilePhotoAndReturnsCreatedResponse() {
+		StorageService storageService = mock(StorageService.class);
+		AuthController multipartController = new AuthController(authService, storageService);
+		MockMultipartFile photo = new MockMultipartFile("profile_photo", "profile.jpg", "image/jpeg", new byte[] {(byte) 0xff, (byte) 0xd8, (byte) 0xff});
+		SignupRequest expectedRequest = new SignupRequest("runner@example.com", "홍길동", "plain-password");
+		when(storageService.storeImage(photo, "profile")).thenReturn("/uploads/profile/profile-id.jpg");
+		when(authService.signup(expectedRequest, "/uploads/profile/profile-id.jpg"))
+				.thenReturn(SignupResponse.success(1L, "runner@example.com", "홍길동"));
+
+		var response = multipartController.signupWithPhoto("runner@example.com", "홍길동", "plain-password", photo);
+
+		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+		assertThat(response.getBody()).isNotNull();
+		assertThat(response.getBody().userId()).isEqualTo(1L);
+		verify(storageService).storeImage(photo, "profile");
+		verify(authService).signup(expectedRequest, "/uploads/profile/profile-id.jpg");
 	}
 
 	@Test

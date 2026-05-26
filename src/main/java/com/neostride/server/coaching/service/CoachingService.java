@@ -16,6 +16,7 @@ import com.neostride.server.coaching.repository.GoalInsertCommand;
 import com.neostride.server.coaching.repository.GoalRow;
 import com.neostride.server.coaching.repository.PlanDayInsertCommand;
 import com.neostride.server.coaching.repository.PlanDayRow;
+import com.neostride.server.coaching.repository.PlanPerformanceRow;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.DayOfWeek;
@@ -51,6 +52,7 @@ public class CoachingService {
 		int durationWeeks = durationWeeks(request.periodType(), request.customWeeks());
 		LocalDate startDate = parseDate(request.startDate(), "start_date");
 		Set<DayOfWeek> runningDays = parseRunningDays(request.runningDays());
+		BigDecimal targetDistance = request.goalDistanceKm().setScale(2, RoundingMode.HALF_UP);
 		BigDecimal targetPace = normalizedPace(request.goalPaceMinPerKm(), "goal_pace_min_per_km");
 
 		coachingRepository.deactivateActiveGoals(request.userId());
@@ -58,18 +60,18 @@ public class CoachingService {
 				request.userId(),
 				durationWeeks,
 				runningDays.size(),
-				request.goalDistanceKm().setScale(2, RoundingMode.HALF_UP),
+				targetDistance,
 				targetPace
 		));
 		coachingRepository.insertPlanDays(
 				request.userId(),
 				goalId,
-				generatePlanDaysWithAiFallback(request, startDate, durationWeeks, runningDays, targetPace)
+				generatePlanDaysWithAiFallback(request, startDate, durationWeeks, runningDays, targetDistance, targetPace)
 		);
 
 		GoalRow persisted = coachingRepository.findGoalById(goalId);
 		if (persisted == null) {
-			persisted = new GoalRow(goalId, request.userId(), durationWeeks, runningDays.size(), request.goalDistanceKm(), targetPace,
+			persisted = new GoalRow(goalId, request.userId(), durationWeeks, runningDays.size(), targetDistance, targetPace,
 					LocalDateTime.now(), true, false, startDate, startDate.plusWeeks(durationWeeks).minusDays(1), request.runningDays());
 		}
 		return toGoalResponse(persisted, request.periodType(), request.customWeeks(), request.runningDays(), coachingRepository.findPlanDaysByGoalId(goalId));
@@ -103,11 +105,26 @@ public class CoachingService {
 		validatePositive(userId, "user_id");
 		validatePositive(planDayId, "plan_day_id");
 		validateFeedbackRequest(planDayId, request);
-		String feedback = buildFeedbackWithAiFallback(userId, planDayId, request);
+		PlanDayRow planDay = coachingRepository.findPlanDayByIdForUser(planDayId, userId);
+		String feedback = buildFeedbackWithAiFallback(planDayId, request, planDay);
 		if (!coachingRepository.updateFeedbackForUser(userId, planDayId, feedback)) {
 			throw new IllegalArgumentException("plan_day_id에 해당하는 플랜이 없습니다.");
 		}
+		if (planDay != null) {
+			adjustFuturePlanWithFeedbackLoop(userId, planDay, request);
+		}
 		return new FeedbackResponse(planDayId, true, feedback, LocalDateTime.now().format(DATE_TIME_FORMATTER));
+	}
+
+	@Transactional
+	public FeedbackResponse completePlanWithRunningRecord(long userId, long planDayId, BigDecimal actualDistanceKm,
+			Integer actualTimeSec, BigDecimal actualPaceMinPerKm) {
+		return requestFeedback(userId, planDayId, new FeedbackRequest(
+				planDayId,
+				normalizedFeedbackDecimal(actualDistanceKm, "actual_distance_km"),
+				actualTimeSec,
+				normalizedFeedbackPace(actualPaceMinPerKm)
+		));
 	}
 
 	@Transactional
@@ -176,17 +193,17 @@ public class CoachingService {
 	}
 
 	private List<PlanDayInsertCommand> generatePlanDaysWithAiFallback(GoalRequest request, LocalDate startDate, int durationWeeks,
-			Set<DayOfWeek> runningDays, BigDecimal targetPace) {
+			Set<DayOfWeek> runningDays, BigDecimal targetDistance, BigDecimal targetPace) {
 		AiCoachingPlan aiPlan = aiCoachingClient.generatePlan(request, durationWeeks, startDate);
-		List<PlanDayInsertCommand> aiPlanDays = toSafePlanDayCommands(aiPlan, startDate, durationWeeks, runningDays);
+		List<PlanDayInsertCommand> aiPlanDays = toSafePlanDayCommands(aiPlan, startDate, durationWeeks, runningDays, targetDistance, targetPace);
 		if (!aiPlanDays.isEmpty()) {
 			return aiPlanDays;
 		}
-		return generatePlanDays(startDate, durationWeeks, runningDays, request.goalDistanceKm(), targetPace);
+		return generatePlanDays(startDate, durationWeeks, runningDays, targetDistance, targetPace);
 	}
 
 	private List<PlanDayInsertCommand> toSafePlanDayCommands(AiCoachingPlan aiPlan, LocalDate startDate, int durationWeeks,
-			Set<DayOfWeek> runningDays) {
+			Set<DayOfWeek> runningDays, BigDecimal targetDistance, BigDecimal targetPace) {
 		if (aiPlan == null || aiPlan.planDays() == null || aiPlan.planDays().isEmpty()) {
 			return List.of();
 		}
@@ -205,7 +222,7 @@ public class CoachingService {
 			if (day.dayDistanceKm().compareTo(BigDecimal.ZERO) <= 0 || day.dayPaceMinPerKm().compareTo(BigDecimal.ZERO) <= 0) {
 				return List.of();
 			}
-			commands.add(new PlanDayInsertCommand(day.planDate(), day.dayDistanceKm().setScale(2, RoundingMode.HALF_UP), normalizedPace(day.dayPaceMinPerKm(), "day_pace_min_per_km")));
+			commands.add(new PlanDayInsertCommand(day.planDate(), targetDistance, targetPace));
 		}
 		return commands;
 	}
@@ -255,8 +272,7 @@ public class CoachingService {
 		);
 	}
 
-	private String buildFeedbackWithAiFallback(long userId, long planDayId, FeedbackRequest request) {
-		PlanDayRow planDay = coachingRepository.findPlanDayByIdForUser(planDayId, userId);
+	private String buildFeedbackWithAiFallback(long planDayId, FeedbackRequest request, PlanDayRow planDay) {
 		if (planDay == null) {
 			return buildFeedback(request);
 		}
@@ -287,6 +303,90 @@ public class CoachingService {
 				+ "km, " + request.actualTimeSec() + "초, 평균 페이스 "
 				+ request.actualPaceMinPerKm().setScale(2, RoundingMode.HALF_UP) + "분/km";
 	}
+
+	private void adjustFuturePlanWithFeedbackLoop(long userId, PlanDayRow planDay, FeedbackRequest request) {
+		List<PlanPerformanceRow> performances = coachingRepository.findRecentPlanPerformances(userId, planDay.goalId(), 5);
+		if (performances == null || performances.isEmpty()) {
+			performances = List.of(new PlanPerformanceRow(
+					planDay.planDayId(),
+					planDay.targetDistance(),
+					planDay.targetPace(),
+					request.actualDistanceKm(),
+					request.actualPaceMinPerKm()
+			));
+		}
+		int duePlanDays = coachingRepository.countPlanDaysThrough(planDay.goalId(), planDay.planDate());
+		if (duePlanDays <= 0) {
+			return;
+		}
+		int completedPlanDays = coachingRepository.countCompletedPlanDaysThrough(planDay.goalId(), planDay.planDate());
+		BigDecimal completionRate = BigDecimal.valueOf(completedPlanDays)
+				.divide(BigDecimal.valueOf(duePlanDays), 4, RoundingMode.HALF_UP);
+		BigDecimal averageDistanceRatio = averageDistanceRatio(performances);
+		BigDecimal averagePaceRatio = averagePaceRatio(performances);
+
+		if (completionRate.compareTo(new BigDecimal("0.80")) >= 0
+				&& averageDistanceRatio.compareTo(new BigDecimal("1.00")) >= 0
+				&& averagePaceRatio.compareTo(new BigDecimal("1.00")) <= 0) {
+			coachingRepository.adjustFuturePlanTargets(userId, planDay.goalId(), planDay.planDate(), new BigDecimal("1.05"), new BigDecimal("0.97"));
+			return;
+		}
+
+		if (completionRate.compareTo(new BigDecimal("0.60")) < 0
+				|| averageDistanceRatio.compareTo(new BigDecimal("0.85")) < 0
+				|| averagePaceRatio.compareTo(new BigDecimal("1.10")) > 0) {
+			coachingRepository.adjustFuturePlanTargets(userId, planDay.goalId(), planDay.planDate(), new BigDecimal("0.90"), new BigDecimal("1.05"));
+		}
+	}
+
+	private BigDecimal averageDistanceRatio(List<PlanPerformanceRow> performances) {
+		BigDecimal total = BigDecimal.ZERO;
+		int count = 0;
+		for (PlanPerformanceRow performance : performances) {
+			if (performance == null || performance.actualDistance() == null
+					|| performance.targetDistance() == null || performance.targetDistance().compareTo(BigDecimal.ZERO) <= 0) {
+				continue;
+			}
+			total = total.add(performance.actualDistance().divide(performance.targetDistance(), 4, RoundingMode.HALF_UP));
+			count++;
+		}
+		return count == 0 ? BigDecimal.ONE : total.divide(BigDecimal.valueOf(count), 4, RoundingMode.HALF_UP);
+	}
+
+	private BigDecimal averagePaceRatio(List<PlanPerformanceRow> performances) {
+		BigDecimal total = BigDecimal.ZERO;
+		int count = 0;
+		for (PlanPerformanceRow performance : performances) {
+			BigDecimal actualPace = normalizedStoredPace(performance == null ? null : performance.actualPace());
+			if (actualPace == null || performance.targetPace() == null || performance.targetPace().compareTo(BigDecimal.ZERO) <= 0) {
+				continue;
+			}
+			total = total.add(actualPace.divide(performance.targetPace(), 4, RoundingMode.HALF_UP));
+			count++;
+		}
+		return count == 0 ? BigDecimal.ONE : total.divide(BigDecimal.valueOf(count), 4, RoundingMode.HALF_UP);
+	}
+
+	private BigDecimal normalizedFeedbackDecimal(BigDecimal value, String fieldName) {
+		requirePositive(value, fieldName);
+		return value.setScale(2, RoundingMode.HALF_UP);
+	}
+
+	private BigDecimal normalizedFeedbackPace(BigDecimal value) {
+		requirePositive(value, "actual_pace_min_per_km");
+		return normalizedStoredPace(value);
+	}
+
+	private BigDecimal normalizedStoredPace(BigDecimal value) {
+		if (value == null) {
+			return null;
+		}
+		if (value.compareTo(new BigDecimal("30")) > 0) {
+			return value.divide(new BigDecimal("60"), 2, RoundingMode.HALF_UP);
+		}
+		return value.setScale(2, RoundingMode.HALF_UP);
+	}
+
 
 	private String status(GoalRow goal) {
 		if (Boolean.TRUE.equals(goal.achieved())) {

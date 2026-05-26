@@ -38,16 +38,21 @@ public class UserRepository {
 	}
 
 	public long insertUser(String email, String hashedPassword, String name) {
+		return insertUser(email, hashedPassword, name, null);
+	}
+
+	public long insertUser(String email, String hashedPassword, String name, String profilePhotoUrl) {
 		KeyHolder keyHolder = new GeneratedKeyHolder();
 		jdbcTemplate.update(connection -> {
 			PreparedStatement ps = connection.prepareStatement("""
-					INSERT INTO users (email, password, name, community_profile_name)
-					VALUES (?, ?, ?, ?)
+					INSERT INTO users (email, password, name, community_profile_name, profile_photo)
+					VALUES (?, ?, ?, ?, ?)
 					""", Statement.RETURN_GENERATED_KEYS);
 			ps.setString(1, email);
 			ps.setString(2, hashedPassword);
 			ps.setString(3, name);
 			ps.setString(4, name);
+			ps.setString(5, profilePhotoUrl);
 			return ps;
 		}, keyHolder);
 

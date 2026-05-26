@@ -10,6 +10,7 @@ import com.neostride.server.coaching.dto.GoalStatusUpdateRequest;
 import com.neostride.server.coaching.repository.CoachingRepository;
 import com.neostride.server.coaching.repository.GoalRow;
 import com.neostride.server.coaching.repository.PlanDayRow;
+import com.neostride.server.coaching.repository.PlanPerformanceRow;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -48,7 +49,7 @@ class CoachingServiceTest {
 	}
 
 	@Test
-	void createGoal_usesAiGeneratedPlanDaysWhenAiClientReturnsPlan() {
+	void createGoal_usesAiGeneratedDatesButPreservesUserTargetValuesWhenAiClientReturnsPlan() {
 		GoalRequest request = new GoalRequest(1L, "custom", 1, List.of("mon", "wed"), new BigDecimal("5.0"), new BigDecimal("6.5"), "2026-05-04");
 		when(aiCoachingClient.generatePlan(request, 1, LocalDate.parse("2026-05-04")))
 				.thenReturn(new AiCoachingPlan("AI 맞춤 1주 플랜", List.of(
@@ -63,9 +64,11 @@ class CoachingServiceTest {
 		verify(repository).insertPlanDays(eq(1L), eq(10L), argThat(commands ->
 				commands.size() == 2
 						&& commands.get(0).planDate().equals(LocalDate.parse("2026-05-04"))
-						&& commands.get(0).targetDistance().compareTo(new BigDecimal("2.50")) == 0
-						&& commands.get(0).targetPace().compareTo(new BigDecimal("7.25")) == 0
+						&& commands.get(0).targetDistance().compareTo(new BigDecimal("5.00")) == 0
+						&& commands.get(0).targetPace().compareTo(new BigDecimal("6.50")) == 0
 						&& commands.get(1).planDate().equals(LocalDate.parse("2026-05-06"))
+						&& commands.get(1).targetDistance().compareTo(new BigDecimal("5.00")) == 0
+						&& commands.get(1).targetPace().compareTo(new BigDecimal("6.50")) == 0
 		));
 	}
 
@@ -175,6 +178,55 @@ class CoachingServiceTest {
 						&& aiRequest.distanceDeltaKm().compareTo(new BigDecimal("-1.80")) == 0
 						&& aiRequest.paceDeltaMinPerKm().compareTo(new BigDecimal("0.45")) == 0
 		));
+	}
+
+	@Test
+	void requestFeedback_relaxesFuturePlansWhenRecentRecordsMissTargets() {
+		FeedbackRequest request = new FeedbackRequest(20L, new BigDecimal("3.20"), 1240, new BigDecimal("7.20"));
+		PlanDayRow planDay = new PlanDayRow(20L, 1L, 10L, LocalDate.parse("2026-05-04"),
+				new BigDecimal("5.00"), new BigDecimal("6.00"), false, null, LocalDateTime.parse("2026-05-01T09:00:00"));
+		when(repository.findPlanDayByIdForUser(20L, 1L)).thenReturn(planDay);
+		when(repository.updateFeedbackForUser(eq(1L), eq(20L), any())).thenReturn(true);
+		when(repository.findRecentPlanPerformances(1L, 10L, 5)).thenReturn(List.of(
+				new PlanPerformanceRow(20L, new BigDecimal("5.00"), new BigDecimal("6.00"), new BigDecimal("3.20"), new BigDecimal("7.20"))
+		));
+		when(repository.countPlanDaysThrough(10L, LocalDate.parse("2026-05-04"))).thenReturn(2);
+		when(repository.countCompletedPlanDaysThrough(10L, LocalDate.parse("2026-05-04"))).thenReturn(1);
+
+		service.requestFeedback(1L, 20L, request);
+
+		verify(repository).adjustFuturePlanTargets(1L, 10L, LocalDate.parse("2026-05-04"), new BigDecimal("0.90"), new BigDecimal("1.05"));
+	}
+
+	@Test
+	void requestFeedback_progressesFuturePlansWhenAchievementAndRecentRecordsAreStrong() {
+		FeedbackRequest request = new FeedbackRequest(20L, new BigDecimal("5.20"), 1800, new BigDecimal("5.80"));
+		PlanDayRow planDay = new PlanDayRow(20L, 1L, 10L, LocalDate.parse("2026-05-04"),
+				new BigDecimal("5.00"), new BigDecimal("6.00"), false, null, LocalDateTime.parse("2026-05-01T09:00:00"));
+		when(repository.findPlanDayByIdForUser(20L, 1L)).thenReturn(planDay);
+		when(repository.updateFeedbackForUser(eq(1L), eq(20L), any())).thenReturn(true);
+		when(repository.findRecentPlanPerformances(1L, 10L, 5)).thenReturn(List.of(
+				new PlanPerformanceRow(20L, new BigDecimal("5.00"), new BigDecimal("6.00"), new BigDecimal("5.20"), new BigDecimal("5.80"))
+		));
+		when(repository.countPlanDaysThrough(10L, LocalDate.parse("2026-05-04"))).thenReturn(1);
+		when(repository.countCompletedPlanDaysThrough(10L, LocalDate.parse("2026-05-04"))).thenReturn(1);
+
+		service.requestFeedback(1L, 20L, request);
+
+		verify(repository).adjustFuturePlanTargets(1L, 10L, LocalDate.parse("2026-05-04"), new BigDecimal("1.05"), new BigDecimal("0.97"));
+	}
+
+	@Test
+	void completePlanWithRunningRecordConvertsStoredPaceSecondsForFeedback() {
+		PlanDayRow planDay = new PlanDayRow(20L, 1L, 10L, LocalDate.parse("2026-05-04"),
+				new BigDecimal("5.00"), new BigDecimal("6.50"), false, null, LocalDateTime.parse("2026-05-01T09:00:00"));
+		when(repository.findPlanDayByIdForUser(20L, 1L)).thenReturn(planDay);
+		when(repository.updateFeedbackForUser(eq(1L), eq(20L), any())).thenReturn(true);
+
+		var response = service.completePlanWithRunningRecord(1L, 20L, new BigDecimal("5.00"), 1960, new BigDecimal("392"));
+
+		assertThat(response.completed()).isTrue();
+		assertThat(response.aiFeedbackComment()).contains("6.53분/km");
 	}
 
 	@Test

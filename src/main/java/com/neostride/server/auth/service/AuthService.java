@@ -30,6 +30,11 @@ public class AuthService {
 
 	@Transactional
 	public SignupResponse signup(SignupRequest request) {
+		return signup(request, null);
+	}
+
+	@Transactional
+	public SignupResponse signup(SignupRequest request, String profilePhotoUrl) {
 		validateSignup(request);
 		String email = normalizeEmail(request.email());
 		String name = request.name().trim();
@@ -37,7 +42,7 @@ public class AuthService {
 			throw new DuplicateEmailException("이미 가입된 이메일입니다.");
 		}
 		String hashedPassword = passwordHashService.hash(request.password());
-		long userId = userRepository.insertUser(email, hashedPassword, name);
+		long userId = userRepository.insertUser(email, hashedPassword, name, normalizeOptionalUrl(profilePhotoUrl));
 		return SignupResponse.success(userId, email, name);
 	}
 
@@ -91,5 +96,9 @@ public class AuthService {
 
 	private String normalizeEmail(String email) {
 		return email.trim().toLowerCase();
+	}
+
+	private String normalizeOptionalUrl(String value) {
+		return value == null || value.isBlank() ? null : value.trim();
 	}
 }

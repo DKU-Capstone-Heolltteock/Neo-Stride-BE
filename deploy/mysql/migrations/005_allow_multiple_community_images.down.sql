@@ -1,0 +1,2 @@
+ALTER TABLE community_contents
+	MODIFY COLUMN image VARCHAR(255) NULL;
