@@ -796,8 +796,12 @@ public class CommunityRepository {
 			       COALESCE(cu.badge, 'NONE') AS badge
 			FROM community_interactions ci JOIN users u ON u.user_id=ci.user_id LEFT JOIN community_users cu ON cu.user_id=u.user_id
 			WHERE ci.content_id=? AND ci.interaction_type='COMMENT'
+			  AND NOT EXISTS (
+			  SELECT 1 FROM relationships r
+			  WHERE r.user1_id=? AND r.user2_id=ci.user_id AND r.status='BLOCKED'
+			  )
 			ORDER BY ci.created_at ASC, ci.interaction_id ASC
-			""", (rs, n) -> mapComment(rs, viewerUserId), contentId);
+			""", (rs, n) -> mapComment(rs, viewerUserId), contentId, viewerUserId);
 	}
 
 	private CommentResponse mapComment(java.sql.ResultSet rs, long viewerUserId) throws java.sql.SQLException {

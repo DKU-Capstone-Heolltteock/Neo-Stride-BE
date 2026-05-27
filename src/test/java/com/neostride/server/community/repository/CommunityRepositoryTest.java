@@ -289,6 +289,30 @@ class CommunityRepositoryTest {
 	}
 
 	@Test
+	void findTipDetailFiltersBlockedCommentAuthors() throws Exception {
+		List<String> commentQueries = new java.util.ArrayList<>();
+		List<Object[]> commentArgs = new java.util.ArrayList<>();
+		when(jdbcTemplate.query(anyString(), any(RowMapper.class), any(Object[].class))).thenAnswer(invocation -> {
+			String sql = invocation.getArgument(0);
+			if (sql.contains("WHERE cc.content_type='TIP'")) {
+				RowMapper<com.neostride.server.community.dto.TipDetailResponse> mapper = invocation.getArgument(1);
+				return List.of(mapper.mapRow(tipRow("COURSE"), 0));
+			}
+			if (sql.contains("ci.interaction_type='COMMENT'")) {
+				commentQueries.add(sql);
+				commentArgs.add(java.util.Arrays.copyOfRange(invocation.getArguments(), 2, invocation.getArguments().length));
+			}
+			return List.of();
+		});
+
+		repository.findTipDetail(1L, 7L);
+
+		assertThat(commentQueries).singleElement().satisfies(sql -> assertThat(sql)
+				.contains("NOT EXISTS", "relationships r", "r.user1_id=?", "r.user2_id=ci.user_id", "r.status='BLOCKED'"));
+		assertThat(commentArgs).singleElement().satisfies(args -> assertThat(args).containsExactly(7L, 1L));
+	}
+
+	@Test
 	//lineA
 	void listTips_mapsLegacyEtcTipTypeToFreeCategoryForClient() throws Exception {
 		when(jdbcTemplate.query(anyString(), any(RowMapper.class), any(Object[].class))).thenAnswer(invocation -> {
