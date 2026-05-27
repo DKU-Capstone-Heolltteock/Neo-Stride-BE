@@ -24,7 +24,6 @@ public class AiPlanRefreshListener {
 
 	private static final Logger logger = LoggerFactory.getLogger(AiPlanRefreshListener.class);
 	private static final int DISTANCE_SCALE = 2;
-	private static final int PACE_SCALE = 6;
 
 	private final CoachingRepository coachingRepository;
 	private final AiCoachingClient aiCoachingClient;
@@ -35,29 +34,36 @@ public class AiPlanRefreshListener {
 	}
 
 	@Async("coachingAiExecutor")
-	@TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+	@TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT, fallbackExecution = true)
 	public void refreshPlan(AiPlanRefreshRequest request) {
 		if (request == null || request.planDates().isEmpty()) {
 			return;
 		}
 		try {
-			AiCoachingPlan aiPlan = aiCoachingClient.generatePlan(request.goalRequest(), request.durationWeeks(), request.startDate());
+			logger.info("AI plan refresh started for goal {} with {} dates", request.goalId(), request.planDates().size());
+			AiCoachingPlan aiPlan = aiCoachingClient.generatePlan(request.goalRequest(), request.durationWeeks(), request.startDate(), request.planDates());
 			List<PlanDayInsertCommand> aiPlanDays = toSafePlanDayCommands(
 					aiPlan,
 					request.planDates(),
 					request.targetDistance(),
 					request.targetPace()
 			);
-			if (!aiPlanDays.isEmpty()) {
-				coachingRepository.updatePlanDayTargets(request.userId(), request.goalId(), aiPlanDays);
+			if (aiPlanDays.isEmpty()) {
+				logger.warn("AI plan refresh skipped for goal {} because generated plan was not usable; generated_days={} expected_days={}",
+						request.goalId(),
+						aiPlan == null || aiPlan.planDays() == null ? null : aiPlan.planDays().size(),
+						request.planDates().size());
+				return;
 			}
+			coachingRepository.updatePlanDayTargets(request.userId(), request.goalId(), aiPlanDays);
+			logger.info("AI plan refresh applied for goal {} with {} days", request.goalId(), aiPlanDays.size());
 		} catch (RuntimeException exception) {
 			logger.warn("AI plan refresh failed for goal {}", request.goalId(), exception);
 		}
 	}
 
 	private List<PlanDayInsertCommand> toSafePlanDayCommands(AiCoachingPlan aiPlan, List<LocalDate> expectedDates,
-			BigDecimal targetDistance, BigDecimal targetPace) {
+			BigDecimal targetDistance, Integer targetPace) {
 		if (expectedDates == null || expectedDates.isEmpty() || aiPlan == null
 				|| aiPlan.planDays() == null || aiPlan.planDays().size() != expectedDates.size()) {
 			return List.of();
@@ -74,16 +80,16 @@ public class AiPlanRefreshListener {
 				}
 			}
 			if (day == null || !seenDates.add(expectedDate)
-					|| day.dayDistanceKm() == null || day.dayPaceMinPerKm() == null
+					|| day.dayDistanceKm() == null || day.dayPaceSecPerKm() == null
 					|| day.dayDistanceKm().compareTo(BigDecimal.ZERO) <= 0
-					|| day.dayPaceMinPerKm().compareTo(BigDecimal.ZERO) <= 0) {
+					|| day.dayPaceSecPerKm() <= 0) {
 				return List.of();
 			}
 			BigDecimal dayDistance = day.dayDistanceKm().setScale(DISTANCE_SCALE, RoundingMode.HALF_UP);
-			BigDecimal dayPace = day.dayPaceMinPerKm().setScale(PACE_SCALE, RoundingMode.HALF_UP);
+			Integer dayPace = day.dayPaceSecPerKm();
 			allDaysEqualFinalGoal = allDaysEqualFinalGoal
 					&& dayDistance.compareTo(targetDistance) == 0
-					&& dayPace.compareTo(targetPace) == 0;
+					&& dayPace.equals(targetPace);
 			commands.add(new PlanDayInsertCommand(expectedDate, dayDistance, dayPace));
 		}
 		return allDaysEqualFinalGoal ? List.of() : commands;

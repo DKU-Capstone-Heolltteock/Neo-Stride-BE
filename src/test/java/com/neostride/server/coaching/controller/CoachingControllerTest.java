@@ -28,7 +28,7 @@ class CoachingControllerTest {
 
 	@Test
 	void createGoal_returnsCreatedResponse() {
-		GoalRequest request = new GoalRequest(1L, "1month", 0, List.of("mon", "wed", "fri"), new BigDecimal("5.0"), new BigDecimal("6.5"), "2026-04-30");
+		GoalRequest request = new GoalRequest(1L, "1month", 0, List.of("mon", "wed", "fri"), new BigDecimal("5.0"), 390, "2026-04-30");
 		GoalResponse responseBody = GoalResponse.of(10L, true, "active", null, List.of());
 		authenticate();
 		when(service.createGoal(request)).thenReturn(responseBody);
@@ -65,7 +65,7 @@ class CoachingControllerTest {
 
 	@Test
 	void requestFeedback_returnsOkResponse() {
-		FeedbackRequest request = new FeedbackRequest(20L, new BigDecimal("3.2"), 1240, new BigDecimal("6.45"));
+		FeedbackRequest request = new FeedbackRequest(20L, new BigDecimal("3.2"), 1240, 387);
 		FeedbackResponse responseBody = new FeedbackResponse(20L, true, "목표보다 안정적인 페이스로 완주했습니다.", "2026-05-05T20:30:00");
 		authenticate();
 		when(service.requestFeedback(1L, 20L, request)).thenReturn(responseBody);

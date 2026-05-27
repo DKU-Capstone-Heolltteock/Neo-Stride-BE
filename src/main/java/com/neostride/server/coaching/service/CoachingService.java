@@ -38,7 +38,7 @@ public class CoachingService {
 	private static final DateTimeFormatter DATE_FORMATTER = DateTimeFormatter.ISO_LOCAL_DATE;
 	private static final DateTimeFormatter DATE_TIME_FORMATTER = DateTimeFormatter.ISO_LOCAL_DATE_TIME;
 	private static final int DISTANCE_SCALE = 2;
-	private static final int PACE_SCALE = 6;
+	private static final int MIN_PACE_SEC_PER_KM = 180;
 
 	private final CoachingRepository coachingRepository;
 	private final AiCoachingClient aiCoachingClient;
@@ -63,7 +63,7 @@ public class CoachingService {
 		LocalDate startDate = parseDate(request.startDate(), "start_date");
 		Set<DayOfWeek> runningDays = parseRunningDays(request.runningDays());
 		BigDecimal targetDistance = request.goalDistanceKm().setScale(DISTANCE_SCALE, RoundingMode.HALF_UP);
-		BigDecimal targetPace = normalizedPace(request.goalPaceMinPerKm(), "goal_pace_min_per_km");
+		int targetPace = requirePositive(request.goalPaceSecPerKm(), "goal_pace_sec_per_km");
 		List<LocalDate> planDates = scheduledPlanDates(startDate, durationWeeks, runningDays);
 		List<PlanDayInsertCommand> planDays = generatePlanDays(planDates, targetDistance, targetPace);
 
@@ -142,12 +142,12 @@ public class CoachingService {
 
 	@Transactional
 	public FeedbackResponse completePlanWithRunningRecord(long userId, long planDayId, BigDecimal actualDistanceKm,
-			Integer actualTimeSec, BigDecimal actualPaceMinPerKm) {
+			Integer actualTimeSec, Integer actualPaceSecPerKm) {
 		return requestFeedback(userId, planDayId, new FeedbackRequest(
 				planDayId,
 				normalizedFeedbackDecimal(actualDistanceKm, "actual_distance_km"),
 				actualTimeSec,
-				normalizedFeedbackPace(actualPaceMinPerKm)
+				actualPaceSecPerKm
 		));
 	}
 
@@ -186,7 +186,7 @@ public class CoachingService {
 		parseDate(request.startDate(), "start_date");
 		parseRunningDays(request.runningDays());
 		requirePositive(request.goalDistanceKm(), "goal_distance_km");
-		requirePositive(request.goalPaceMinPerKm(), "goal_pace_min_per_km");
+		requirePositive(request.goalPaceSecPerKm(), "goal_pace_sec_per_km");
 	}
 
 	private void validateFeedbackRequest(long pathPlanDayId, FeedbackRequest request) {
@@ -201,7 +201,7 @@ public class CoachingService {
 		if (request.actualTimeSec() == null || request.actualTimeSec() <= 0) {
 			throw new IllegalArgumentException("actual_time_sec는 1 이상의 값이어야 합니다.");
 		}
-		requirePositive(request.actualPaceMinPerKm(), "actual_pace_min_per_km");
+		requirePositive(request.actualPaceSecPerKm(), "actual_pace_sec_per_km");
 	}
 
 	private void validateGoalStatusUpdateRequest(GoalStatusUpdateRequest request) {
@@ -217,7 +217,7 @@ public class CoachingService {
 	}
 
 	private void publishAiPlanRefresh(GoalRequest request, long goalId, int durationWeeks, LocalDate startDate,
-			List<LocalDate> planDates, BigDecimal targetDistance, BigDecimal targetPace) {
+			List<LocalDate> planDates, BigDecimal targetDistance, Integer targetPace) {
 		if (planDates.isEmpty()) {
 			return;
 		}
@@ -230,7 +230,7 @@ public class CoachingService {
 						request.customWeeks(),
 						List.copyOf(request.runningDays()),
 						request.goalDistanceKm(),
-						request.goalPaceMinPerKm(),
+						request.goalPaceSecPerKm(),
 						request.startDate()
 				),
 				durationWeeks,
@@ -241,7 +241,7 @@ public class CoachingService {
 		));
 	}
 
-	private List<PlanDayInsertCommand> generatePlanDays(List<LocalDate> planDates, BigDecimal targetDistance, BigDecimal targetPace) {
+	private List<PlanDayInsertCommand> generatePlanDays(List<LocalDate> planDates, BigDecimal targetDistance, Integer targetPace) {
 		List<PlanDayInsertCommand> planDays = new ArrayList<>();
 		for (int index = 0; index < planDates.size(); index++) {
 			planDays.add(new PlanDayInsertCommand(
@@ -273,13 +273,17 @@ public class CoachingService {
 		return targetDistance.multiply(factor).max(new BigDecimal("0.10")).setScale(DISTANCE_SCALE, RoundingMode.HALF_UP);
 	}
 
-	private BigDecimal progressivePace(BigDecimal targetPace, int index, int totalDays) {
+	private Integer progressivePace(Integer targetPace, int index, int totalDays) {
 		if (totalDays <= 1) {
-			return targetPace.setScale(PACE_SCALE, RoundingMode.HALF_UP);
+			return targetPace;
 		}
 		BigDecimal progress = BigDecimal.valueOf(index).divide(BigDecimal.valueOf(totalDays - 1L), 4, RoundingMode.HALF_UP);
 		BigDecimal factor = new BigDecimal("1.12").subtract(new BigDecimal("0.12").multiply(progress));
-		return targetPace.multiply(factor).max(new BigDecimal("3.00")).setScale(PACE_SCALE, RoundingMode.HALF_UP);
+		return BigDecimal.valueOf(targetPace)
+				.multiply(factor)
+				.max(BigDecimal.valueOf(MIN_PACE_SEC_PER_KM))
+				.setScale(0, RoundingMode.HALF_UP)
+				.intValueExact();
 	}
 
 	private List<PlanDayRow> ensureProgressivePlanDays(GoalRow goal, List<PlanDayRow> planDays) {
@@ -305,7 +309,7 @@ public class CoachingService {
 		for (PlanDayRow planDay : planDays) {
 			if (planDay == null || planDay.targetDistance() == null || planDay.targetPace() == null
 					|| planDay.targetDistance().compareTo(goal.targetDistance()) != 0
-					|| planDay.targetPace().compareTo(goal.targetPace()) != 0) {
+					|| !planDay.targetPace().equals(goal.targetPace())) {
 				return false;
 			}
 		}
@@ -338,7 +342,7 @@ public class CoachingService {
 				row.planDate().format(DATE_FORMATTER),
 				row.targetDistance(),
 				row.targetPace(),
-				"목표 거리 " + row.targetDistance() + "km, 목표 페이스 " + row.targetPace() + "분/km 러닝",
+				"목표 거리 " + row.targetDistance() + "km, 목표 페이스 " + formatPace(row.targetPace()) + "/km 러닝",
 				Boolean.TRUE.equals(row.completed()),
 				row.feedback(),
 				row.feedback() == null ? null : row.updatedAt().format(DATE_TIME_FORMATTER)
@@ -355,7 +359,7 @@ public class CoachingService {
 				planDay.targetDistance(),
 				planDay.targetPace(),
 				delta(request.actualDistanceKm(), planDay.targetDistance()),
-				delta(request.actualPaceMinPerKm(), planDay.targetPace()),
+				paceDelta(request.actualPaceSecPerKm(), planDay.targetPace()),
 				request
 		));
 		if (aiFeedback != null && !aiFeedback.isBlank()) {
@@ -371,18 +375,25 @@ public class CoachingService {
 		return actual.subtract(target).setScale(2, RoundingMode.HALF_UP);
 	}
 
+	private Integer paceDelta(Integer actual, Integer target) {
+		if (actual == null || target == null) {
+			return null;
+		}
+		return actual - target;
+	}
+
 	private String buildFeedback(FeedbackRequest request, PlanDayRow planDay) {
 		BigDecimal distanceDelta = delta(request.actualDistanceKm(), planDay.targetDistance());
-		BigDecimal paceDelta = delta(request.actualPaceMinPerKm(), planDay.targetPace());
-		return "평균 페이스 " + request.actualPaceMinPerKm().setScale(2, RoundingMode.HALF_UP)
-				+ "분/km로 마무리했습니다. " + distanceDeltaText(distanceDelta) + ", " + paceDeltaText(paceDelta)
+		Integer paceDelta = paceDelta(request.actualPaceSecPerKm(), planDay.targetPace());
+		return "평균 페이스 " + formatPace(request.actualPaceSecPerKm())
+				+ "/km로 마무리했습니다. " + distanceDeltaText(distanceDelta) + ", " + paceDeltaText(paceDelta)
 				+ " 다음 훈련 전에는 가벼운 스트레칭과 수분 보충으로 회복을 챙기세요.";
 	}
 
 	private String buildFeedback(FeedbackRequest request) {
 		return "러닝을 완료했습니다. " + request.actualDistanceKm().setScale(2, RoundingMode.HALF_UP)
-				+ "km를 평균 페이스 " + request.actualPaceMinPerKm().setScale(2, RoundingMode.HALF_UP)
-				+ "분/km로 마무리했으니, 다음 훈련 전에는 가벼운 스트레칭과 수분 보충으로 회복을 챙기세요.";
+				+ "km를 평균 페이스 " + formatPace(request.actualPaceSecPerKm())
+				+ "/km로 마무리했으니, 다음 훈련 전에는 가벼운 스트레칭과 수분 보충으로 회복을 챙기세요.";
 	}
 
 	private String distanceDeltaText(BigDecimal distanceDelta) {
@@ -395,14 +406,14 @@ public class CoachingService {
 				: "목표보다 " + amount + "km 부족했고";
 	}
 
-	private String paceDeltaText(BigDecimal paceDelta) {
-		if (paceDelta == null || paceDelta.abs().compareTo(new BigDecimal("0.05")) <= 0) {
+	private String paceDeltaText(Integer paceDelta) {
+		if (paceDelta == null || Math.abs(paceDelta) <= 3) {
 			return "목표 페이스에 가깝게 마무리했습니다.";
 		}
-		String amount = paceDelta.abs().setScale(2, RoundingMode.HALF_UP).toPlainString();
-		return paceDelta.compareTo(BigDecimal.ZERO) > 0
-				? "목표보다 " + amount + "분/km 느렸습니다."
-				: "목표보다 " + amount + "분/km 빨랐습니다.";
+		String amount = formatDuration(Math.abs(paceDelta));
+		return paceDelta > 0
+				? "목표보다 " + amount + "/km 느렸습니다."
+				: "목표보다 " + amount + "/km 빨랐습니다.";
 	}
 
 	private void adjustFuturePlanWithFeedbackLoop(long userId, PlanDayRow planDay, FeedbackRequest request) {
@@ -413,7 +424,7 @@ public class CoachingService {
 					planDay.targetDistance(),
 					planDay.targetPace(),
 					request.actualDistanceKm(),
-					request.actualPaceMinPerKm()
+					request.actualPaceSecPerKm()
 			));
 		}
 		int duePlanDays = coachingRepository.countPlanDaysThrough(planDay.goalId(), planDay.planDate());
@@ -458,11 +469,12 @@ public class CoachingService {
 		BigDecimal total = BigDecimal.ZERO;
 		int count = 0;
 		for (PlanPerformanceRow performance : performances) {
-			BigDecimal actualPace = normalizedStoredPace(performance == null ? null : performance.actualPace());
-			if (actualPace == null || performance.targetPace() == null || performance.targetPace().compareTo(BigDecimal.ZERO) <= 0) {
+			if (performance == null || performance.actualPace() == null
+					|| performance.targetPace() == null || performance.targetPace() <= 0) {
 				continue;
 			}
-			total = total.add(actualPace.divide(performance.targetPace(), 4, RoundingMode.HALF_UP));
+			total = total.add(BigDecimal.valueOf(performance.actualPace())
+					.divide(BigDecimal.valueOf(performance.targetPace()), 4, RoundingMode.HALF_UP));
 			count++;
 		}
 		return count == 0 ? BigDecimal.ONE : total.divide(BigDecimal.valueOf(count), 4, RoundingMode.HALF_UP);
@@ -472,22 +484,6 @@ public class CoachingService {
 		requirePositive(value, fieldName);
 		return value.setScale(2, RoundingMode.HALF_UP);
 	}
-
-	private BigDecimal normalizedFeedbackPace(BigDecimal value) {
-		requirePositive(value, "actual_pace_min_per_km");
-		return normalizedStoredPace(value);
-	}
-
-	private BigDecimal normalizedStoredPace(BigDecimal value) {
-		if (value == null) {
-			return null;
-		}
-		if (value.compareTo(new BigDecimal("30")) > 0) {
-			return value.divide(new BigDecimal("60"), PACE_SCALE, RoundingMode.HALF_UP);
-		}
-		return value.setScale(PACE_SCALE, RoundingMode.HALF_UP);
-	}
-
 
 	private String status(GoalRow goal) {
 		if (Boolean.TRUE.equals(goal.achieved())) {
@@ -570,11 +566,6 @@ public class CoachingService {
 		}
 	}
 
-	private BigDecimal normalizedPace(BigDecimal value, String fieldName) {
-		requirePositive(value, fieldName);
-		return value.setScale(PACE_SCALE, RoundingMode.HALF_UP);
-	}
-
 	private List<String> runningDaysOrDerived(List<String> runningDays, List<PlanDayRow> planDays) {
 		if (runningDays != null && !runningDays.isEmpty()) {
 			return runningDays;
@@ -603,10 +594,28 @@ public class CoachingService {
 		return derived;
 	}
 
+	private String formatPace(Integer seconds) {
+		if (seconds == null) {
+			return "-";
+		}
+		return seconds / 60 + ":" + String.format("%02d", seconds % 60);
+	}
+
+	private String formatDuration(int seconds) {
+		return seconds / 60 + ":" + String.format("%02d", seconds % 60);
+	}
+
 	private void requirePositive(BigDecimal value, String fieldName) {
 		if (value == null || value.compareTo(BigDecimal.ZERO) <= 0) {
 			throw new IllegalArgumentException(fieldName + "는 0보다 큰 값이어야 합니다.");
 		}
+	}
+
+	private int requirePositive(Integer value, String fieldName) {
+		if (value == null || value <= 0) {
+			throw new IllegalArgumentException(fieldName + "는 1 이상의 값이어야 합니다.");
+		}
+		return value;
 	}
 
 	private void validatePositive(Long value, String fieldName) {

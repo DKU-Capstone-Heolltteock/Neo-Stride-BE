@@ -31,7 +31,7 @@ public class RunningRecordRepository {
 			rs.getTimestamp("created_at").toLocalDateTime().format(RESPONSE_TIME_FORMATTER),
 			rs.getBigDecimal("total_distance"),
 			nullableInt(rs.getObject("duration")),
-			rs.getBigDecimal("pace"),
+			nullableInt(rs.getObject("pace")),
 			nullableInt(rs.getObject("calories")),
 			findGpsTracesByRecordId(rs.getLong("run_record_id")),
 			List.of()
@@ -56,8 +56,8 @@ public class RunningRecordRepository {
 				ps.setLong(2, request.planId());
 			}
 			ps.setBigDecimal(3, request.totalDistance().setScale(2, RoundingMode.HALF_UP));
-			ps.setInt(4, roundedInt(request.duration()));
-			ps.setInt(5, normalizedPaceSeconds(request.pace()));
+			ps.setInt(4, request.duration());
+			ps.setInt(5, request.pace());
 			ps.setInt(6, roundedInt(request.calories()));
 			ps.setString(7, request.routeDetail());
 			return ps;
@@ -157,12 +157,6 @@ public class RunningRecordRepository {
 		), recordId);
 	}
 
-	private static int normalizedPaceSeconds(BigDecimal pace) {
-		if (pace.compareTo(new BigDecimal("60")) < 0) {
-			return pace.multiply(new BigDecimal("60")).setScale(0, RoundingMode.HALF_UP).intValueExact();
-		}
-		return pace.setScale(0, RoundingMode.HALF_UP).intValueExact();
-	}
 
 	private void updateBadgeAndNotifyIfImproved(long userId, String rawBadge) {
 		String badge = normalizeBadge(rawBadge);

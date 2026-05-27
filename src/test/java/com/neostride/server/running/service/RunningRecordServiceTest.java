@@ -54,8 +54,8 @@ class RunningRecordServiceTest {
 				7L,
 				20L,
 				new BigDecimal("5.23"),
-				new BigDecimal("1800"),
-				new BigDecimal("392"),
+				1800,
+				392,
 				new BigDecimal("310.56"),
 				"",
 				List.of(trace)
@@ -66,7 +66,7 @@ class RunningRecordServiceTest {
 
 		assertThat(recordId).isEqualTo(12L);
 		verify(repository).insertGpsTraces(12L, List.of(trace));
-		verify(coachingService).completePlanWithRunningRecord(7L, 20L, new BigDecimal("5.23"), 1800, new BigDecimal("392"));
+		verify(coachingService).completePlanWithRunningRecord(7L, 20L, new BigDecimal("5.23"), 1800, 392);
 	}
 
 	@Test
@@ -86,8 +86,8 @@ class RunningRecordServiceTest {
 				7L,
 				null,
 				new BigDecimal("5.23"),
-				new BigDecimal("1800"),
-				new BigDecimal("5.77"),
+				1800,
+				346,
 				new BigDecimal("310.56"),
 				"",
 				traces

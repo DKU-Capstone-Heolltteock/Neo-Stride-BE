@@ -11,7 +11,7 @@ public record PlanDayResponse(
 		@JsonProperty("plan_day_id") Long planDayId,
 		@JsonProperty("plan_date") String planDate,
 		@JsonProperty("day_distance_km") BigDecimal dayDistanceKm,
-		@JsonProperty("day_pace_min_per_km") BigDecimal dayPaceMinPerKm,
+		@JsonProperty("day_pace_sec_per_km") Integer dayPaceSecPerKm,
 		@JsonProperty("description") String description,
 		@JsonProperty("is_completed") boolean completed,
 		@JsonProperty("ai_feedback_comment") String aiFeedbackComment,

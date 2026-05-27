@@ -96,6 +96,16 @@ public class CommunityController {
 		return ResponseEntity.noContent().build();
 	}
 
+	@Operation(summary = "내 프로필 이미지 기본값으로 변경")
+	@DeleteMapping("/users/me/profile-image")
+	public ResponseEntity<Void> deleteProfileImage(
+			@RequestHeader(value = "Authorization", required = false) String authorization,
+			@RequestHeader(value = "X-User-Id", required = false) Long headerUserId
+	) {
+		service.deleteProfileImage(authenticatedUserId(authorization, headerUserId));
+		return ResponseEntity.noContent().build();
+	}
+
 	@GetMapping("/community/contents/me")
 	public ResponseEntity<List<CommunityContentResponse>> getMyFeeds(
 			@RequestHeader(value = "Authorization", required = false) String authorization,

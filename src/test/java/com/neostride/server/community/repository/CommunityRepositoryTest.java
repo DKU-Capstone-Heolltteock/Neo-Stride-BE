@@ -396,6 +396,14 @@ class CommunityRepositoryTest {
 	}
 
 	@Test
+	void deleteProfileImageClearsUsersAndCommunityProfilePhoto() {
+		repository.deleteProfileImage(1L);
+
+		verify(jdbcTemplate).update("UPDATE community_users SET profile_photo = NULL WHERE user_id = ?", 1L);
+		verify(jdbcTemplate).update("UPDATE users SET profile_photo = NULL WHERE user_id = ?", 1L);
+	}
+
+	@Test
 	void updateRelationshipDeleteRemovesNonBlockedRelationshipInEitherDirection() {
 		repository.updateRelationship(1L, new com.neostride.server.community.dto.FriendRequest(2L, "delete"));
 

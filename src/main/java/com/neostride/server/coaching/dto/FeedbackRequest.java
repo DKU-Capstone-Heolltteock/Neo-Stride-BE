@@ -9,6 +9,6 @@ public record FeedbackRequest(
 		@JsonProperty("plan_day_id") Long planDayId,
 		@JsonProperty("actual_distance_km") BigDecimal actualDistanceKm,
 		@JsonProperty("actual_time_sec") Integer actualTimeSec,
-		@JsonProperty("actual_pace_min_per_km") BigDecimal actualPaceMinPerKm
+		@JsonProperty("actual_pace_sec_per_km") Integer actualPaceSecPerKm
 ) {
 }

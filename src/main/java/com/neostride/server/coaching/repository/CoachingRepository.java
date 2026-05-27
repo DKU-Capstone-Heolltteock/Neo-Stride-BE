@@ -22,7 +22,7 @@ public class CoachingRepository {
 			rs.getLong("goal_id"),
 			rs.getDate("plan_date").toLocalDate(),
 			rs.getBigDecimal("target_distance"),
-			rs.getBigDecimal("target_pace"),
+			rs.getInt("target_pace"),
 			rs.getBoolean("is_completed"),
 			rs.getString("feedback"),
 			rs.getTimestamp("updated_at").toLocalDateTime()
@@ -52,7 +52,7 @@ public class CoachingRepository {
 			ps.setInt(2, command.durationWeeks());
 			ps.setInt(3, command.runningDay());
 			ps.setBigDecimal(4, command.targetDistance());
-			ps.setBigDecimal(5, command.targetPace());
+			ps.setInt(5, command.targetPace());
 			return ps;
 		}, keyHolder);
 		Number generatedId = keyHolder.getKey();
@@ -75,7 +75,7 @@ public class CoachingRepository {
 			ps.setLong(2, goalId);
 			ps.setObject(3, command.planDate());
 			ps.setBigDecimal(4, command.targetDistance());
-			ps.setBigDecimal(5, command.targetPace());
+			ps.setInt(5, command.targetPace());
 		});
 	}
 
@@ -89,7 +89,7 @@ public class CoachingRepository {
 				WHERE user_id = ? AND goal_id = ? AND plan_date = ? AND is_completed = FALSE
 				""", commands, commands.size(), (ps, command) -> {
 			ps.setBigDecimal(1, command.targetDistance());
-			ps.setBigDecimal(2, command.targetPace());
+			ps.setInt(2, command.targetPace());
 			ps.setLong(3, userId);
 			ps.setLong(4, goalId);
 			ps.setObject(5, command.planDate());
@@ -188,9 +188,9 @@ public class CoachingRepository {
 				""", (rs, rowNum) -> new PlanPerformanceRow(
 				rs.getLong("plan_id"),
 				rs.getBigDecimal("target_distance"),
-				rs.getBigDecimal("target_pace"),
+				rs.getInt("target_pace"),
 				rs.getBigDecimal("total_distance"),
-				rs.getBigDecimal("pace")
+				rs.getInt("pace")
 		), userId, goalId, limit);
 	}
 
@@ -216,7 +216,7 @@ public class CoachingRepository {
 		return jdbcTemplate.update("""
 				UPDATE plans
 				SET target_distance = GREATEST(0.10, ROUND(target_distance * ?, 2)),
-					target_pace = GREATEST(3.000000, ROUND(target_pace * ?, 6))
+					target_pace = CAST(GREATEST(180, ROUND(target_pace * ?)) AS SIGNED)
 				WHERE user_id = ? AND goal_id = ? AND plan_date > ? AND is_completed = FALSE
 				""", distanceFactor, paceFactor, userId, goalId, afterDate);
 	}
@@ -255,7 +255,7 @@ public class CoachingRepository {
 				rs.getInt("duration_weeks"),
 				rs.getInt("running_day"),
 				rs.getBigDecimal("target_distance"),
-				rs.getBigDecimal("target_pace"),
+				rs.getInt("target_pace"),
 				rs.getTimestamp("created_at").toLocalDateTime(),
 				rs.getBoolean("is_active"),
 				rs.getBoolean("is_achieved"),

@@ -31,7 +31,7 @@ public record GoalResponse(
 			@JsonProperty("custom_weeks") Integer customWeeks,
 			@JsonProperty("running_days") List<String> runningDays,
 			@JsonProperty("goal_distance_km") BigDecimal goalDistanceKm,
-			@JsonProperty("goal_pace_min_per_km") BigDecimal goalPaceMinPerKm,
+			@JsonProperty("goal_pace_sec_per_km") Integer goalPaceSecPerKm,
 			@JsonProperty("start_date") String startDate,
 			@JsonProperty("end_date") String endDate,
 			@JsonProperty("created_at") String createdAt,

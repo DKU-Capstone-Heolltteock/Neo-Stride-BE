@@ -5,8 +5,8 @@ import java.math.BigDecimal;
 public record PlanPerformanceRow(
 		Long planDayId,
 		BigDecimal targetDistance,
-		BigDecimal targetPace,
+		Integer targetPace,
 		BigDecimal actualDistance,
-		BigDecimal actualPace
+		Integer actualPace
 ) {
 }

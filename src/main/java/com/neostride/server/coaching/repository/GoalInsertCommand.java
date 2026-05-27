@@ -7,6 +7,6 @@ public record GoalInsertCommand(
 		Integer durationWeeks,
 		Integer runningDay,
 		BigDecimal targetDistance,
-		BigDecimal targetPace
+		Integer targetPace
 ) {
 }

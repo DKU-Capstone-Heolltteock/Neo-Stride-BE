@@ -13,6 +13,8 @@ import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
@@ -23,9 +25,9 @@ import org.springframework.web.client.RestClient;
 @Component
 public class OpenAiCoachingClient implements AiCoachingClient {
 
+	private static final Logger logger = LoggerFactory.getLogger(OpenAiCoachingClient.class);
 	private static final int DEFAULT_TIMEOUT_MS = 8_000;
 	private static final int DISTANCE_SCALE = 2;
-	private static final int PACE_SCALE = 6;
 
 	private final RestClient restClient;
 	private final ObjectMapper objectMapper = new ObjectMapper();
@@ -54,16 +56,18 @@ public class OpenAiCoachingClient implements AiCoachingClient {
 	}
 
 	@Override
-	public AiCoachingPlan generatePlan(GoalRequest request, int durationWeeks, LocalDate startDate) {
+	public AiCoachingPlan generatePlan(GoalRequest request, int durationWeeks, LocalDate startDate, List<LocalDate> planDates) {
 		if (!enabled()) {
 			return null;
 		}
 		try {
-			String content = completeJson(planPrompt(request, durationWeeks, startDate), planResponseFormat());
+			String content = completeJson(planPrompt(request, durationWeeks, startDate, planDates), planResponseFormat());
 			return parsePlanForDatabase(content);
 		} catch (RuntimeException exception) {
+			logger.warn("OpenAI plan generation failed", exception);
 			return null;
 		} catch (Exception exception) {
+			logger.warn("OpenAI plan generation failed", exception);
 			return null;
 		}
 	}
@@ -122,7 +126,7 @@ public class OpenAiCoachingClient implements AiCoachingClient {
 		for (JsonNode node : json.path("plan_days")) {
 			String planDate = node.path("plan_date").asText(null);
 			BigDecimal distance = positiveNumber(node.path("day_distance_km"), DISTANCE_SCALE);
-			BigDecimal pace = positiveNumber(node.path("day_pace_min_per_km"), PACE_SCALE);
+			Integer pace = positiveInteger(node.path("day_pace_sec_per_km"));
 			String description = sanitizeText(node.path("description").asText(null), 255);
 			if (planDate == null || distance == null || pace == null || description == null) {
 				continue;
@@ -147,14 +151,37 @@ public class OpenAiCoachingClient implements AiCoachingClient {
 	}
 
 	private BigDecimal positiveNumber(JsonNode node, int scale) {
-		if (node == null || !node.isNumber()) {
+		if (node == null || node.isNull()) {
 			return null;
 		}
-		BigDecimal value = node.decimalValue();
-		if (value.compareTo(BigDecimal.ZERO) <= 0) {
+		try {
+			BigDecimal value = node.isNumber()
+					? node.decimalValue()
+					: new BigDecimal(node.asText("").trim());
+			if (value.compareTo(BigDecimal.ZERO) <= 0) {
+				return null;
+			}
+			return value.setScale(scale, RoundingMode.HALF_UP);
+		} catch (NumberFormatException exception) {
 			return null;
 		}
-		return value.setScale(scale, RoundingMode.HALF_UP);
+	}
+
+	private Integer positiveInteger(JsonNode node) {
+		if (node == null || node.isNull()) {
+			return null;
+		}
+		try {
+			BigDecimal value = node.isNumber()
+					? node.decimalValue()
+					: new BigDecimal(node.asText("").trim());
+			if (value.compareTo(BigDecimal.ZERO) <= 0 || value.stripTrailingZeros().scale() > 0) {
+				return null;
+			}
+			return value.intValueExact();
+		} catch (ArithmeticException | NumberFormatException exception) {
+			return null;
+		}
 	}
 
 	private String sanitizeText(String value, int maxLength) {
@@ -193,11 +220,11 @@ public class OpenAiCoachingClient implements AiCoachingClient {
 												"items", Map.of(
 														"type", "object",
 														"additionalProperties", false,
-														"required", List.of("plan_date", "day_distance_km", "day_pace_min_per_km", "description"),
+														"required", List.of("plan_date", "day_distance_km", "day_pace_sec_per_km", "description"),
 														"properties", Map.of(
-																"plan_date", Map.of("type", "string", "pattern", "^\\\\d{4}-\\\\d{2}-\\\\d{2}$"),
+																"plan_date", Map.of("type", "string", "pattern", "^\\d{4}-\\d{2}-\\d{2}$"),
 																"day_distance_km", Map.of("type", "number", "exclusiveMinimum", 0),
-																"day_pace_min_per_km", Map.of("type", "number", "exclusiveMinimum", 0),
+																"day_pace_sec_per_km", Map.of("type", "integer", "exclusiveMinimum", 0),
 																"description", Map.of("type", "string", "maxLength", 255)
 														)
 												)
@@ -226,17 +253,21 @@ public class OpenAiCoachingClient implements AiCoachingClient {
 		);
 	}
 
-	String planPrompt(GoalRequest request, int durationWeeks, LocalDate startDate) throws Exception {
+	String planPrompt(GoalRequest request, int durationWeeks, LocalDate startDate, List<LocalDate> planDates) throws Exception {
+		List<String> expectedPlanDates = planDates == null ? List.of() : planDates.stream()
+				.map(LocalDate::toString)
+				.toList();
 		return "다음 사용자 입력으로 러닝 플랜을 생성하라. "
-				+ "응답 JSON schema: {\"summary\": string, \"plan_days\": [{\"plan_date\": \"yyyy-MM-dd\", \"day_distance_km\": number, \"day_pace_min_per_km\": number, \"description\": string}]} "
-				+ "goal_distance_km와 goal_pace_min_per_km는 사용자의 최종 목표이므로 그대로 보존하고, 각 plan_days의 day_distance_km와 day_pace_min_per_km는 해당 날짜의 일일 미션으로 점진적으로 산출한다. 초반은 최종 목표보다 낮은 거리와 느린 페이스로 시작하고 마지막 주에 최종 목표에 근접하게 조정한다. "
-				+ "DB 저장 제약: plan_days는 running_days에 해당하는 날짜만 포함하고, 기간은 start_date부터 duration_weeks 주 이내여야 한다. "
-				+ "plan_date는 yyyy-MM-dd 형식, day_distance_km는 0보다 큰 숫자이며 소수점 2자리 이하, day_pace_min_per_km는 0보다 큰 숫자이며 소수점 6자리 이하로 출력한다. "
+				+ "응답 JSON schema: {\"summary\": string, \"plan_days\": [{\"plan_date\": \"yyyy-MM-dd\", \"day_distance_km\": number, \"day_pace_sec_per_km\": integer, \"description\": string}]} "
+				+ "goal_distance_km와 goal_pace_sec_per_km는 사용자의 최종 목표이므로 그대로 보존하고, 각 plan_days의 day_distance_km와 day_pace_sec_per_km는 해당 날짜의 일일 미션으로 점진적으로 산출한다. 초반은 최종 목표보다 낮은 거리와 느린 페이스로 시작하고 마지막 주에 최종 목표에 근접하게 조정한다. "
+				+ "DB 저장 제약: plan_days는 plan_dates와 같은 길이와 같은 순서로만 출력한다. plan_date는 반드시 plan_dates의 값을 그대로 사용하고, plan_dates에 없는 날짜를 추가하지 않는다. "
+				+ "plan_date는 yyyy-MM-dd 형식, day_distance_km는 0보다 큰 숫자이며 소수점 2자리 이하, day_pace_sec_per_km는 0보다 큰 정수 seconds/km로 출력한다. "
 				+ "summary는 한국어 500자 이하, description은 한국어 255자 이하로 출력한다. null을 출력하지 않는다. "
 				+ "사용자 입력: " + objectMapper.writeValueAsString(Map.of(
 						"request", request,
 						"duration_weeks", durationWeeks,
-						"start_date", startDate.toString()
+						"start_date", startDate.toString(),
+						"plan_dates", expectedPlanDates
 				));
 	}
 
@@ -247,17 +278,17 @@ public class OpenAiCoachingClient implements AiCoachingClient {
 				+ "DB 저장 제약: ai_feedback_comment는 한국어 500자 이하 문자열이며 null을 출력하지 않는다. "
 				+ "칭찬 1문장, 개선/회복 조언 1문장으로 작성하라. 의료 진단, 치료 지시, 약물 권고는 하지 않는다. "
 				+ "통증, 어지러움, 흉통, 호흡곤란이 있으면 운동 중단과 전문가 상담을 권한다. "
-				+ "목표 대비 차이는 actual - target 기준이며, pace_delta_min_per_km가 양수면 목표보다 느린 것이다. "
+				+ "목표 대비 차이는 actual - target 기준이며, pace_delta_sec_per_km가 양수면 목표보다 느린 것이다. "
 				+ "입력: " + objectMapper.writeValueAsString(Map.of(
 						"plan_day_id", request.planDayId(),
 						"plan_date", request.planDate().toString(),
 						"target_distance_km", request.targetDistanceKm(),
-						"target_pace_min_per_km", request.targetPaceMinPerKm(),
+						"target_pace_sec_per_km", request.targetPaceSecPerKm(),
 						"actual_distance_km", feedback.actualDistanceKm(),
 						"actual_time_sec", feedback.actualTimeSec(),
-						"actual_pace_min_per_km", feedback.actualPaceMinPerKm(),
+						"actual_pace_sec_per_km", feedback.actualPaceSecPerKm(),
 						"distance_delta_km", request.distanceDeltaKm(),
-						"pace_delta_min_per_km", request.paceDeltaMinPerKm()
+						"pace_delta_sec_per_km", request.paceDeltaSecPerKm()
 				));
 	}
 }

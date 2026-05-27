@@ -162,6 +162,16 @@ class CommunityControllerTest {
 	}
 
 	@Test
+	void deleteProfileImage_resetsStoredProfilePhoto() {
+		authenticate();
+
+		var response = controller.deleteProfileImage(AUTHORIZATION, 1L);
+
+		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
+		verify(service).deleteProfileImage(1L);
+	}
+
+	@Test
 	void uploadFeedMultipart_storesSingleImageAndRouteImageBeforeServiceCall() {
 		MockMultipartFile image = new MockMultipartFile("images", "feed.jpg", "image/jpeg", new byte[] {(byte) 0xff, (byte) 0xd8, (byte) 0xff});
 		MockMultipartFile route = new MockMultipartFile("route_image", "route.webp", "image/webp", new byte[] {'R', 'I', 'F', 'F', 0, 0, 0, 0, 'W', 'E', 'B', 'P'});

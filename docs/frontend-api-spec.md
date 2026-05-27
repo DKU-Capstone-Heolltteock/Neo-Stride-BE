@@ -93,7 +93,8 @@ MAPS_API_KEY=***
 - 허용 MIME type: `image/jpeg`, `image/png`, `image/webp`, `image/heic`, `image/heif`, 일부 Android 갤러리 `application/octet-stream`
 - 서버는 빈 파일, MIME/확장자 불일치, magic byte 불일치 파일을 `400 Bad Request`로 거부합니다.
 - 저장 파일명은 원본 파일명을 사용하지 않고 UUID 기반으로 생성합니다.
-- `PATCH /users/me/profile-image`는 `profile_image_url` 또는 multipart part `image` 중 하나가 필수입니다. 둘 다 없거나 빈 문자열이면 기존 `profile_photo`를 null로 덮지 않고 `400 Bad Request`를 반환합니다.
+- `PATCH /users/me/profile-image`는 `profile_image_url` 또는 multipart part `image`/`profile_photo` 중 하나가 필수입니다. 둘 다 없거나 빈 문자열이면 기존 `profile_photo`를 null로 덮지 않고 `400 Bad Request`를 반환합니다.
+- `DELETE /users/me/profile-image`는 기본 이미지로 되돌리기용 API입니다. `users.profile_photo`와 `community_users.profile_photo`를 모두 `NULL`로 초기화합니다.
 - `POST /api/community/feeds`, `POST /api/community/tips` multipart 업로드는 `images` part를 최대 3개까지 허용합니다. 저장 URL 목록은 기존 응답의 `imageUrls` 배열로 반환됩니다.
 - route image는 `route_image` 또는 `routeMapImage` part로 받을 수 있고, 실제 저장 후 반환된 URL을 기존 content text delimiter 영역에 저장합니다. route image 전용 컬럼/테이블 분리는 후속 작업입니다.
 
@@ -126,6 +127,7 @@ MAPS_API_KEY=***
 | 계정/프로필/배지 | `GET` | `/users/me/profile` | `com/neostride/app/feature/community/mypage/api/MyPageService.java:28 getUserProfile()` | 구현됨 |
 | 계정/프로필/배지 | `PATCH` | `/users/me/status` | `com/neostride/app/feature/community/mypage/api/MyPageService.java:32 updateStatusMessage()` | 구현됨 |
 | 계정/프로필/배지 | `PATCH` | `/users/me/profile-image` | `com/neostride/app/feature/community/mypage/api/MyPageService.java:37 updateProfileImage()` | 구현됨 |
+| 계정/프로필/배지 | `DELETE` | `/users/me/profile-image` | Account/MyPage 기본 이미지 선택 시 연결 예정 | 구현됨 |
 | 마이페이지 | `GET` | `/community/contents/me` | `com/neostride/app/feature/community/mypage/api/MyPageService.java:41 getMyFeeds()` | 구현됨 |
 | 마이페이지 | `GET` | `/community/contents/tagged` | `com/neostride/app/feature/community/mypage/api/MyPageService.java:45 getTaggedFeeds()` | 구현됨 |
 | 마이페이지 | `GET` | `/community/contents/comments` | `com/neostride/app/feature/community/mypage/api/MyPageService.java:49 getCommentedFeeds()` | 구현됨 |
@@ -264,7 +266,6 @@ Backend DTO 기준:
 
 - `duration`은 초 단위 정수입니다. DB `running_records.duration`도 `INT`입니다.
 - `pace`는 초/km 정수 계약입니다. Android `RunningRecordRequest.pace`가 보내는 `paceSeconds`를 그대로 저장/응답하며, DB `running_records.pace`는 `INT`입니다.
-- 백엔드는 호환성을 위해 구버전 `pace < 60` 분/km decimal 요청을 수신하면 `ROUND(pace * 60)`으로 초/km로 변환해 저장합니다.
 - `GpsTraceRequest.time`은 `yyyy-MM-dd HH:mm:ss` timestamp 문자열이며 DB `gps_traces.recorded_time`은 `DATETIME`입니다. `heart_rate`, `cadence`는 optional입니다.
 
 Endpoints:
@@ -298,8 +299,9 @@ Endpoints:
 
 - 러닝 기록 API `duration`: 초 단위 정수.
 - 러닝 기록 API `pace`: 초/km 정수. 예: `5:42/km` = `342`.
-- 코칭 목표/플랜 API `goal_pace_min_per_km`, `day_pace_min_per_km`, `actual_pace_min_per_km`: 분/km decimal. Android는 내부 초/km 값을 `seconds / 60f`로 변환해 전송합니다. 예: `5:44/km` = `344 / 60 = 5.733333`.
-- DB는 러닝 기록 페이스를 `INT seconds/km`, 코칭 목표/플랜 페이스를 `DECIMAL(8,6) minutes/km`로 저장합니다.
+- 코칭 목표/플랜 API `goal_pace_sec_per_km`, `day_pace_sec_per_km`, `actual_pace_sec_per_km`: 초/km 정수. 예: `5:44/km` = `344`.
+- DB는 러닝 기록과 코칭 목표/플랜 페이스를 모두 `INT seconds/km`로 저장합니다. `running_records.duration`과 피드백 `actual_time_sec`도 초 단위 정수입니다.
+- OpenAI 플랜 응답 스키마도 `day_pace_sec_per_km` 정수만 허용합니다.
 
 ### GoalRequest
 
@@ -310,7 +312,7 @@ Endpoints:
   "custom_weeks": 0,
   "running_days": ["mon", "wed", "fri"],
   "goal_distance_km": 5.0,
-  "goal_pace_min_per_km": 5.733333,
+  "goal_pace_sec_per_km": 344,
   "start_date": "2026-04-30"
 }
 ```
@@ -328,7 +330,7 @@ Endpoints:
     "custom_weeks": 0,
     "running_days": ["mon", "wed", "fri"],
     "goal_distance_km": 5.0,
-    "goal_pace_min_per_km": 5.733333,
+    "goal_pace_sec_per_km": 344,
     "start_date": "2026-04-30",
     "end_date": "2026-05-30",
     "created_at": "2026-04-30T10:00:00",
@@ -348,7 +350,7 @@ Endpoints:
     "plan_day_id": 10,
     "plan_date": "2026-05-05",
     "day_distance_km": 3.0,
-    "day_pace_min_per_km": 6.421333,
+    "day_pace_sec_per_km": 385,
     "description": "가볍게 조깅하세요.",
     "is_completed": false,
     "ai_feedback_comment": null,
@@ -368,7 +370,7 @@ Request:
   "plan_day_id": 10,
   "actual_distance_km": 3.2,
   "actual_time_sec": 1240,
-  "actual_pace_min_per_km": 5.733333
+  "actual_pace_sec_per_km": 344
 }
 ```
 

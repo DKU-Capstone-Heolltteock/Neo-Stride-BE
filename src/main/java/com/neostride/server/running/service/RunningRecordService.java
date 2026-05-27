@@ -44,7 +44,7 @@ public class RunningRecordService {
 					request.userId(),
 					request.planId(),
 					request.totalDistance(),
-					roundedInt(request.duration()),
+					request.duration(),
 					request.pace()
 			);
 		}
@@ -125,8 +125,10 @@ public class RunningRecordService {
 		}
 	}
 
-	private int roundedInt(BigDecimal value) {
-		return value.setScale(0, java.math.RoundingMode.HALF_UP).intValueExact();
+	private void requireNonNegative(Integer value, String fieldName) {
+		if (value == null || value < 0) {
+			throw new IllegalArgumentException(fieldName + "는 0 이상의 값이어야 합니다.");
+		}
 	}
 
 	private LocalDateTime parseTraceTime(String time) {

@@ -13,7 +13,7 @@ public record AiPlanRefreshRequest(
 		LocalDate startDate,
 		List<LocalDate> planDates,
 		BigDecimal targetDistance,
-		BigDecimal targetPace
+		Integer targetPace
 ) {
 	public AiPlanRefreshRequest {
 		planDates = planDates == null ? List.of() : List.copyOf(planDates);

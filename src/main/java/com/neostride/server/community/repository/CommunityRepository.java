@@ -91,6 +91,11 @@ public class CommunityRepository {
 		jdbcTemplate.update("UPDATE users SET profile_photo = ? WHERE user_id = ?", profileImageUrl, userId);
 	}
 
+	public void deleteProfileImage(long userId) {
+		jdbcTemplate.update("UPDATE community_users SET profile_photo = NULL WHERE user_id = ?", userId);
+		jdbcTemplate.update("UPDATE users SET profile_photo = NULL WHERE user_id = ?", userId);
+	}
+
 	public List<CommunityContentResponse> myFeeds(long userId) { return contentQuery("cc.author_user_id = ?", userId, userId); }
 	public List<CommunityContentResponse> taggedFeeds(long userId) { return contentQuery("EXISTS (SELECT 1 FROM community_interactions ci WHERE ci.content_id = cc.content_id AND ci.interaction_type='TAG' AND ci.tagged_user_id = ?)", userId, userId); }
 	public List<CommunityContentResponse> interactedFeeds(long userId, String type) { return contentQuery("EXISTS (SELECT 1 FROM community_interactions ci WHERE ci.content_id = cc.content_id AND ci.interaction_type='" + type + "' AND ci.user_id = ?)", userId, userId); }

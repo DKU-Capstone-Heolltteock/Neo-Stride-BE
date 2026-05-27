@@ -29,7 +29,7 @@ import static org.mockito.Mockito.when;
 class RunningRecordRepositoryTest {
 
 	@Test
-	void insertRunningRecordNormalizesLegacyMinutePaceToSeconds() throws Exception {
+	void insertRunningRecordPersistsDurationAndPaceAsIntegers() throws Exception {
 		JdbcTemplate jdbcTemplate = mock(JdbcTemplate.class);
 		Connection connection = mock(Connection.class);
 		PreparedStatement ps = mock(PreparedStatement.class);
@@ -47,13 +47,14 @@ class RunningRecordRepositoryTest {
 				7L,
 				null,
 				new BigDecimal("5.23"),
-				new BigDecimal("1800"),
-				new BigDecimal("5.77"),
+				1800,
+				346,
 				new BigDecimal("310.56"),
 				"",
 				List.of(new GpsTraceRequest(37.5665, 126.978, "2026-05-12 18:00:00", null, null))
 		));
 
+		verify(ps).setInt(4, 1800);
 		verify(ps).setInt(5, 346);
 	}
 
@@ -76,8 +77,8 @@ class RunningRecordRepositoryTest {
 				7L,
 				null,
 				new BigDecimal("5.23"),
-				new BigDecimal("1800"),
-				new BigDecimal("392"),
+				1800,
+				392,
 				new BigDecimal("310.56"),
 				"",
 				List.of(new GpsTraceRequest(37.5665, 126.978, "2026-05-12 18:00:00", null, null))

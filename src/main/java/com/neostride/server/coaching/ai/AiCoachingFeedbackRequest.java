@@ -8,9 +8,9 @@ public record AiCoachingFeedbackRequest(
 		Long planDayId,
 		LocalDate planDate,
 		BigDecimal targetDistanceKm,
-		BigDecimal targetPaceMinPerKm,
+		Integer targetPaceSecPerKm,
 		BigDecimal distanceDeltaKm,
-		BigDecimal paceDeltaMinPerKm,
+		Integer paceDeltaSecPerKm,
 		FeedbackRequest feedbackRequest
 ) {
 }
