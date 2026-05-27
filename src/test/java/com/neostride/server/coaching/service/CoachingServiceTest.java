@@ -23,6 +23,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -177,6 +178,23 @@ class CoachingServiceTest {
 	}
 
 	@Test
+	void requestFeedback_returnsExistingFeedbackWithoutAiCallOrPlanAdjustment() {
+		FeedbackRequest request = new FeedbackRequest(20L, new BigDecimal("3.2"), 1240, new BigDecimal("6.45"));
+		PlanDayRow planDay = new PlanDayRow(20L, 1L, 10L, LocalDate.parse("2026-05-04"),
+				new BigDecimal("5.00"), new BigDecimal("6.00"), true, "Existing AI feedback", LocalDateTime.parse("2026-05-04T10:30:00"));
+		when(repository.findPlanDayByIdForUser(20L, 1L)).thenReturn(planDay);
+
+		var response = service.requestFeedback(1L, 20L, request);
+
+		assertThat(response.completed()).isTrue();
+		assertThat(response.aiFeedbackComment()).isEqualTo("Existing AI feedback");
+		assertThat(response.aiFeedbackAt()).isEqualTo("2026-05-04T10:30:00");
+		verify(aiCoachingClient, never()).generateFeedback(any());
+		verify(repository, never()).updateFeedbackForUser(eq(1L), eq(20L), any());
+		verify(repository, never()).findRecentPlanPerformances(eq(1L), eq(10L), eq(5));
+	}
+
+	@Test
 	void requestFeedback_usesAiFeedbackWhenAiClientReturnsComment() {
 		FeedbackRequest request = new FeedbackRequest(20L, new BigDecimal("3.2"), 1240, new BigDecimal("6.45"));
 		PlanDayRow planDay = new PlanDayRow(20L, 1L, 10L, LocalDate.parse("2026-05-04"),
@@ -255,6 +273,21 @@ class CoachingServiceTest {
 		service.requestFeedback(1L, 20L, request);
 
 		verify(repository).adjustFuturePlanTargets(1L, 10L, LocalDate.parse("2026-05-04"), new BigDecimal("1.05"), new BigDecimal("0.97"));
+	}
+
+	@Test
+	void completePlanWithRunningRecordReturnsExistingFeedbackWithoutAiCall() {
+		PlanDayRow planDay = new PlanDayRow(20L, 1L, 10L, LocalDate.parse("2026-05-04"),
+				new BigDecimal("5.00"), new BigDecimal("6.50"), true, "Existing running feedback", LocalDateTime.parse("2026-05-04T10:30:00"));
+		when(repository.findPlanDayByIdForUser(20L, 1L)).thenReturn(planDay);
+
+		var response = service.completePlanWithRunningRecord(1L, 20L, new BigDecimal("5.00"), 1960, new BigDecimal("392"));
+
+		assertThat(response.completed()).isTrue();
+		assertThat(response.aiFeedbackComment()).isEqualTo("Existing running feedback");
+		verify(aiCoachingClient, never()).generateFeedback(any());
+		verify(repository, never()).updateFeedbackForUser(eq(1L), eq(20L), any());
+		verify(repository, never()).findRecentPlanPerformances(eq(1L), eq(10L), eq(5));
 	}
 
 	@Test

@@ -172,6 +172,7 @@ public class CoachingRepository {
 				SELECT plan_id, user_id, goal_id, plan_date, target_distance, target_pace, is_completed, feedback, updated_at
 				FROM plans
 				WHERE plan_id = ? AND user_id = ?
+				FOR UPDATE
 				""", planDayRowMapper, planDayId, userId);
 		return rows.isEmpty() ? null : rows.getFirst();
 	}

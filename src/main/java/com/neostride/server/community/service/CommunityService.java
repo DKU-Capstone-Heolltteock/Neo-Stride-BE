@@ -9,6 +9,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.regex.Pattern;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class CommunityService {
@@ -34,6 +35,7 @@ public class CommunityService {
 	public BadgeDetailResponse getBadgeDetail(long userId) { validatePositive(userId, "user_id"); return repository.getBadgeDetail(userId); }
 	public List<FriendResponse> getFriendList(long userId, String status) { validatePositive(userId, "user_id"); return repository.getFriendList(userId, status); }
 	public List<FriendResponse> getUserFriendList(long userId) { validatePositive(userId, "user_id"); return repository.getFriendList(userId, "friends"); }
+	@Transactional
 	public Map<String, String> updateRelationship(long userId, FriendRequest request) { validatePositive(userId, "user_id"); requireBody(request); repository.updateRelationship(userId, request); return Map.of("status", "success", "message", "관계 상태가 변경되었습니다."); }
 	public FeedUploadResponse uploadFeed(long userId, FeedUploadRequest request) { validatePositive(userId, "user_id"); requireBody(request); long id = repository.insertFeed(userId, request); return repository.findFeed(id); }
 	public FeedDetailResponse getFeedDetail(long userId, long feedId) { validatePositive(userId, "user_id"); validatePositive(feedId, "feed_id"); return repository.findFeedDetail(userId, feedId); }

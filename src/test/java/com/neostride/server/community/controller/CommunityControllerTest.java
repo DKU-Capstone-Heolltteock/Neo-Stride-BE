@@ -356,6 +356,19 @@ class CommunityControllerTest {
 	}
 
 	@Test
+	void uploadTipMultipart_mapsCourseAddress() {
+		var expected = new com.neostride.server.community.dto.TipUploadRequest("COURSE", "title", "content", true, null, "Seoul Forest", List.of());
+		var uploaded = new com.neostride.server.community.dto.TipUploadResponse(7L, "neo", "photo.png", true, "COURSE", "title", "content", true, null, List.of(), 0, 0, "2026-05-11T00:00:00");
+		when(service.uploadTip(1L, expected)).thenReturn(uploaded);
+		authenticate();
+
+		var response = controller.uploadTipMultipart(AUTHORIZATION, 1L, Map.of("category", "COURSE", "title", "title", "content", "content", "gpsVisible", "true", "courseAddress", "Seoul Forest"), null, null, null);
+
+		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+		assertThat(response.getBody()).isSameAs(uploaded);
+	}
+
+	@Test
 	void missingTipApis_supportAndroidContracts() {
 		var update = new com.neostride.server.community.dto.TipUploadRequest("COURSE", "title", "body", true, "route.png", List.of("tip.png"));
 		var tip = new com.neostride.server.community.dto.TipUploadResponse(7L, "neo", "photo.png", true, "COURSE", "title", "body", true, "route.png", List.of("tip.png"), 1, 1, "2026-05-11T00:00:00");

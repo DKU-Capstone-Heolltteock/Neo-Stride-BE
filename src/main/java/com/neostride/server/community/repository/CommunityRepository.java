@@ -223,8 +223,14 @@ public class CommunityRepository {
 			case "block" -> {
 				jdbcTemplate.update("DELETE FROM relationships WHERE (user1_id=? AND user2_id=?) OR (user1_id=? AND user2_id=?)", userId, request.targetId(), request.targetId(), userId);
 				jdbcTemplate.update("INSERT INTO relationships (user1_id, user2_id, status) VALUES (?, ?, 'BLOCKED')", userId, request.targetId());
+				jdbcTemplate.update("""
+					DELETE ci FROM community_interactions ci
+					JOIN community_contents cc ON cc.content_id = ci.content_id
+					WHERE ci.user_id = ? AND cc.author_user_id = ?
+					""", userId, request.targetId());
 			}
 			case "cancel" -> jdbcTemplate.update("DELETE FROM relationships WHERE user1_id=? AND user2_id=? AND status='REQUESTED'", userId, request.targetId());
+			case "unblock" -> jdbcTemplate.update("DELETE FROM relationships WHERE user1_id=? AND user2_id=? AND status='BLOCKED'", userId, request.targetId());
 			case "delete", "unfriend" -> jdbcTemplate.update("DELETE FROM relationships WHERE status <> 'BLOCKED' AND ((user1_id=? AND user2_id=?) OR (user1_id=? AND user2_id=?))", userId, request.targetId(), request.targetId(), userId);
 			default -> throw new IllegalArgumentException("지원하지 않는 relationship action입니다.");
 		}
@@ -397,7 +403,7 @@ public class CommunityRepository {
 			ps.setLong(1, userId);
 			ps.setBoolean(2, request != null && request.gpsVisible());
 			ps.setString(3, normalizeTipType(request == null ? null : request.category()));
-			ps.setString(4, encodeTipContent(request == null ? null : request.title(), request == null ? null : request.content(), request == null ? null : request.routeMapImageUrl()));
+			ps.setString(4, encodeTipContent(request == null ? null : request.title(), request == null ? null : request.content(), request == null ? null : request.routeMapImageUrl(), request == null ? null : request.courseAddress()));
 			ps.setString(5, encodeImages(request == null ? null : request.imageUrls()));
 			return ps;
 		}, kh);
@@ -435,12 +441,12 @@ public class CommunityRepository {
 			String[] parts = decodeTipContent(rs.getString("content_text"));
 			String badge = rs.getString("badge");
 			long contentId = rs.getLong("content_id");
-			return new TipDetailResponse(contentId, rs.getLong("author_user_id"), rs.getString("nickname"), rs.getString("profile_image_url"), badgeOwned(badge), badge, fromTipType(rs.getString("tip_type")), parts[0], parts[1], rs.getBoolean("include_route_detail"), parts[2], null, decodeImages(imageUrls(rs)), rs.getInt("like_count"), rs.getInt("comment_count"), rs.getBoolean("liked"), rs.getBoolean("bookmarked"), rs.getLong("author_user_id") == userId, rs.getTimestamp("created_at").toLocalDateTime().format(ISO), commentsForContent(userId, contentId));
+			return new TipDetailResponse(contentId, rs.getLong("author_user_id"), rs.getString("nickname"), rs.getString("profile_image_url"), badgeOwned(badge), badge, fromTipType(rs.getString("tip_type")), parts[0], parts[1], rs.getBoolean("include_route_detail"), parts[2], parts[3], decodeImages(imageUrls(rs)), rs.getInt("like_count"), rs.getInt("comment_count"), rs.getBoolean("liked"), rs.getBoolean("bookmarked"), rs.getLong("author_user_id") == userId, rs.getTimestamp("created_at").toLocalDateTime().format(ISO), commentsForContent(userId, contentId));
 		}, userId, userId, tipId).stream().findFirst().orElse(null);
 	}
 
 	public void updateTip(long userId, long tipId, TipUploadRequest request) {
-		int updated = jdbcTemplate.update("UPDATE community_contents SET include_route_detail=?, tip_type=?, content_text=?, image=? WHERE content_id=? AND author_user_id=? AND content_type='TIP'", request.gpsVisible(), normalizeTipType(request.category()), encodeTipContent(request.title(), request.content(), request.routeMapImageUrl()), encodeImages(request.imageUrls()), tipId, userId);
+		int updated = jdbcTemplate.update("UPDATE community_contents SET include_route_detail=?, tip_type=?, content_text=?, image=? WHERE content_id=? AND author_user_id=? AND content_type='TIP'", request.gpsVisible(), normalizeTipType(request.category()), encodeTipContent(request.title(), request.content(), request.routeMapImageUrl(), request.courseAddress()), encodeImages(request.imageUrls()), tipId, userId);
 		if (updated > 0) {
 			replaceContentImages(tipId, request.imageUrls());
 		}
@@ -1026,13 +1032,14 @@ public class CommunityRepository {
 		if (blank(value)) return null;
 		String normalized = value.trim();
 		String normalizedForDuration = normalized.replace("'", ":").replace("\"", "");
-		if (normalizedForDuration.endsWith(":")) {
-			normalizedForDuration = normalizedForDuration.substring(0, normalizedForDuration.length() - 1);
+		String stripped = normalizedForDuration.replaceAll("(?i)/km.*", "").trim();
+		if (stripped.endsWith(":")) {
+			stripped = stripped.substring(0, stripped.length() - 1);
 		}
-		Integer fromDuration = parseDurationSeconds(normalizedForDuration);
+		Integer fromDuration = stripped.contains(":") ? parseDurationSeconds(stripped) : null;
 		if (fromDuration != null) return fromDuration;
 		try {
-			String cleaned = normalized.replaceAll("[^0-9.]+", "").trim();
+			String cleaned = stripped.replaceAll("[^0-9.]+", "").trim();
 			if (cleaned.isEmpty()) return null;
 			return paceToSeconds(new BigDecimal(cleaned));
 		} catch (NumberFormatException exception) {
@@ -1049,8 +1056,25 @@ public class CommunityRepository {
 	private static String safeDistance(BigDecimal value) { return value == null ? "" : value.stripTrailingZeros().toPlainString(); }
 	private static String blankToNull(String value) { return blank(value) ? null : value; }
 	private record DecodedFeedContent(String title, String content, String routeMapImageUri, String distance, String duration, String pace) {}
-	private static String encodeTipContent(String title, String content, String routeMapImageUrl) { return (title == null ? "" : title) + "\n---NEOSTRIDE-TIP---\n" + (content == null ? "" : content) + "\n---NEOSTRIDE-ROUTE---\n" + (routeMapImageUrl == null ? "" : routeMapImageUrl); }
-	private static String[] decodeTipContent(String raw) { String[] first = (raw == null ? "" : raw).split("\\n---NEOSTRIDE-TIP---\\n", 2); String title = first.length > 0 ? first[0] : ""; String rest = first.length > 1 ? first[1] : ""; String[] second = rest.split("\\n---NEOSTRIDE-ROUTE---\\n", 2); return new String[]{title, second.length > 0 ? second[0] : rest, second.length > 1 && !second[1].isBlank() ? second[1] : null}; }
+	private static String encodeTipContent(String title, String content, String routeMapImageUrl, String courseAddress) {
+		return (title == null ? "" : title)
+				+ "\n---NEOSTRIDE-TIP---\n" + (content == null ? "" : content)
+				+ "\n---NEOSTRIDE-ROUTE---\n" + (routeMapImageUrl == null ? "" : routeMapImageUrl)
+				+ "\n---NEOSTRIDE-ADDR---\n" + (courseAddress == null ? "" : courseAddress);
+	}
+	private static String[] decodeTipContent(String raw) {
+		String[] first = (raw == null ? "" : raw).split("\n---NEOSTRIDE-TIP---\n", 2);
+		String title = first.length > 0 ? first[0] : "";
+		String rest = first.length > 1 ? first[1] : "";
+		String[] routeSplit = rest.split("\n---NEOSTRIDE-ROUTE---\n", 2);
+		String content = routeSplit.length > 0 ? routeSplit[0] : rest;
+		String routeAndAddress = routeSplit.length > 1 ? routeSplit[1] : "";
+		String[] addressSplit = routeAndAddress.split("\n---NEOSTRIDE-ADDR---\n", 2);
+		String routeMapImageUrl = addressSplit.length > 0 ? blankToNull(addressSplit[0]) : null;
+		String courseAddress = addressSplit.length > 1 ? blankToNull(addressSplit[1]) : null;
+		return new String[]{title, content, routeMapImageUrl, courseAddress};
+	}
+
 	private void insertContentImages(long contentId, List<String> images) {
 		List<String> normalized = normalizeImages(images);
 		for (int index = 0; index < normalized.size(); index++) {

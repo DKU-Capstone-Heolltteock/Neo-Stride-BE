@@ -303,7 +303,7 @@ public class CommunityController {
 			@RequestPart(value = "route_image", required = false) MultipartFile routeImage,
 			@RequestPart(value = "routeMapImage", required = false) MultipartFile routeMapImage
 	) {
-		TipUploadRequest request = new TipUploadRequest(fields.get("category"), fields.get("title"), fields.get("content"), bool(fields.get("gpsVisible")), storedRouteUri(routeImage != null ? routeImage : routeMapImage), storedImageUris(images));
+		TipUploadRequest request = new TipUploadRequest(fields.get("category"), fields.get("title"), fields.get("content"), bool(fields.get("gpsVisible")), storedRouteUri(routeImage != null ? routeImage : routeMapImage), first(fields, "courseAddress", "course_address"), storedImageUris(images));
 		return ResponseEntity.status(HttpStatus.CREATED).body(service.uploadTip(authenticatedUserId(authorization, headerUserId), request));
 	}
 	@GetMapping("/api/community/tips")

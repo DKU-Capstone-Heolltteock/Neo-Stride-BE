@@ -110,6 +110,9 @@ public class CoachingService {
 		validatePositive(planDayId, "plan_day_id");
 		validateFeedbackRequest(planDayId, request);
 		PlanDayRow planDay = coachingRepository.findPlanDayByIdForUser(planDayId, userId);
+		if (hasExistingFeedback(planDay)) {
+			return new FeedbackResponse(planDayId, Boolean.TRUE.equals(planDay.completed()), planDay.feedback().trim(), feedbackUpdatedAt(planDay));
+		}
 		String feedback = buildFeedbackWithAiFallback(planDayId, request, planDay);
 		if (!coachingRepository.updateFeedbackForUser(userId, planDayId, feedback)) {
 			throw new IllegalArgumentException("plan_day_id에 해당하는 플랜이 없습니다.");
@@ -118,6 +121,14 @@ public class CoachingService {
 			adjustFuturePlanWithFeedbackLoop(userId, planDay, request);
 		}
 		return new FeedbackResponse(planDayId, true, feedback, LocalDateTime.now().format(DATE_TIME_FORMATTER));
+	}
+
+	private boolean hasExistingFeedback(PlanDayRow planDay) {
+		return planDay != null && planDay.feedback() != null && !planDay.feedback().isBlank();
+	}
+
+	private String feedbackUpdatedAt(PlanDayRow planDay) {
+		return planDay.updatedAt() == null ? null : planDay.updatedAt().format(DATE_TIME_FORMATTER);
 	}
 
 	@Transactional
