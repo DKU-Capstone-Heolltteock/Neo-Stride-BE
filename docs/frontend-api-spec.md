@@ -288,7 +288,7 @@ Endpoints:
 - 환경변수:
   - `OPENAI_API_KEY`: 설정되어 있으면 실제 OpenAI API 호출 시도
   - `OPENAI_BASE_URL`: 기본값 `https://api.openai.com/v1`
-  - `OPENAI_MODEL`: 기본값 `gpt-4o-mini`
+  - `OPENAI_MODEL`: 기본값 `gpt-5.4-mini`
 - 출력 가드레일: OpenAI `response_format`은 `json_schema` + `strict: true`를 사용해 DB 저장 필드만 출력하도록 제한합니다.
 - 서버 검증: OpenAI 응답은 저장 전 필수 필드, 양수 숫자, 날짜 파싱, 문자열 길이를 검증/정규화하며 유효 데이터가 없으면 deterministic fallback 플랜/피드백을 사용합니다.
 - 실패/미설정 시 동작: API 에러를 사용자에게 직접 노출하지 않고 deterministic fallback 플랜/피드백을 생성합니다.

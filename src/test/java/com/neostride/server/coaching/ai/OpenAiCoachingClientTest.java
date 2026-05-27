@@ -14,7 +14,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 class OpenAiCoachingClientTest {
 
-	private final OpenAiCoachingClient client = new OpenAiCoachingClient("", "https://api.openai.com/v1", "gpt-4o-mini");
+	private final OpenAiCoachingClient client = new OpenAiCoachingClient("", "https://api.openai.com/v1", "gpt-5.4-mini");
 
 	@Test
 	void planResponseFormat_usesStrictJsonSchemaForDbReadyFields() {

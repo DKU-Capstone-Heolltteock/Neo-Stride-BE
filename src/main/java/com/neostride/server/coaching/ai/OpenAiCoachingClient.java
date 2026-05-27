@@ -34,7 +34,7 @@ public class OpenAiCoachingClient implements AiCoachingClient {
 	public OpenAiCoachingClient(
 			@Value("${neostride.ai.openai.api-key:${OPENAI_API_KEY:}}") String apiKey,
 			@Value("${neostride.ai.openai.base-url:https://api.openai.com/v1}") String baseUrl,
-			@Value("${neostride.ai.openai.model:gpt-4o-mini}") String model,
+			@Value("${neostride.ai.openai.model:gpt-5.4-mini}") String model,
 			@Value("${neostride.ai.openai.timeout-ms:${OPENAI_TIMEOUT_MS:8000}}") int timeoutMs
 	) {
 		this.apiKey = apiKey == null ? "" : apiKey.trim();

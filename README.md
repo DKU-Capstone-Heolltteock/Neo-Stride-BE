@@ -53,7 +53,7 @@ Optional:
 - `JWT_REFRESH_TOKEN_TTL_SECONDS`: refresh token TTL, default `1209600`.
 - `OPENAI_API_KEY`: enables real AI coaching plan/feedback generation. If unset, deterministic fallback logic is used.
 - `OPENAI_BASE_URL`: OpenAI-compatible API base URL, default `https://api.openai.com/v1`.
-- `OPENAI_MODEL`: chat model for coaching, default `gpt-4o-mini`.
+- `OPENAI_MODEL`: chat model for coaching, default `gpt-5.4-mini`.
 
 ## MySQL Configuration
 
