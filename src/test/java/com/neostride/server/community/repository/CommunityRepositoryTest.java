@@ -344,6 +344,18 @@ class CommunityRepositoryTest {
 	}
 
 	@Test
+	void myFeedsKeepsIntegerDecimalRunningPaceAsSeconds() throws Exception {
+		when(jdbcTemplate.query(anyString(), any(RowMapper.class), any(Object[].class))).thenAnswer(invocation -> {
+			RowMapper<CommunityContentResponse> mapper = invocation.getArgument(1);
+			return List.of(mapper.mapRow(contentRowWithLinkedPace(new BigDecimal("330.00")), 0));
+		});
+
+		CommunityContentResponse content = repository.myFeeds(1L).getFirst();
+
+		assertThat(content.pace()).isEqualTo(330);
+	}
+
+	@Test
 	void listFeeds_formatsLinkedRunningPaceStoredAsMinuteSecondDecimal() throws Exception {
 		when(jdbcTemplate.query(anyString(), any(RowMapper.class), any(Object[].class))).thenAnswer(invocation -> {
 			RowMapper<FeedUploadResponse> mapper = invocation.getArgument(1);
@@ -472,6 +484,10 @@ class CommunityRepositoryTest {
 	}
 
 	private ResultSet contentRowWithRunningRecord() throws Exception {
+		return contentRowWithLinkedPace(new BigDecimal("6.25"));
+	}
+
+	private ResultSet contentRowWithLinkedPace(BigDecimal pace) throws Exception {
 		ResultSet rs = mock(ResultSet.class);
 		when(rs.getLong("content_id")).thenReturn(1L);
 		when(rs.getString("content_text")).thenReturn("title\n---NEOSTRIDE-FEED---\nrun linked\n---NEOSTRIDE-ROUTE---\n");
@@ -479,7 +495,7 @@ class CommunityRepositoryTest {
 		when(rs.getObject("joined_running_record_id")).thenReturn(10L);
 		when(rs.getBigDecimal("total_distance")).thenReturn(new BigDecimal("7.30"));
 		when(rs.getObject("duration")).thenReturn(1234);
-		when(rs.getObject("pace")).thenReturn(new BigDecimal("6.25"));
+		when(rs.getObject("pace")).thenReturn(pace);
 		return rs;
 	}
 

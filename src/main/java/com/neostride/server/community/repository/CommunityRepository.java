@@ -1021,7 +1021,8 @@ public class CommunityRepository {
 		if (value == null) return null;
 		try {
 			BigDecimal pace = value instanceof BigDecimal decimal ? decimal : new BigDecimal(value.toString());
-			if (pace.scale() <= 0 && pace.intValue() > 59) {
+			if ((pace.scale() <= 0 || pace.remainder(BigDecimal.ONE).compareTo(BigDecimal.ZERO) == 0)
+					&& pace.intValue() > 59) {
 				int seconds = pace.intValue();
 				return seconds > 3600 ? null : seconds;
 			}
