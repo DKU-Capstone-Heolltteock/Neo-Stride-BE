@@ -38,7 +38,7 @@ public record RunningRecordResponse(
 		@JsonProperty("duration")
 		Integer duration,
 
-		@Schema(description = "평균 페이스. 단위: minutes/km, 소수점 아래 두 자리는 초 단위(예: 5.77 = 5분 77초가 아니라 기존 앱 표기 5.77)", example = "5.77")
+		@Schema(description = "평균 페이스. 단위: seconds/km", example = "342")
 		@JsonProperty("pace")
 		BigDecimal pace,
 

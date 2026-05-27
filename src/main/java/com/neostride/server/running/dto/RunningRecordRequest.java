@@ -24,7 +24,7 @@ public record RunningRecordRequest(
 		@JsonProperty("duration")
 		BigDecimal duration,
 
-		@Schema(description = "평균 페이스. 단위: minutes/km", example = "6.36", minimum = "0")
+		@Schema(description = "평균 페이스. 단위: seconds/km. 구버전 minutes/km decimal(<60)도 수신 시 seconds/km로 변환", example = "342", minimum = "0")
 		@JsonProperty("pace")
 		BigDecimal pace,
 

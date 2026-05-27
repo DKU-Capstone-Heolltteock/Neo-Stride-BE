@@ -24,6 +24,8 @@ import org.springframework.web.client.RestClient;
 public class OpenAiCoachingClient implements AiCoachingClient {
 
 	private static final int DEFAULT_TIMEOUT_MS = 8_000;
+	private static final int DISTANCE_SCALE = 2;
+	private static final int PACE_SCALE = 6;
 
 	private final RestClient restClient;
 	private final ObjectMapper objectMapper = new ObjectMapper();
@@ -119,8 +121,8 @@ public class OpenAiCoachingClient implements AiCoachingClient {
 		List<AiCoachingPlanDay> planDays = new ArrayList<>();
 		for (JsonNode node : json.path("plan_days")) {
 			String planDate = node.path("plan_date").asText(null);
-			BigDecimal distance = positiveNumber(node.path("day_distance_km"));
-			BigDecimal pace = positiveNumber(node.path("day_pace_min_per_km"));
+			BigDecimal distance = positiveNumber(node.path("day_distance_km"), DISTANCE_SCALE);
+			BigDecimal pace = positiveNumber(node.path("day_pace_min_per_km"), PACE_SCALE);
 			String description = sanitizeText(node.path("description").asText(null), 255);
 			if (planDate == null || distance == null || pace == null || description == null) {
 				continue;
@@ -144,7 +146,7 @@ public class OpenAiCoachingClient implements AiCoachingClient {
 		return sanitizeText(json.path("ai_feedback_comment").asText(null), 500);
 	}
 
-	private BigDecimal positiveNumber(JsonNode node) {
+	private BigDecimal positiveNumber(JsonNode node, int scale) {
 		if (node == null || !node.isNumber()) {
 			return null;
 		}
@@ -152,7 +154,7 @@ public class OpenAiCoachingClient implements AiCoachingClient {
 		if (value.compareTo(BigDecimal.ZERO) <= 0) {
 			return null;
 		}
-		return value.setScale(2, RoundingMode.HALF_UP);
+		return value.setScale(scale, RoundingMode.HALF_UP);
 	}
 
 	private String sanitizeText(String value, int maxLength) {
@@ -229,7 +231,7 @@ public class OpenAiCoachingClient implements AiCoachingClient {
 				+ "응답 JSON schema: {\"summary\": string, \"plan_days\": [{\"plan_date\": \"yyyy-MM-dd\", \"day_distance_km\": number, \"day_pace_min_per_km\": number, \"description\": string}]} "
 				+ "goal_distance_km와 goal_pace_min_per_km는 사용자의 최종 목표이므로 그대로 보존하고, 각 plan_days의 day_distance_km와 day_pace_min_per_km는 해당 날짜의 일일 미션으로 점진적으로 산출한다. 초반은 최종 목표보다 낮은 거리와 느린 페이스로 시작하고 마지막 주에 최종 목표에 근접하게 조정한다. "
 				+ "DB 저장 제약: plan_days는 running_days에 해당하는 날짜만 포함하고, 기간은 start_date부터 duration_weeks 주 이내여야 한다. "
-				+ "plan_date는 yyyy-MM-dd 형식, day_distance_km와 day_pace_min_per_km는 0보다 큰 숫자이며 소수점 2자리 이하로 출력한다. "
+				+ "plan_date는 yyyy-MM-dd 형식, day_distance_km는 0보다 큰 숫자이며 소수점 2자리 이하, day_pace_min_per_km는 0보다 큰 숫자이며 소수점 6자리 이하로 출력한다. "
 				+ "summary는 한국어 500자 이하, description은 한국어 255자 이하로 출력한다. null을 출력하지 않는다. "
 				+ "사용자 입력: " + objectMapper.writeValueAsString(Map.of(
 						"request", request,

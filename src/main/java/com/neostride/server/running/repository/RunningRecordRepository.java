@@ -57,7 +57,7 @@ public class RunningRecordRepository {
 			}
 			ps.setBigDecimal(3, request.totalDistance().setScale(2, RoundingMode.HALF_UP));
 			ps.setInt(4, roundedInt(request.duration()));
-			ps.setBigDecimal(5, request.pace().setScale(2, RoundingMode.HALF_UP));
+			ps.setInt(5, normalizedPaceSeconds(request.pace()));
 			ps.setInt(6, roundedInt(request.calories()));
 			ps.setString(7, request.routeDetail());
 			return ps;
@@ -155,6 +155,13 @@ public class RunningRecordRepository {
 				null,
 				null
 		), recordId);
+	}
+
+	private static int normalizedPaceSeconds(BigDecimal pace) {
+		if (pace.compareTo(new BigDecimal("60")) < 0) {
+			return pace.multiply(new BigDecimal("60")).setScale(0, RoundingMode.HALF_UP).intValueExact();
+		}
+		return pace.setScale(0, RoundingMode.HALF_UP).intValueExact();
 	}
 
 	private void updateBadgeAndNotifyIfImproved(long userId, String rawBadge) {

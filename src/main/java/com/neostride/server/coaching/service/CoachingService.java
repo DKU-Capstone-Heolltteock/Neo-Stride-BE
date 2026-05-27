@@ -37,6 +37,8 @@ public class CoachingService {
 
 	private static final DateTimeFormatter DATE_FORMATTER = DateTimeFormatter.ISO_LOCAL_DATE;
 	private static final DateTimeFormatter DATE_TIME_FORMATTER = DateTimeFormatter.ISO_LOCAL_DATE_TIME;
+	private static final int DISTANCE_SCALE = 2;
+	private static final int PACE_SCALE = 6;
 
 	private final CoachingRepository coachingRepository;
 	private final AiCoachingClient aiCoachingClient;
@@ -60,7 +62,7 @@ public class CoachingService {
 		int durationWeeks = durationWeeks(request.periodType(), request.customWeeks());
 		LocalDate startDate = parseDate(request.startDate(), "start_date");
 		Set<DayOfWeek> runningDays = parseRunningDays(request.runningDays());
-		BigDecimal targetDistance = request.goalDistanceKm().setScale(2, RoundingMode.HALF_UP);
+		BigDecimal targetDistance = request.goalDistanceKm().setScale(DISTANCE_SCALE, RoundingMode.HALF_UP);
 		BigDecimal targetPace = normalizedPace(request.goalPaceMinPerKm(), "goal_pace_min_per_km");
 		List<LocalDate> planDates = scheduledPlanDates(startDate, durationWeeks, runningDays);
 		List<PlanDayInsertCommand> planDays = generatePlanDays(planDates, targetDistance, targetPace);
@@ -264,20 +266,20 @@ public class CoachingService {
 
 	private BigDecimal progressiveDistance(BigDecimal targetDistance, int index, int totalDays) {
 		if (totalDays <= 1) {
-			return targetDistance.setScale(2, RoundingMode.HALF_UP);
+			return targetDistance.setScale(DISTANCE_SCALE, RoundingMode.HALF_UP);
 		}
 		BigDecimal progress = BigDecimal.valueOf(index).divide(BigDecimal.valueOf(totalDays - 1L), 4, RoundingMode.HALF_UP);
 		BigDecimal factor = new BigDecimal("0.60").add(new BigDecimal("0.40").multiply(progress));
-		return targetDistance.multiply(factor).max(new BigDecimal("0.10")).setScale(2, RoundingMode.HALF_UP);
+		return targetDistance.multiply(factor).max(new BigDecimal("0.10")).setScale(DISTANCE_SCALE, RoundingMode.HALF_UP);
 	}
 
 	private BigDecimal progressivePace(BigDecimal targetPace, int index, int totalDays) {
 		if (totalDays <= 1) {
-			return targetPace.setScale(2, RoundingMode.HALF_UP);
+			return targetPace.setScale(PACE_SCALE, RoundingMode.HALF_UP);
 		}
 		BigDecimal progress = BigDecimal.valueOf(index).divide(BigDecimal.valueOf(totalDays - 1L), 4, RoundingMode.HALF_UP);
 		BigDecimal factor = new BigDecimal("1.12").subtract(new BigDecimal("0.12").multiply(progress));
-		return targetPace.multiply(factor).max(new BigDecimal("3.00")).setScale(2, RoundingMode.HALF_UP);
+		return targetPace.multiply(factor).max(new BigDecimal("3.00")).setScale(PACE_SCALE, RoundingMode.HALF_UP);
 	}
 
 	private List<PlanDayRow> ensureProgressivePlanDays(GoalRow goal, List<PlanDayRow> planDays) {
@@ -481,9 +483,9 @@ public class CoachingService {
 			return null;
 		}
 		if (value.compareTo(new BigDecimal("30")) > 0) {
-			return value.divide(new BigDecimal("60"), 2, RoundingMode.HALF_UP);
+			return value.divide(new BigDecimal("60"), PACE_SCALE, RoundingMode.HALF_UP);
 		}
-		return value.setScale(2, RoundingMode.HALF_UP);
+		return value.setScale(PACE_SCALE, RoundingMode.HALF_UP);
 	}
 
 
@@ -570,7 +572,7 @@ public class CoachingService {
 
 	private BigDecimal normalizedPace(BigDecimal value, String fieldName) {
 		requirePositive(value, fieldName);
-		return value.setScale(2, RoundingMode.HALF_UP);
+		return value.setScale(PACE_SCALE, RoundingMode.HALF_UP);
 	}
 
 	private List<String> runningDaysOrDerived(List<String> runningDays, List<PlanDayRow> planDays) {

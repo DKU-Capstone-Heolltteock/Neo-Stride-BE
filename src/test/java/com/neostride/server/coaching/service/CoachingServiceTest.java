@@ -151,6 +151,23 @@ class CoachingServiceTest {
 	}
 
 	@Test
+	void createGoal_preservesFrontendSecondBasedPaceDecimal() {
+		GoalRequest request = new GoalRequest(1L, "custom", 1, List.of("mon"), new BigDecimal("5.4"), new BigDecimal("5.733333"), "2026-05-04");
+		when(repository.insertGoal(any())).thenReturn(10L);
+		when(repository.findPlanDaysByGoalId(10L)).thenReturn(List.of());
+
+		service.createGoal(request);
+
+		verify(repository).insertGoal(argThat(command ->
+				command.targetDistance().compareTo(new BigDecimal("5.40")) == 0
+						&& command.targetPace().compareTo(new BigDecimal("5.733333")) == 0
+		));
+		verify(repository).insertPlanDays(eq(1L), eq(10L), argThat(commands ->
+				!commands.isEmpty() && commands.getFirst().targetPace().compareTo(new BigDecimal("5.733333")) == 0
+		));
+	}
+
+	@Test
 	void getActiveGoal_derivesRunningDaysFromPlanDatesWhenGoalRowHasNoDayList() {
 		GoalRow goal = new GoalRow(10L, 1L, 4, 2, new BigDecimal("5.00"), new BigDecimal("6.45"),
 				LocalDateTime.parse("2026-05-01T09:00:00"), true, false,

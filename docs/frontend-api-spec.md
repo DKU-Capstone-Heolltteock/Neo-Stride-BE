@@ -262,9 +262,10 @@ Android DTO 기준 `RunningRecordRequest`:
 
 Backend DTO 기준:
 
-- `pace`는 현재 백엔드에서 `BigDecimal` minutes/km로 저장/응답합니다. 최근 수정으로 DB `running_records.pace`는 `DECIMAL(8,2)`입니다.
-- Android `RunningRecordRequest.pace`는 현재 `int`라서 초 단위/소수 페이스 입력 계약이 아직 백엔드와 완전히 일치하지 않습니다. Android 응답 DTO `RunningRecordResponse.pace`는 `float`입니다.
-- `GpsTraceRequest`는 `heart_rate`, `cadence`를 optional로 포함합니다.
+- `duration`은 초 단위 정수입니다. DB `running_records.duration`도 `INT`입니다.
+- `pace`는 초/km 정수 계약입니다. Android `RunningRecordRequest.pace`가 보내는 `paceSeconds`를 그대로 저장/응답하며, DB `running_records.pace`는 `INT`입니다.
+- 백엔드는 호환성을 위해 구버전 `pace < 60` 분/km decimal 요청을 수신하면 `ROUND(pace * 60)`으로 초/km로 변환해 저장합니다.
+- `GpsTraceRequest.time`은 `yyyy-MM-dd HH:mm:ss` timestamp 문자열이며 DB `gps_traces.recorded_time`은 `DATETIME`입니다. `heart_rate`, `cadence`는 optional입니다.
 
 Endpoints:
 
@@ -293,6 +294,13 @@ Endpoints:
 - 서버 검증: OpenAI 응답은 저장 전 필수 필드, 양수 숫자, 날짜 파싱, 문자열 길이를 검증/정규화하며 유효 데이터가 없으면 deterministic fallback 플랜/피드백을 사용합니다.
 - 실패/미설정 시 동작: API 에러를 사용자에게 직접 노출하지 않고 deterministic fallback 플랜/피드백을 생성합니다.
 
+### Pace/Time 단위 계약
+
+- 러닝 기록 API `duration`: 초 단위 정수.
+- 러닝 기록 API `pace`: 초/km 정수. 예: `5:42/km` = `342`.
+- 코칭 목표/플랜 API `goal_pace_min_per_km`, `day_pace_min_per_km`, `actual_pace_min_per_km`: 분/km decimal. Android는 내부 초/km 값을 `seconds / 60f`로 변환해 전송합니다. 예: `5:44/km` = `344 / 60 = 5.733333`.
+- DB는 러닝 기록 페이스를 `INT seconds/km`, 코칭 목표/플랜 페이스를 `DECIMAL(8,6) minutes/km`로 저장합니다.
+
 ### GoalRequest
 
 ```json
@@ -302,7 +310,7 @@ Endpoints:
   "custom_weeks": 0,
   "running_days": ["mon", "wed", "fri"],
   "goal_distance_km": 5.0,
-  "goal_pace_min_per_km": 6.5,
+  "goal_pace_min_per_km": 5.733333,
   "start_date": "2026-04-30"
 }
 ```
@@ -320,7 +328,7 @@ Endpoints:
     "custom_weeks": 0,
     "running_days": ["mon", "wed", "fri"],
     "goal_distance_km": 5.0,
-    "goal_pace_min_per_km": 6.5,
+    "goal_pace_min_per_km": 5.733333,
     "start_date": "2026-04-30",
     "end_date": "2026-05-30",
     "created_at": "2026-04-30T10:00:00",
@@ -340,7 +348,7 @@ Endpoints:
     "plan_day_id": 10,
     "plan_date": "2026-05-05",
     "day_distance_km": 3.0,
-    "day_pace_min_per_km": 7.0,
+    "day_pace_min_per_km": 6.421333,
     "description": "가볍게 조깅하세요.",
     "is_completed": false,
     "ai_feedback_comment": null,
@@ -360,7 +368,7 @@ Request:
   "plan_day_id": 10,
   "actual_distance_km": 3.2,
   "actual_time_sec": 1240,
-  "actual_pace_min_per_km": 6.45
+  "actual_pace_min_per_km": 5.733333
 }
 ```
 

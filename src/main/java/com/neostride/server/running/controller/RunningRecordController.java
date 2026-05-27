@@ -51,7 +51,7 @@ public class RunningRecordController {
 									  "plan_id": null,
 									  "total_distance": 3.25,
 									  "duration": 1240,
-									  "pace": 6.36,
+									  "pace": 342,
 									  "calories": 235.69,
 									  "route_detail": "",
 									  "gps_traces": [

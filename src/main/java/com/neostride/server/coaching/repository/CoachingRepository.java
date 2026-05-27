@@ -216,7 +216,7 @@ public class CoachingRepository {
 		return jdbcTemplate.update("""
 				UPDATE plans
 				SET target_distance = GREATEST(0.10, ROUND(target_distance * ?, 2)),
-					target_pace = GREATEST(3.00, ROUND(target_pace * ?, 2))
+					target_pace = GREATEST(3.000000, ROUND(target_pace * ?, 6))
 				WHERE user_id = ? AND goal_id = ? AND plan_date > ? AND is_completed = FALSE
 				""", distanceFactor, paceFactor, userId, goalId, afterDate);
 	}

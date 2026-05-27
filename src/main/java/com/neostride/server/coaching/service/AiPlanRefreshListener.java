@@ -23,6 +23,8 @@ import org.springframework.transaction.event.TransactionalEventListener;
 public class AiPlanRefreshListener {
 
 	private static final Logger logger = LoggerFactory.getLogger(AiPlanRefreshListener.class);
+	private static final int DISTANCE_SCALE = 2;
+	private static final int PACE_SCALE = 6;
 
 	private final CoachingRepository coachingRepository;
 	private final AiCoachingClient aiCoachingClient;
@@ -77,8 +79,8 @@ public class AiPlanRefreshListener {
 					|| day.dayPaceMinPerKm().compareTo(BigDecimal.ZERO) <= 0) {
 				return List.of();
 			}
-			BigDecimal dayDistance = day.dayDistanceKm().setScale(2, RoundingMode.HALF_UP);
-			BigDecimal dayPace = day.dayPaceMinPerKm().setScale(2, RoundingMode.HALF_UP);
+			BigDecimal dayDistance = day.dayDistanceKm().setScale(DISTANCE_SCALE, RoundingMode.HALF_UP);
+			BigDecimal dayPace = day.dayPaceMinPerKm().setScale(PACE_SCALE, RoundingMode.HALF_UP);
 			allDaysEqualFinalGoal = allDaysEqualFinalGoal
 					&& dayDistance.compareTo(targetDistance) == 0
 					&& dayPace.compareTo(targetPace) == 0;

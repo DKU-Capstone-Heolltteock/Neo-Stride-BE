@@ -64,7 +64,7 @@ class OpenAiCoachingClientTest {
 		assertThat(plan.summary()).isEqualTo("AI 플랜");
 		assertThat(plan.planDays()).hasSize(1);
 		assertThat(plan.planDays().getFirst().dayDistanceKm()).isEqualByComparingTo(new BigDecimal("2.56"));
-		assertThat(plan.planDays().getFirst().dayPaceMinPerKm()).isEqualByComparingTo(new BigDecimal("7.24"));
+		assertThat(plan.planDays().getFirst().dayPaceMinPerKm()).isEqualByComparingTo(new BigDecimal("7.244000"));
 	}
 
 	@Test
@@ -122,7 +122,8 @@ class OpenAiCoachingClientTest {
 		assertThat(planPrompt)
 				.contains("DB 저장 제약")
 				.contains("점진적으로 산출")
-				.contains("소수점 2자리 이하")
+				.contains("day_distance_km는 0보다 큰 숫자이며 소수점 2자리 이하")
+				.contains("day_pace_min_per_km는 0보다 큰 숫자이며 소수점 6자리 이하")
 				.contains("null을 출력하지 않는다");
 	}
 
