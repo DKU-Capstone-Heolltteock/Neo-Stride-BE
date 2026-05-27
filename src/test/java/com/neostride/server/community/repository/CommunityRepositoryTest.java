@@ -426,8 +426,21 @@ class CommunityRepositoryTest {
 		repository.getUserProfile(1L, 2L);
 
 		ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
-		verify(jdbcTemplate).query(sql.capture(), any(RowMapper.class), eq(1L), eq(1L), eq(1L), eq(2L));
-		assertThat(sql.getValue()).contains("AS is_friend", "AS is_blocked", "r.status = 'BLOCKED' AND r.user1_id = ?");
+		verify(jdbcTemplate).query(sql.capture(), any(RowMapper.class), eq(1L), eq(1L), eq(1L), eq(1L), eq(2L));
+		assertThat(sql.getValue()).contains("AS is_friend", "AS is_blocked", "AS is_sent", "r.status = 'BLOCKED' AND r.user1_id = ?", "r.status = 'REQUESTED' AND r.user1_id = ?");
+	}
+
+	@Test
+	void searchProfilesWithViewerProjectsRelationshipStatus() {
+		when(jdbcTemplate.query(anyString(), any(RowMapper.class), any(Object[].class))).thenReturn(List.of());
+
+		repository.searchProfiles(1L, "neo", 0, 10);
+
+		ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
+		ArgumentCaptor<Object[]> args = ArgumentCaptor.forClass(Object[].class);
+		verify(jdbcTemplate).query(sql.capture(), any(RowMapper.class), args.capture());
+		assertThat(sql.getValue()).contains("AS relationship_status", "THEN 'sent'", "THEN 'received'", "r.status='REQUESTED' AND r.user1_id=?");
+		assertThat(args.getValue()).containsExactly(1L, 1L, 1L, 1L, 1L, "%neo%", 1L, 1L, 10, 0);
 	}
 
 	@Test

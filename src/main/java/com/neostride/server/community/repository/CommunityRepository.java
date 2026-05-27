@@ -40,6 +40,7 @@ public class CommunityRepository {
 			       EXISTS (SELECT 1 FROM relationships r WHERE r.status = 'ACCEPTED'
 			           AND ((r.user1_id = ? AND r.user2_id = u.user_id) OR (r.user2_id = ? AND r.user1_id = u.user_id))) AS is_friend,
 			       EXISTS (SELECT 1 FROM relationships r WHERE r.status = 'BLOCKED' AND r.user1_id = ? AND r.user2_id = u.user_id) AS is_blocked,
+			       EXISTS (SELECT 1 FROM relationships r WHERE r.status = 'REQUESTED' AND r.user1_id = ? AND r.user2_id = u.user_id) AS is_sent,
 			       (SELECT COUNT(*) FROM relationships r WHERE (r.user1_id = u.user_id OR r.user2_id = u.user_id) AND r.status = 'ACCEPTED') AS friend_count,
 			       (SELECT COUNT(*) FROM community_contents cc WHERE cc.author_user_id = u.user_id AND cc.content_type = 'POST') AS post_count,
 			       (SELECT COUNT(*) FROM community_interactions ci WHERE ci.tagged_user_id = u.user_id AND ci.interaction_type = 'TAG') AS tagged_count,
@@ -47,8 +48,8 @@ public class CommunityRepository {
 			       (SELECT COUNT(*) FROM community_interactions ci WHERE ci.user_id = u.user_id AND ci.interaction_type = 'LIKE') AS liked_feed_count,
 			       (SELECT COUNT(*) FROM community_interactions ci WHERE ci.user_id = u.user_id AND ci.interaction_type = 'BOOKMARK') AS bookmarked_feed_count
 			FROM users u LEFT JOIN community_users cu ON cu.user_id = u.user_id WHERE u.user_id = ?
-			""", (rs, n) -> new UserProfileResponse(rs.getString("nickname"), rs.getString("profile_photo"), rs.getString("status_message"), rs.getBoolean("is_friend"), rs.getBoolean("is_blocked"), rs.getInt("friend_count"), rs.getInt("post_count"), rs.getInt("tagged_count"), rs.getInt("commented_feed_count"), rs.getInt("liked_feed_count"), rs.getInt("bookmarked_feed_count")), viewerUserId, viewerUserId, viewerUserId, userId);
-		return rows.isEmpty() ? new UserProfileResponse(null, null, null, false, false, 0, 0, 0, 0, 0, 0) : rows.getFirst();
+			""", (rs, n) -> new UserProfileResponse(rs.getString("nickname"), rs.getString("profile_photo"), rs.getString("status_message"), rs.getBoolean("is_friend"), rs.getBoolean("is_blocked"), rs.getBoolean("is_sent"), rs.getInt("friend_count"), rs.getInt("post_count"), rs.getInt("tagged_count"), rs.getInt("commented_feed_count"), rs.getInt("liked_feed_count"), rs.getInt("bookmarked_feed_count")), viewerUserId, viewerUserId, viewerUserId, viewerUserId, userId);
+		return rows.isEmpty() ? new UserProfileResponse(null, null, null, false, false, false, 0, 0, 0, 0, 0, 0) : rows.getFirst();
 	}
 
 	public AccountInfoResponse getAccountInfo(long userId) {
@@ -517,7 +518,7 @@ public class CommunityRepository {
 		}
 		args.add(size);
 		args.add(offset(page, size));
-		return userSearchQuery(filteredPredicate, "badge_rank DESC, friend_count DESC, u.user_id ASC", args.toArray());
+		return viewerUserId == null ? userSearchQuery(filteredPredicate, "badge_rank DESC, friend_count DESC, u.user_id ASC", args.toArray()) : userSearchQueryForViewer(filteredPredicate, "badge_rank DESC, friend_count DESC, u.user_id ASC", args.toArray(), viewerUserId);
 	}
 
 	public List<SearchUserResponse> searchFriends(long userId, String keyword) {
@@ -537,7 +538,7 @@ public class CommunityRepository {
 		if (viewerUserId == null) {
 			return userSearchQuery("1=1", "badge_rank DESC, friend_count DESC, u.user_id ASC", pageArgs(page, size));
 		}
-		return userSearchQuery("1=1 AND " + blockedUserPredicate(), "badge_rank DESC, friend_count DESC, u.user_id ASC", new Object[]{viewerUserId, viewerUserId, size, offset(page, size)});
+		return userSearchQueryForViewer("1=1 AND " + blockedUserPredicate(), "badge_rank DESC, friend_count DESC, u.user_id ASC", new Object[]{viewerUserId, viewerUserId, size, offset(page, size)}, viewerUserId);
 	}
 
 	public List<SearchUserResponse> getMyFriends(long userId) {
@@ -764,6 +765,29 @@ public class CommunityRepository {
 		return userSearchQuery(predicate, orderBy, args, "none");
 	}
 
+	private List<SearchUserResponse> userSearchQueryForViewer(String predicate, String orderBy, Object[] args, long viewerUserId) {
+		Object[] queryArgs = prependArgs(args, viewerUserId, viewerUserId, viewerUserId, viewerUserId, viewerUserId);
+		return jdbcTemplate.query("""
+			SELECT u.user_id, COALESCE(cu.community_profile_name, u.community_profile_name, u.name) AS nickname,
+			       COALESCE(cu.profile_photo, u.profile_photo) AS profile_image_url,
+			       cu.status_message,
+			       COALESCE(cu.badge, 'NONE') AS badge_tier,
+			       CASE UPPER(COALESCE(cu.badge, 'NONE'))
+			           WHEN 'CHALLENGER' THEN 7 WHEN 'MASTER' THEN 6 WHEN 'DIAMOND' THEN 5
+			           WHEN 'PLATINUM' THEN 4 WHEN 'GOLD' THEN 3 WHEN 'SILVER' THEN 2 WHEN 'BRONZE' THEN 1 ELSE 0 END AS badge_rank,
+			       (SELECT COUNT(*) FROM relationships rf WHERE (rf.user1_id = u.user_id OR rf.user2_id = u.user_id) AND rf.status='ACCEPTED') AS friend_count,
+			       CASE
+			           WHEN EXISTS (SELECT 1 FROM relationships r WHERE r.status='BLOCKED' AND r.user1_id=? AND r.user2_id=u.user_id) THEN 'blocked'
+			           WHEN EXISTS (SELECT 1 FROM relationships r WHERE r.status='ACCEPTED' AND ((r.user1_id=? AND r.user2_id=u.user_id) OR (r.user2_id=? AND r.user1_id=u.user_id))) THEN 'friends'
+			           WHEN EXISTS (SELECT 1 FROM relationships r WHERE r.status='REQUESTED' AND r.user1_id=? AND r.user2_id=u.user_id) THEN 'sent'
+			           WHEN EXISTS (SELECT 1 FROM relationships r WHERE r.status='REQUESTED' AND r.user2_id=? AND r.user1_id=u.user_id) THEN 'received'
+			           ELSE 'none'
+			       END AS relationship_status
+			FROM users u LEFT JOIN community_users cu ON cu.user_id = u.user_id
+			WHERE
+			""" + predicate + " ORDER BY " + orderBy + " LIMIT ? OFFSET ?", (rs, n) -> new SearchUserResponse(rs.getLong("user_id"), rs.getString("nickname"), rs.getString("profile_image_url"), rs.getString("status_message"), rs.getInt("friend_count"), rs.getString("badge_tier"), rs.getString("relationship_status")), queryArgs);
+	}
+
 	private List<SearchUserResponse> userSearchQuery(String predicate, String orderBy, Object[] args, String status) {
 		return jdbcTemplate.query("""
 			SELECT u.user_id, COALESCE(cu.community_profile_name, u.community_profile_name, u.name) AS nickname,
@@ -777,6 +801,13 @@ public class CommunityRepository {
 			FROM users u LEFT JOIN community_users cu ON cu.user_id = u.user_id
 			WHERE
 			""" + predicate + " ORDER BY " + orderBy + " LIMIT ? OFFSET ?", (rs, n) -> new SearchUserResponse(rs.getLong("user_id"), rs.getString("nickname"), rs.getString("profile_image_url"), rs.getString("status_message"), rs.getInt("friend_count"), rs.getString("badge_tier"), status), args);
+	}
+
+	private static Object[] prependArgs(Object[] args, Object... prefix) {
+		Object[] merged = new Object[prefix.length + args.length];
+		System.arraycopy(prefix, 0, merged, 0, prefix.length);
+		System.arraycopy(args, 0, merged, prefix.length, args.length);
+		return merged;
 	}
 
 	private CommentResponse findComment(long viewerUserId, long commentId) {
