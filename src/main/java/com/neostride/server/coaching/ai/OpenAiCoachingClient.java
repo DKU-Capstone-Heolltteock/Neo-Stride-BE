@@ -6,32 +6,49 @@ import com.neostride.server.coaching.dto.FeedbackRequest;
 import com.neostride.server.coaching.dto.GoalRequest;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.net.http.HttpClient;
+import java.time.Duration;
 import java.time.LocalDate;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
+import org.springframework.http.client.JdkClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 
 @Component
 public class OpenAiCoachingClient implements AiCoachingClient {
 
+	private static final int DEFAULT_TIMEOUT_MS = 8_000;
+
 	private final RestClient restClient;
 	private final ObjectMapper objectMapper = new ObjectMapper();
 	private final String apiKey;
 	private final String model;
 
+	@Autowired
 	public OpenAiCoachingClient(
 			@Value("${neostride.ai.openai.api-key:${OPENAI_API_KEY:}}") String apiKey,
 			@Value("${neostride.ai.openai.base-url:https://api.openai.com/v1}") String baseUrl,
-			@Value("${neostride.ai.openai.model:gpt-4o-mini}") String model
+			@Value("${neostride.ai.openai.model:gpt-4o-mini}") String model,
+			@Value("${neostride.ai.openai.timeout-ms:${OPENAI_TIMEOUT_MS:8000}}") int timeoutMs
 	) {
 		this.apiKey = apiKey == null ? "" : apiKey.trim();
 		this.model = model;
-		this.restClient = RestClient.builder().baseUrl(baseUrl).build();
+		Duration timeout = Duration.ofMillis(Math.max(1, timeoutMs));
+		JdkClientHttpRequestFactory requestFactory = new JdkClientHttpRequestFactory(
+				HttpClient.newBuilder().connectTimeout(timeout).build()
+		);
+		requestFactory.setReadTimeout(timeout);
+		this.restClient = RestClient.builder().baseUrl(baseUrl).requestFactory(requestFactory).build();
+	}
+
+	OpenAiCoachingClient(String apiKey, String baseUrl, String model) {
+		this(apiKey, baseUrl, model, DEFAULT_TIMEOUT_MS);
 	}
 
 	@Override

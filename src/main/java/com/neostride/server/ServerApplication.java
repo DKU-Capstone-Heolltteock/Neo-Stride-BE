@@ -3,8 +3,10 @@ package com.neostride.server;
 import java.util.TimeZone;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.scheduling.annotation.EnableAsync;
 
 @SpringBootApplication
+@EnableAsync
 public class ServerApplication {
 
 	public static final String DEFAULT_TIME_ZONE = "Asia/Seoul";

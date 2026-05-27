@@ -2,8 +2,6 @@ package com.neostride.server.coaching.service;
 
 import com.neostride.server.coaching.ai.AiCoachingClient;
 import com.neostride.server.coaching.ai.AiCoachingFeedbackRequest;
-import com.neostride.server.coaching.ai.AiCoachingPlan;
-import com.neostride.server.coaching.ai.AiCoachingPlanDay;
 import com.neostride.server.coaching.dto.FeedbackRequest;
 import com.neostride.server.coaching.dto.FeedbackResponse;
 import com.neostride.server.coaching.dto.GoalRequest;
@@ -29,6 +27,8 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -40,10 +40,18 @@ public class CoachingService {
 
 	private final CoachingRepository coachingRepository;
 	private final AiCoachingClient aiCoachingClient;
+	private final ApplicationEventPublisher eventPublisher;
 
-	public CoachingService(CoachingRepository coachingRepository, AiCoachingClient aiCoachingClient) {
+	@Autowired
+	public CoachingService(CoachingRepository coachingRepository, AiCoachingClient aiCoachingClient,
+			ApplicationEventPublisher eventPublisher) {
 		this.coachingRepository = coachingRepository;
 		this.aiCoachingClient = aiCoachingClient;
+		this.eventPublisher = eventPublisher;
+	}
+
+	CoachingService(CoachingRepository coachingRepository, AiCoachingClient aiCoachingClient) {
+		this(coachingRepository, aiCoachingClient, event -> { });
 	}
 
 	@Transactional
@@ -54,6 +62,8 @@ public class CoachingService {
 		Set<DayOfWeek> runningDays = parseRunningDays(request.runningDays());
 		BigDecimal targetDistance = request.goalDistanceKm().setScale(2, RoundingMode.HALF_UP);
 		BigDecimal targetPace = normalizedPace(request.goalPaceMinPerKm(), "goal_pace_min_per_km");
+		List<LocalDate> planDates = scheduledPlanDates(startDate, durationWeeks, runningDays);
+		List<PlanDayInsertCommand> planDays = generatePlanDays(planDates, targetDistance, targetPace);
 
 		coachingRepository.deactivateActiveGoals(request.userId());
 		long goalId = coachingRepository.insertGoal(new GoalInsertCommand(
@@ -63,11 +73,8 @@ public class CoachingService {
 				targetDistance,
 				targetPace
 		));
-		coachingRepository.insertPlanDays(
-				request.userId(),
-				goalId,
-				generatePlanDaysWithAiFallback(request, startDate, durationWeeks, runningDays, targetDistance, targetPace)
-		);
+		coachingRepository.insertPlanDays(request.userId(), goalId, planDays);
+		publishAiPlanRefresh(request, goalId, durationWeeks, startDate, planDates, targetDistance, targetPace);
 
 		GoalRow persisted = coachingRepository.findGoalById(goalId);
 		if (persisted == null) {
@@ -207,47 +214,29 @@ public class CoachingService {
 		}
 	}
 
-	private List<PlanDayInsertCommand> generatePlanDaysWithAiFallback(GoalRequest request, LocalDate startDate, int durationWeeks,
-			Set<DayOfWeek> runningDays, BigDecimal targetDistance, BigDecimal targetPace) {
-		List<LocalDate> planDates = scheduledPlanDates(startDate, durationWeeks, runningDays);
-		AiCoachingPlan aiPlan = aiCoachingClient.generatePlan(request, durationWeeks, startDate);
-		List<PlanDayInsertCommand> aiPlanDays = toSafePlanDayCommands(aiPlan, planDates, targetDistance, targetPace);
-		if (!aiPlanDays.isEmpty()) {
-			return aiPlanDays;
+	private void publishAiPlanRefresh(GoalRequest request, long goalId, int durationWeeks, LocalDate startDate,
+			List<LocalDate> planDates, BigDecimal targetDistance, BigDecimal targetPace) {
+		if (planDates.isEmpty()) {
+			return;
 		}
-		return generatePlanDays(planDates, targetDistance, targetPace);
-	}
-
-	private List<PlanDayInsertCommand> toSafePlanDayCommands(AiCoachingPlan aiPlan, List<LocalDate> expectedDates, BigDecimal targetDistance, BigDecimal targetPace) {
-		if (expectedDates == null || expectedDates.isEmpty() || aiPlan == null
-				|| aiPlan.planDays() == null || aiPlan.planDays().size() != expectedDates.size()) {
-			return List.of();
-		}
-		List<PlanDayInsertCommand> commands = new ArrayList<>();
-		Set<LocalDate> seenDates = new HashSet<>();
-		boolean allDaysEqualFinalGoal = expectedDates.size() > 1;
-		for (LocalDate expectedDate : expectedDates) {
-			AiCoachingPlanDay day = null;
-			for (AiCoachingPlanDay candidate : aiPlan.planDays()) {
-				if (candidate != null && expectedDate.equals(candidate.planDate())) {
-					day = candidate;
-					break;
-				}
-			}
-			if (day == null || !seenDates.add(expectedDate)
-					|| day.dayDistanceKm() == null || day.dayPaceMinPerKm() == null
-					|| day.dayDistanceKm().compareTo(BigDecimal.ZERO) <= 0
-					|| day.dayPaceMinPerKm().compareTo(BigDecimal.ZERO) <= 0) {
-				return List.of();
-			}
-			BigDecimal dayDistance = day.dayDistanceKm().setScale(2, RoundingMode.HALF_UP);
-			BigDecimal dayPace = day.dayPaceMinPerKm().setScale(2, RoundingMode.HALF_UP);
-			allDaysEqualFinalGoal = allDaysEqualFinalGoal
-					&& dayDistance.compareTo(targetDistance) == 0
-					&& dayPace.compareTo(targetPace) == 0;
-			commands.add(new PlanDayInsertCommand(expectedDate, dayDistance, dayPace));
-		}
-		return allDaysEqualFinalGoal ? List.of() : commands;
+		eventPublisher.publishEvent(new AiPlanRefreshRequest(
+				request.userId(),
+				goalId,
+				new GoalRequest(
+						request.userId(),
+						request.periodType(),
+						request.customWeeks(),
+						List.copyOf(request.runningDays()),
+						request.goalDistanceKm(),
+						request.goalPaceMinPerKm(),
+						request.startDate()
+				),
+				durationWeeks,
+				startDate,
+				planDates,
+				targetDistance,
+				targetPace
+		));
 	}
 
 	private List<PlanDayInsertCommand> generatePlanDays(List<LocalDate> planDates, BigDecimal targetDistance, BigDecimal targetPace) {

@@ -16,10 +16,13 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
+import org.springframework.context.ApplicationEventPublisher;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
@@ -31,7 +34,8 @@ class CoachingServiceTest {
 
 	private final CoachingRepository repository = mock(CoachingRepository.class);
 	private final AiCoachingClient aiCoachingClient = mock(AiCoachingClient.class);
-	private final CoachingService service = new CoachingService(repository, aiCoachingClient);
+	private final ApplicationEventPublisher eventPublisher = mock(ApplicationEventPublisher.class);
+	private final CoachingService service = new CoachingService(repository, aiCoachingClient, eventPublisher);
 
 	@Test
 	void createGoal_insertsGoalAndGeneratedPlanDays() {
@@ -50,18 +54,14 @@ class CoachingServiceTest {
 	}
 
 	@Test
-	void createGoal_storesAiGeneratedDailyTargetsButPreservesGoalValues() {
+	void createGoal_persistsProgressivePlanAndPublishesAiRefreshWithoutWaitingForAi() {
 		GoalRequest request = new GoalRequest(1L, "custom", 1, List.of("mon", "wed"), new BigDecimal("5.0"), new BigDecimal("6.5"), "2026-05-04");
-		when(aiCoachingClient.generatePlan(request, 1, LocalDate.parse("2026-05-04")))
-				.thenReturn(new AiCoachingPlan("AI 맞춤 1주 플랜", List.of(
-						new AiCoachingPlanDay(LocalDate.parse("2026-05-04"), new BigDecimal("2.50"), new BigDecimal("7.25"), "회복 조깅"),
-						new AiCoachingPlanDay(LocalDate.parse("2026-05-06"), new BigDecimal("3.00"), new BigDecimal("6.50"), "가벼운 지속주")
-				)));
 		when(repository.insertGoal(any())).thenReturn(10L);
 		when(repository.findPlanDaysByGoalId(10L)).thenReturn(List.of());
 
 		service.createGoal(request);
 
+		verify(aiCoachingClient, never()).generatePlan(any(), anyInt(), any());
 		verify(repository).insertGoal(argThat(command ->
 				command.targetDistance().compareTo(new BigDecimal("5.00")) == 0
 						&& command.targetPace().compareTo(new BigDecimal("6.50")) == 0
@@ -69,9 +69,49 @@ class CoachingServiceTest {
 		verify(repository).insertPlanDays(eq(1L), eq(10L), argThat(commands ->
 				commands.size() == 2
 						&& commands.get(0).planDate().equals(LocalDate.parse("2026-05-04"))
+						&& commands.get(0).targetDistance().compareTo(new BigDecimal("3.00")) == 0
+						&& commands.get(0).targetPace().compareTo(new BigDecimal("7.28")) == 0
+						&& commands.get(1).planDate().equals(LocalDate.parse("2026-05-06"))
+						&& commands.get(1).targetDistance().compareTo(new BigDecimal("5.00")) == 0
+						&& commands.get(1).targetPace().compareTo(new BigDecimal("6.50")) == 0
+		));
+
+		ArgumentCaptor<Object> eventCaptor = ArgumentCaptor.forClass(Object.class);
+		verify(eventPublisher).publishEvent(eventCaptor.capture());
+		assertThat(eventCaptor.getValue()).isInstanceOf(AiPlanRefreshRequest.class);
+		AiPlanRefreshRequest refreshRequest = (AiPlanRefreshRequest) eventCaptor.getValue();
+		assertThat(refreshRequest.userId()).isEqualTo(1L);
+		assertThat(refreshRequest.goalId()).isEqualTo(10L);
+		assertThat(refreshRequest.durationWeeks()).isEqualTo(1);
+		assertThat(refreshRequest.planDates()).containsExactly(LocalDate.parse("2026-05-04"), LocalDate.parse("2026-05-06"));
+	}
+
+	@Test
+	void aiPlanRefreshUpdatesUncompletedPlanTargetsWhenAiPlanIsValid() {
+		AiPlanRefreshListener listener = new AiPlanRefreshListener(repository, aiCoachingClient);
+		GoalRequest goalRequest = new GoalRequest(1L, "custom", 1, List.of("mon", "wed"), new BigDecimal("5.0"), new BigDecimal("6.5"), "2026-05-04");
+		AiPlanRefreshRequest refreshRequest = new AiPlanRefreshRequest(
+				1L,
+				10L,
+				goalRequest,
+				1,
+				LocalDate.parse("2026-05-04"),
+				List.of(LocalDate.parse("2026-05-04"), LocalDate.parse("2026-05-06")),
+				new BigDecimal("5.00"),
+				new BigDecimal("6.50")
+		);
+		when(aiCoachingClient.generatePlan(goalRequest, 1, LocalDate.parse("2026-05-04")))
+				.thenReturn(new AiCoachingPlan("AI 맞춤 1주 플랜", List.of(
+						new AiCoachingPlanDay(LocalDate.parse("2026-05-04"), new BigDecimal("2.50"), new BigDecimal("7.25"), "회복 조깅"),
+						new AiCoachingPlanDay(LocalDate.parse("2026-05-06"), new BigDecimal("3.00"), new BigDecimal("6.50"), "가벼운 지속주")
+				)));
+
+		listener.refreshPlan(refreshRequest);
+
+		verify(repository).updatePlanDayTargets(eq(1L), eq(10L), argThat(commands ->
+				commands.size() == 2
 						&& commands.get(0).targetDistance().compareTo(new BigDecimal("2.50")) == 0
 						&& commands.get(0).targetPace().compareTo(new BigDecimal("7.25")) == 0
-						&& commands.get(1).planDate().equals(LocalDate.parse("2026-05-06"))
 						&& commands.get(1).targetDistance().compareTo(new BigDecimal("3.00")) == 0
 						&& commands.get(1).targetPace().compareTo(new BigDecimal("6.50")) == 0
 		));
