@@ -10,7 +10,7 @@ MODE=apply
 
 usage() {
 	cat <<USAGE
-Usage: $0 [--dry-run|--status|--baseline]
+Usage: $0 [--dry-run|--status|--baseline|--verify]
 
 Environment:
   DB_HOST                         MySQL host, default 127.0.0.1
@@ -26,10 +26,12 @@ Modes:
   --dry-run    Show unapplied migrations without executing SQL.
   --status     Show all up migrations with applied/pending status.
   --baseline   Mark current up migrations as applied without executing them.
+  --verify     Run matching *.verify.sql checks for applied migrations.
 
 Examples:
   DB_USERNAME=neostride_app DB_PASSWORD=... deploy/mysql/apply-migrations.sh
   MYSQL_CONTAINER=neostride-mysql USE_CONTAINER_MYSQL_ENV=true deploy/mysql/apply-migrations.sh --status
+  MYSQL_CONTAINER=neostride-mysql USE_CONTAINER_MYSQL_ENV=true deploy/mysql/apply-migrations.sh --verify
 USAGE
 }
 
@@ -38,6 +40,7 @@ case "${1:-}" in
 	--dry-run) MODE=dry-run ;;
 	--status) MODE=status ;;
 	--baseline) MODE=baseline ;;
+	--verify) MODE=verify ;;
 	-h|--help) usage; exit 0 ;;
 	*) usage >&2; exit 2 ;;
 esac
@@ -125,6 +128,8 @@ ensure_migrations_table
 
 found=0
 pending=0
+verify_found=0
+verify_failed=0
 print_status_row "version" "status" "file"
 for file in "$MIGRATIONS_DIR"/*.up.sql; do
 	[ -e "$file" ] || continue
@@ -142,7 +147,24 @@ for file in "$MIGRATIONS_DIR"/*.up.sql; do
 			echo "  file:     $checksum" >&2
 			exit 1
 		fi
-		print_status_row "$version" "applied" "$filename"
+		if [ "$MODE" = "verify" ]; then
+			verify_file=${file%.up.sql}.verify.sql
+			if [ -f "$verify_file" ]; then
+				verify_found=$((verify_found + 1))
+				verify_output=$(run_mysql < "$verify_file")
+				if [ -n "$verify_output" ]; then
+					print_status_row "$version" "verify-failed" "$(basename "$verify_file")"
+					printf "%s\n" "$verify_output" >&2
+					verify_failed=1
+				else
+					print_status_row "$version" "verified" "$(basename "$verify_file")"
+				fi
+			else
+				print_status_row "$version" "no-verify" "$filename"
+			fi
+		else
+			print_status_row "$version" "applied" "$filename"
+		fi
 		continue
 	fi
 
@@ -157,6 +179,10 @@ for file in "$MIGRATIONS_DIR"/*.up.sql; do
 		baseline)
 			insert_migration_row "$version" "$description" "$filename" "$checksum"
 			print_status_row "$version" "baselined" "$filename"
+			;;
+		verify)
+			print_status_row "$version" "pending" "$filename"
+			verify_failed=1
 			;;
 		apply)
 			print_status_row "$version" "applying" "$filename"
@@ -174,4 +200,14 @@ fi
 
 if [ "$MODE" = "apply" ] && [ "$pending" -eq 0 ]; then
 	echo "No pending migrations."
+fi
+
+if [ "$MODE" = "verify" ]; then
+	if [ "$verify_found" -eq 0 ]; then
+		echo "No .verify.sql files found for applied migrations in $MIGRATIONS_DIR" >&2
+		exit 1
+	fi
+	if [ "$verify_failed" -ne 0 ]; then
+		exit 1
+	fi
 fi

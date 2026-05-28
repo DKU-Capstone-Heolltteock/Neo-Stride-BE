@@ -73,6 +73,7 @@ Use the migration runner to track and apply new `*.up.sql` files:
 ```bash
 DB_USERNAME=neostride_app DB_PASSWORD=change-me deploy/mysql/apply-migrations.sh --status
 DB_USERNAME=neostride_app DB_PASSWORD=change-me deploy/mysql/apply-migrations.sh
+DB_USERNAME=neostride_app DB_PASSWORD=change-me deploy/mysql/apply-migrations.sh --verify
 ```
 
 For an existing database where the migration files were already applied manually, initialize only the tracking table once:
@@ -81,7 +82,7 @@ For an existing database where the migration files were already applied manually
 MYSQL_CONTAINER=neostride-mysql USE_CONTAINER_MYSQL_ENV=true deploy/mysql/apply-migrations.sh --baseline
 ```
 
-The runner stores applied versions and SHA-256 checksums in `schema_migrations` and refuses to continue if an applied migration file changes.
+The runner stores applied versions and SHA-256 checksums in `schema_migrations` and refuses to continue if an applied migration file changes. Use `--verify` after applying migrations to run matching `*.verify.sql` consistency checks. Verification SQL must return no rows; any returned row is treated as a failed check.
 
 ## Run
 

@@ -20,7 +20,7 @@ Target: Neo-Stride Spring Boot backend, Docker MySQL, self-hosted single-server 
 
 - 운영 backend가 DB root 계정을 사용하고, Docker inspect로 DB/OpenAI/JWT secret이 노출된다. 이미 노출된 secret은 회전해야 한다.
 - 기존 상세 API는 API contract 유지를 위해 댓글 전체를 계속 포함하므로, 인기 게시물에서 payload가 커질 수 있다. 신규 comments cursor endpoint로 client 전환이 필요하다.
-- `schema_migrations` 기반 apply script를 추가했고 운영 DB baseline 기록도 완료했다. 남은 리스크는 최신 schema snapshot 주기 갱신과 migration별 검증 SQL 보강이다.
+- `schema_migrations` 기반 apply script를 추가했고 운영 DB baseline 기록도 완료했다. `--verify`와 핵심 migration 검증 SQL을 추가했다. 남은 리스크는 최신 schema snapshot 주기 갱신과 검증 범위 확대다.
 - thumbnail 생성은 `imageThumbnailExecutor`로 request thread에서 분리됐다. 남은 이미지 리스크는 기존 파일 backfill/metadata 운영과 실패 모니터링이다.
 - search API는 `%LIKE%`와 offset pagination 중심이라 데이터 증가 시 별도 index/fulltext 전략이 필요하다.
 
@@ -209,7 +209,8 @@ Community API/성능:
 - 원인: 기존에는 migration runner나 `schema_migrations` table이 없었다.
 - 영향도: 재설치/복구/테스트 DB에서 운영과 다른 schema가 만들어진다.
 - 적용: `schema_migrations` table을 생성하고, `*.up.sql` 파일을 version/checksum 기반으로 적용하는 runner를 추가했다. 운영 DB는 002-015 migration을 baseline으로 기록했고, 이후 신규 migration은 runner로 적용 가능하다.
-- 남은 작업: 각 migration 검증 SQL 보강, baseline schema 최신 snapshot 주기 갱신.
+- 적용: `--verify` 모드와 007/008/013/014/015/016 검증 SQL을 추가했다. 016은 신규 content 생성 시 stats 0-row를 보장하는 trigger와 누락 row backfill을 포함한다.
+- 남은 작업: baseline schema 최신 snapshot 주기 갱신, 오래된 migration 검증 SQL 추가 확대.
 - API 호환성 영향: 없음.
 
 ### Medium
@@ -443,8 +444,8 @@ Downtime 최소화:
 1. secret rotation + DB app user 전환.
 2. Android/iOS/Web에서 feed cursor query 또는 `/api/community/feeds/page` 사용 시작.
 3. Android/iOS/Web에서 comments cursor endpoint 사용 시작.
-4. 각 migration 검증 SQL/rollback rehearsal 보강.
-5. baseline schema 최신 snapshot 주기 갱신.
+4. baseline schema 최신 snapshot 주기 갱신.
+5. 남은 오래된 migration 검증 SQL/rollback rehearsal 확대.
 
 다음 스프린트:
 
@@ -498,7 +499,7 @@ API 호환성 영향:
 
 - feed privacy repository/controller regression.
 - interaction duplicate/race test.
-- migration row count/stats consistency test.
+- `deploy/mysql/apply-migrations.sh --verify`로 migration row count/stats consistency test.
 - upload validation/path traversal tests 유지.
 - running monthly range and GPS batch tests 유지.
 - production slow log weekly review.
