@@ -34,6 +34,20 @@ class StorageServiceTest {
 	}
 
 	@Test
+	void storeImage_appliesJpegExifOrientationBeforeSaving() throws Exception {
+		StorageService storageService = new StorageService(tempDir, "/uploads");
+		byte[] imageBytes = jpegWithExifOrientation(imageBytes("jpg", 2, 3), 6);
+		MockMultipartFile file = new MockMultipartFile("image", "portrait.jpg", "image/jpeg", imageBytes);
+
+		String url = storageService.storeImage(file, "profile");
+
+		Path storedPath = tempDir.resolve(url.replaceFirst("^/uploads/", ""));
+		BufferedImage storedImage = ImageIO.read(storedPath.toFile());
+		assertThat(storedImage.getWidth()).isEqualTo(3);
+		assertThat(storedImage.getHeight()).isEqualTo(2);
+	}
+
+	@Test
 	void storeImage_createsThumbnailForJpegUpload() throws Exception {
 		StorageService storageService = new StorageService(tempDir, "/uploads");
 		byte[] imageBytes = imageBytes("jpg", 1600, 900);
@@ -153,6 +167,39 @@ class StorageServiceTest {
 		} catch (IOException exception) {
 			throw new IllegalStateException(exception);
 		}
+	}
+
+	private static byte[] jpegWithExifOrientation(byte[] jpeg, int orientation) {
+		ByteArrayOutputStream output = new ByteArrayOutputStream();
+		output.write(jpeg, 0, 2);
+		byte[] segment = exifOrientationSegment(orientation);
+		output.write(segment, 0, segment.length);
+		output.write(jpeg, 2, jpeg.length - 2);
+		return output.toByteArray();
+	}
+
+	private static byte[] exifOrientationSegment(int orientation) {
+		byte[] tiff = new byte[] {
+				'M', 'M', 0, 42, 0, 0, 0, 8,
+				0, 1,
+				1, 18, 0, 3, 0, 0, 0, 1, 0, (byte) orientation, 0, 0,
+				0, 0, 0, 0
+		};
+		int payloadLength = 6 + tiff.length;
+		int app1Length = payloadLength + 2;
+		ByteArrayOutputStream output = new ByteArrayOutputStream();
+		output.write(0xff);
+		output.write(0xe1);
+		output.write((app1Length >>> 8) & 0xff);
+		output.write(app1Length & 0xff);
+		output.write('E');
+		output.write('x');
+		output.write('i');
+		output.write('f');
+		output.write(0);
+		output.write(0);
+		output.write(tiff, 0, tiff.length);
+		return output.toByteArray();
 	}
 
 	private static byte[] isoBaseMediaFile(String majorBrand) {

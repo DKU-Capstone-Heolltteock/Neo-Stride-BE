@@ -43,6 +43,12 @@ Coaching/running feedback:
 - [src/main/java/com/neostride/server/coaching/ai/OpenAiCoachingClient.java](../src/main/java/com/neostride/server/coaching/ai/OpenAiCoachingClient.java)
   - OpenAI feedback 호출 실패를 plan_day_id와 함께 warn log로 남긴다.
 
+File/Image:
+
+- [src/main/java/com/neostride/server/storage/StorageService.java](../src/main/java/com/neostride/server/storage/StorageService.java)
+  - JPEG 업로드 시 EXIF orientation을 읽고, 필요한 경우 픽셀을 실제로 회전/반전한 JPEG로 저장한다.
+  - 프로필 이미지와 썸네일이 원격 URL에서도 같은 방향으로 보이도록 저장 단계에서 normalize한다.
+
 Community API/성능:
 
 - [src/main/java/com/neostride/server/community/controller/CommunityController.java](../src/main/java/com/neostride/server/community/controller/CommunityController.java)
@@ -510,4 +516,5 @@ API 호환성 영향:
 - Adjusted today-plan lookup so a just-completed plan remains readable after the client marks the goal inactive/achieved.
 - Added feed/comment cursor compatibility and removed the feed/tip image derived-table aggregation.
 - Added `GET /api/friends/{userId}` with viewer-based relationship status so another user's friend list does not render every row as `friends` for the requester.
+- Normalized JPEG EXIF orientation during image upload so portrait profile photos are stored with corrected pixels before serving over HTTP.
 - Cleaned obvious test/agent DB users after taking `/tmp/neostride-before-agent-test-data-cleanup.sql`; real-looking users were left intact.

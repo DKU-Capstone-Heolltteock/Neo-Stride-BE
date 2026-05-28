@@ -5,6 +5,7 @@ import java.awt.Graphics2D;
 import java.awt.RenderingHints;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -38,6 +39,7 @@ public class StorageService {
 	);
 	private static final int THUMBNAIL_MAX_DIMENSION = 480;
 	private static final float THUMBNAIL_JPEG_QUALITY = 0.78f;
+	private static final float ORIENTED_JPEG_QUALITY = 0.92f;
 	private static final float THUMBNAIL_WEBP_QUALITY = 74.0f;
 	static final String THUMBNAIL_DIRECTORY = "_thumbs";
 	private static volatile Boolean cwebpAvailable;
@@ -77,6 +79,18 @@ public class StorageService {
 			throw new IllegalArgumentException("이미지 파일 내용이 지원하는 이미지 형식과 일치하지 않습니다.");
 		}
 		BufferedImage raster = validateDecodableRaster(bytes, actualContentType);
+		byte[] storedBytes = bytes;
+		if ("image/jpeg".equals(actualContentType) && raster != null) {
+			BufferedImage oriented = applyExifOrientation(raster, readExifOrientation(bytes));
+			if (oriented != raster) {
+				raster = oriented;
+				try {
+					storedBytes = jpegBytes(oriented, ORIENTED_JPEG_QUALITY);
+				} catch (IOException exception) {
+					throw new IllegalStateException("이미지 회전 보정에 실패했습니다.", exception);
+				}
+			}
+		}
 
 		String safeDirectory = safeDirectory(directory);
 		String storedExtension = EXTENSION_BY_CONTENT_TYPE.get(actualContentType);
@@ -88,7 +102,7 @@ public class StorageService {
 		Path target = targetDirectory.resolve(filename);
 		try {
 			Files.createDirectories(targetDirectory);
-			Files.write(target, bytes);
+			Files.write(target, storedBytes);
 		} catch (IOException exception) {
 			throw new IllegalStateException("이미지 파일 저장에 실패했습니다.", exception);
 		}
@@ -109,6 +123,173 @@ public class StorageService {
 		} catch (IOException exception) {
 			throw new IllegalArgumentException("이미지 파일을 읽을 수 없습니다.", exception);
 		}
+	}
+
+	private static BufferedImage applyExifOrientation(BufferedImage source, int orientation) {
+		if (orientation <= 1 || orientation > 8) {
+			return source;
+		}
+		int width = source.getWidth();
+		int height = source.getHeight();
+		int targetWidth = orientation >= 5 ? height : width;
+		int targetHeight = orientation >= 5 ? width : height;
+		BufferedImage target = new BufferedImage(targetWidth, targetHeight, BufferedImage.TYPE_INT_RGB);
+		for (int y = 0; y < height; y++) {
+			for (int x = 0; x < width; x++) {
+				int targetX;
+				int targetY;
+				switch (orientation) {
+					case 2 -> {
+						targetX = width - 1 - x;
+						targetY = y;
+					}
+					case 3 -> {
+						targetX = width - 1 - x;
+						targetY = height - 1 - y;
+					}
+					case 4 -> {
+						targetX = x;
+						targetY = height - 1 - y;
+					}
+					case 5 -> {
+						targetX = y;
+						targetY = x;
+					}
+					case 6 -> {
+						targetX = height - 1 - y;
+						targetY = x;
+					}
+					case 7 -> {
+						targetX = height - 1 - y;
+						targetY = width - 1 - x;
+					}
+					case 8 -> {
+						targetX = y;
+						targetY = width - 1 - x;
+					}
+					default -> {
+						targetX = x;
+						targetY = y;
+					}
+				}
+				target.setRGB(targetX, targetY, source.getRGB(x, y));
+			}
+		}
+		return target;
+	}
+
+	private static int readExifOrientation(byte[] bytes) {
+		if (bytes.length < 4 || (bytes[0] & 0xff) != 0xff || (bytes[1] & 0xff) != 0xd8) {
+			return 1;
+		}
+		int offset = 2;
+		while (offset + 4 <= bytes.length) {
+			if ((bytes[offset] & 0xff) != 0xff) {
+				return 1;
+			}
+			while (offset < bytes.length && (bytes[offset] & 0xff) == 0xff) {
+				offset++;
+			}
+			if (offset >= bytes.length) {
+				return 1;
+			}
+			int marker = bytes[offset++] & 0xff;
+			if (marker == 0xda || marker == 0xd9) {
+				return 1;
+			}
+			if (marker == 0x01 || (marker >= 0xd0 && marker <= 0xd7)) {
+				continue;
+			}
+			if (offset + 2 > bytes.length) {
+				return 1;
+			}
+			int segmentLength = readUnsignedShortBigEndian(bytes, offset);
+			if (segmentLength < 2 || offset + segmentLength > bytes.length) {
+				return 1;
+			}
+			int segmentStart = offset + 2;
+			int segmentEnd = offset + segmentLength;
+			if (marker == 0xe1 && hasExifHeader(bytes, segmentStart, segmentEnd)) {
+				return readTiffOrientation(bytes, segmentStart + 6, segmentEnd);
+			}
+			offset += segmentLength;
+		}
+		return 1;
+	}
+
+	private static boolean hasExifHeader(byte[] bytes, int start, int end) {
+		return start + 6 <= end
+				&& bytes[start] == 'E'
+				&& bytes[start + 1] == 'x'
+				&& bytes[start + 2] == 'i'
+				&& bytes[start + 3] == 'f'
+				&& bytes[start + 4] == 0
+				&& bytes[start + 5] == 0;
+	}
+
+	private static int readTiffOrientation(byte[] bytes, int tiffStart, int end) {
+		if (tiffStart + 8 > end) {
+			return 1;
+		}
+		boolean littleEndian;
+		if (bytes[tiffStart] == 'I' && bytes[tiffStart + 1] == 'I') {
+			littleEndian = true;
+		} else if (bytes[tiffStart] == 'M' && bytes[tiffStart + 1] == 'M') {
+			littleEndian = false;
+		} else {
+			return 1;
+		}
+		if (readUnsignedShort(bytes, tiffStart + 2, littleEndian) != 42) {
+			return 1;
+		}
+		long firstIfdOffset = readUnsignedInt(bytes, tiffStart + 4, littleEndian);
+		if (firstIfdOffset < 0 || firstIfdOffset > Integer.MAX_VALUE) {
+			return 1;
+		}
+		int ifdStart = tiffStart + (int) firstIfdOffset;
+		if (ifdStart < tiffStart || ifdStart + 2 > end) {
+			return 1;
+		}
+		int entryCount = readUnsignedShort(bytes, ifdStart, littleEndian);
+		int entriesStart = ifdStart + 2;
+		for (int i = 0; i < entryCount; i++) {
+			int entryOffset = entriesStart + i * 12;
+			if (entryOffset + 12 > end) {
+				return 1;
+			}
+			int tag = readUnsignedShort(bytes, entryOffset, littleEndian);
+			int type = readUnsignedShort(bytes, entryOffset + 2, littleEndian);
+			long count = readUnsignedInt(bytes, entryOffset + 4, littleEndian);
+			if (tag == 0x0112 && type == 3 && count == 1) {
+				int value = readUnsignedShort(bytes, entryOffset + 8, littleEndian);
+				return value >= 1 && value <= 8 ? value : 1;
+			}
+		}
+		return 1;
+	}
+
+	private static int readUnsignedShortBigEndian(byte[] bytes, int offset) {
+		return ((bytes[offset] & 0xff) << 8) | (bytes[offset + 1] & 0xff);
+	}
+
+	private static int readUnsignedShort(byte[] bytes, int offset, boolean littleEndian) {
+		if (littleEndian) {
+			return (bytes[offset] & 0xff) | ((bytes[offset + 1] & 0xff) << 8);
+		}
+		return readUnsignedShortBigEndian(bytes, offset);
+	}
+
+	private static long readUnsignedInt(byte[] bytes, int offset, boolean littleEndian) {
+		if (littleEndian) {
+			return (long) (bytes[offset] & 0xff)
+					| ((long) (bytes[offset + 1] & 0xff) << 8)
+					| ((long) (bytes[offset + 2] & 0xff) << 16)
+					| ((long) (bytes[offset + 3] & 0xff) << 24);
+		}
+		return ((long) (bytes[offset] & 0xff) << 24)
+				| ((long) (bytes[offset + 1] & 0xff) << 16)
+				| ((long) (bytes[offset + 2] & 0xff) << 8)
+				| (long) (bytes[offset + 3] & 0xff);
 	}
 
 	private static void writeThumbnailIfPossible(BufferedImage source, Path targetDirectory, String filename) {
@@ -159,14 +340,28 @@ public class StorageService {
 		return target;
 	}
 
+	private static byte[] jpegBytes(BufferedImage image, float quality) throws IOException {
+		ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+		try (ImageOutputStream output = ImageIO.createImageOutputStream(bytes)) {
+			writeJpeg(image, output, quality);
+		}
+		return bytes.toByteArray();
+	}
+
 	private static void writeJpeg(BufferedImage image, Path target) throws IOException {
+		try (ImageOutputStream output = ImageIO.createImageOutputStream(target.toFile())) {
+			writeJpeg(image, output, THUMBNAIL_JPEG_QUALITY);
+		}
+	}
+
+	private static void writeJpeg(BufferedImage image, ImageOutputStream output, float quality) throws IOException {
 		ImageWriter writer = ImageIO.getImageWritersByFormatName("jpg").next();
 		ImageWriteParam params = writer.getDefaultWriteParam();
 		if (params.canWriteCompressed()) {
 			params.setCompressionMode(ImageWriteParam.MODE_EXPLICIT);
-			params.setCompressionQuality(THUMBNAIL_JPEG_QUALITY);
+			params.setCompressionQuality(quality);
 		}
-		try (ImageOutputStream output = ImageIO.createImageOutputStream(target.toFile())) {
+		try {
 			writer.setOutput(output);
 			writer.write(null, new IIOImage(image, null, null), params);
 		} finally {
