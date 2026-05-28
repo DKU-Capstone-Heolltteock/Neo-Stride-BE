@@ -1,0 +1,2 @@
+-- No destructive rollback is needed. This migration only reconciles derived
+-- counters from community_interactions into community_content_stats.
