@@ -14,6 +14,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import java.util.List;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -140,5 +141,24 @@ public class RunningRecordController {
 		return runningRecordService.findByRecordIdForUser(authenticatedUserId, recordId)
 				.map(ResponseEntity::ok)
 				.orElseGet(() -> ResponseEntity.notFound().build());
+	}
+
+	@Operation(summary = "러닝 기록 삭제", description = "인증된 사용자의 러닝 기록을 삭제합니다.")
+	@ApiResponses({
+			@ApiResponse(responseCode = "204", description = "삭제 성공", content = @Content),
+			@ApiResponse(responseCode = "403", description = "타인 기록 접근", content = @Content),
+			@ApiResponse(responseCode = "404", description = "러닝 기록 없음", content = @Content)
+	})
+	@DeleteMapping("/{record_id}")
+	public ResponseEntity<Void> deleteRecord(
+			@RequestHeader(value = "Authorization", required = false) String authorization,
+			@PathVariable("record_id") long recordId
+	) {
+		long authenticatedUserId = authenticatedUserService.requireUserId(authorization);
+		return switch (runningRecordService.deleteByRecordIdForUser(authenticatedUserId, recordId)) {
+			case DELETED -> ResponseEntity.noContent().build();
+			case NOT_FOUND -> ResponseEntity.notFound().build();
+			case FORBIDDEN -> ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+		};
 	}
 }

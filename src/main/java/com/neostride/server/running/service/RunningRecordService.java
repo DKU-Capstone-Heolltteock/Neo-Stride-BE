@@ -18,6 +18,12 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class RunningRecordService {
 
+	public enum DeleteResult {
+		DELETED,
+		NOT_FOUND,
+		FORBIDDEN
+	}
+
 	private static final DateTimeFormatter TRACE_TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
 	private final RunningRecordRepository runningRecordRepository;
@@ -75,13 +81,37 @@ public class RunningRecordService {
 
 	@Transactional(readOnly = true)
 	public Optional<RunningRecordResponse> findByRecordIdForUser(long userId, long recordId) {
+		requirePositiveUserId(userId);
+		requirePositiveRecordId(recordId);
+		return Optional.ofNullable(runningRecordRepository.findByRecordIdForUser(userId, recordId));
+	}
+
+	@Transactional
+	public DeleteResult deleteByRecordIdForUser(long userId, long recordId) {
+		requirePositiveUserId(userId);
+		requirePositiveRecordId(recordId);
+		Long ownerUserId = runningRecordRepository.findOwnerUserId(recordId);
+		if (ownerUserId == null) {
+			return DeleteResult.NOT_FOUND;
+		}
+		if (ownerUserId.longValue() != userId) {
+			return DeleteResult.FORBIDDEN;
+		}
+		return runningRecordRepository.deleteByRecordIdForUser(userId, recordId) > 0
+				? DeleteResult.DELETED
+				: DeleteResult.NOT_FOUND;
+	}
+
+	private void requirePositiveUserId(long userId) {
 		if (userId <= 0) {
 			throw new IllegalArgumentException("user_id는 1 이상의 값이어야 합니다.");
 		}
+	}
+
+	private void requirePositiveRecordId(long recordId) {
 		if (recordId <= 0) {
 			throw new IllegalArgumentException("record_id는 1 이상의 값이어야 합니다.");
 		}
-		return Optional.ofNullable(runningRecordRepository.findByRecordIdForUser(userId, recordId));
 	}
 
 	private void validate(RunningRecordRequest request) {

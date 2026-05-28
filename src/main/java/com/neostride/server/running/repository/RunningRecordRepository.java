@@ -135,6 +135,19 @@ public class RunningRecordRepository {
 		return records.isEmpty() ? null : attachGpsTraces(records).getFirst();
 	}
 
+	public Long findOwnerUserId(long recordId) {
+		List<Long> userIds = jdbcTemplate.query("""
+				SELECT user_id
+				FROM running_records
+				WHERE run_record_id = ?
+				""", (rs, rowNum) -> rs.getLong("user_id"), recordId);
+		return userIds.isEmpty() ? null : userIds.getFirst();
+	}
+
+	public int deleteByRecordIdForUser(long userId, long recordId) {
+		return jdbcTemplate.update("DELETE FROM running_records WHERE user_id = ? AND run_record_id = ?", userId, recordId);
+	}
+
 	private List<RunningRecordResponse> attachGpsTraces(List<RunningRecordResponse> records) {
 		if (records == null || records.isEmpty()) {
 			return List.of();

@@ -5,6 +5,7 @@ import com.neostride.server.auth.service.AuthenticatedUserService;
 import com.neostride.server.running.dto.GpsTraceRequest;
 import com.neostride.server.running.dto.RunningRecordResponse;
 import com.neostride.server.running.service.RunningRecordService;
+import com.neostride.server.running.service.RunningRecordService.DeleteResult;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
 
@@ -14,6 +15,7 @@ import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class RunningRecordControllerTest {
@@ -82,6 +84,37 @@ class RunningRecordControllerTest {
 		var response = controller.getRecordDetail(AUTHORIZATION, 999L);
 
 		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+	}
+
+	@Test
+	void deleteRecord_returnsNoContentWhenDeleted() {
+		authenticate();
+		when(service.deleteByRecordIdForUser(1L, 10L)).thenReturn(DeleteResult.DELETED);
+
+		var response = controller.deleteRecord(AUTHORIZATION, 10L);
+
+		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
+		verify(service).deleteByRecordIdForUser(1L, 10L);
+	}
+
+	@Test
+	void deleteRecord_returnsNotFoundWhenRecordDoesNotExist() {
+		authenticate();
+		when(service.deleteByRecordIdForUser(1L, 999L)).thenReturn(DeleteResult.NOT_FOUND);
+
+		var response = controller.deleteRecord(AUTHORIZATION, 999L);
+
+		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+	}
+
+	@Test
+	void deleteRecord_returnsForbiddenWhenRecordBelongsToAnotherUser() {
+		authenticate();
+		when(service.deleteByRecordIdForUser(1L, 20L)).thenReturn(DeleteResult.FORBIDDEN);
+
+		var response = controller.deleteRecord(AUTHORIZATION, 20L);
+
+		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
 	}
 
 	private void authenticate() {

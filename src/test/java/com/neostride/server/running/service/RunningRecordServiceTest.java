@@ -4,6 +4,7 @@ import com.neostride.server.coaching.service.CoachingService;
 import com.neostride.server.running.dto.GpsTraceRequest;
 import com.neostride.server.running.dto.RunningRecordRequest;
 import com.neostride.server.running.repository.RunningRecordRepository;
+import com.neostride.server.running.service.RunningRecordService.DeleteResult;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
@@ -12,6 +13,7 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -79,6 +81,47 @@ class RunningRecordServiceTest {
 		coachingAwareService.save(request);
 
 		verifyNoInteractions(coachingService);
+	}
+
+	@Test
+	void deleteByRecordIdForUserDeletesOwnedRecord() {
+		when(repository.findOwnerUserId(10L)).thenReturn(7L);
+		when(repository.deleteByRecordIdForUser(7L, 10L)).thenReturn(1);
+
+		DeleteResult result = service.deleteByRecordIdForUser(7L, 10L);
+
+		assertThat(result).isEqualTo(DeleteResult.DELETED);
+		verify(repository).deleteByRecordIdForUser(7L, 10L);
+	}
+
+	@Test
+	void deleteByRecordIdForUserReturnsNotFoundWhenRecordDoesNotExist() {
+		when(repository.findOwnerUserId(10L)).thenReturn(null);
+
+		DeleteResult result = service.deleteByRecordIdForUser(7L, 10L);
+
+		assertThat(result).isEqualTo(DeleteResult.NOT_FOUND);
+		verify(repository, never()).deleteByRecordIdForUser(7L, 10L);
+	}
+
+	@Test
+	void deleteByRecordIdForUserReturnsForbiddenWhenRecordBelongsToAnotherUser() {
+		when(repository.findOwnerUserId(10L)).thenReturn(8L);
+
+		DeleteResult result = service.deleteByRecordIdForUser(7L, 10L);
+
+		assertThat(result).isEqualTo(DeleteResult.FORBIDDEN);
+		verify(repository, never()).deleteByRecordIdForUser(7L, 10L);
+	}
+
+	@Test
+	void deleteByRecordIdForUserReturnsNotFoundWhenDeleteFindsNoRows() {
+		when(repository.findOwnerUserId(10L)).thenReturn(7L);
+		when(repository.deleteByRecordIdForUser(7L, 10L)).thenReturn(0);
+
+		DeleteResult result = service.deleteByRecordIdForUser(7L, 10L);
+
+		assertThat(result).isEqualTo(DeleteResult.NOT_FOUND);
 	}
 
 	private RunningRecordRequest requestWithTraces(List<GpsTraceRequest> traces) {
