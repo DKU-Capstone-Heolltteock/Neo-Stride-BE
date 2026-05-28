@@ -66,7 +66,22 @@ The application uses:
 spring.datasource.url=jdbc:mysql://${DB_HOST:localhost}:${DB_PORT:3306}/${DB_NAME:neostride}?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Seoul
 ```
 
-Apply the team's baseline schema before starting the app. This repository currently includes the watch-metrics migration at `deploy/mysql/migrations/002_add_gps_trace_watch_metrics.up.sql`; run it after the baseline schema if the `gps_traces` table does not already include `heart_rate` and `cadence`.
+Apply the team's baseline schema before starting the app. This repository currently includes incremental migrations under `deploy/mysql/migrations`.
+
+Use the migration runner to track and apply new `*.up.sql` files:
+
+```bash
+DB_USERNAME=neostride_app DB_PASSWORD=change-me deploy/mysql/apply-migrations.sh --status
+DB_USERNAME=neostride_app DB_PASSWORD=change-me deploy/mysql/apply-migrations.sh
+```
+
+For an existing database where the migration files were already applied manually, initialize only the tracking table once:
+
+```bash
+MYSQL_CONTAINER=neostride-mysql USE_CONTAINER_MYSQL_ENV=true deploy/mysql/apply-migrations.sh --baseline
+```
+
+The runner stores applied versions and SHA-256 checksums in `schema_migrations` and refuses to continue if an applied migration file changes.
 
 ## Run
 

@@ -20,13 +20,13 @@ Target: Neo-Stride Spring Boot backend, Docker MySQL, self-hosted single-server 
 
 - 운영 backend가 DB root 계정을 사용하고, Docker inspect로 DB/OpenAI/JWT secret이 노출된다. 이미 노출된 secret은 회전해야 한다.
 - 기존 상세 API는 API contract 유지를 위해 댓글 전체를 계속 포함하므로, 인기 게시물에서 payload가 커질 수 있다. 신규 comments cursor endpoint로 client 전환이 필요하다.
-- migration 운영 체계가 수동이라 baseline schema와 운영 schema drift가 생길 수 있다.
+- `schema_migrations` 기반 apply script를 추가했고 운영 DB baseline 기록도 완료했다. 남은 리스크는 최신 schema snapshot 주기 갱신과 migration별 검증 SQL 보강이다.
 - thumbnail 생성은 `imageThumbnailExecutor`로 request thread에서 분리됐다. 남은 이미지 리스크는 기존 파일 backfill/metadata 운영과 실패 모니터링이다.
 - search API는 `%LIKE%`와 offset pagination 중심이라 데이터 증가 시 별도 index/fulltext 전략이 필요하다.
 
 운영 가능성 평가:
 
-현재 데이터 규모에서는 운영 가능하다. 1차로 privacy predicate, reaction uniqueness, transaction 경계, running GPS N+1, feed/comment cursor 진입점, coaching feedback 호환성, upload thumbnail background processing을 개선했다. 다음 병목은 legacy detail payload, migration 자동화, search indexing이다. 단일 홈서버에서는 Kubernetes/MSA보다 index, pagination, thumbnail, Caddy static serving, backup/migration 절차 정리가 우선이다.
+현재 데이터 규모에서는 운영 가능하다. 1차로 privacy predicate, reaction uniqueness, transaction 경계, running GPS N+1, feed/comment cursor 진입점, coaching feedback 호환성, upload thumbnail background processing을 개선했다. 다음 병목은 legacy detail payload, search indexing, baseline schema snapshot 갱신이다. 단일 홈서버에서는 Kubernetes/MSA보다 index, pagination, thumbnail, Caddy static serving, backup/migration 절차 정리가 우선이다.
 
 ## 2. 현재까지 적용한 변경
 
@@ -202,16 +202,14 @@ Community API/성능:
   - 이미 적용한 `idx_ci_content_type_created`가 comments 정렬을 지원한다.
 - API 호환성 영향: 신규 endpoint는 호환. 기존 detail 축소는 migration guide 필요.
 
-#### H6. migration 운영 체계가 수동이고 baseline과 운영 schema가 벌어짐
+#### H6. migration 운영 체계가 수동이고 baseline과 운영 schema가 벌어짐 - 1차 해결
 
-- 위치: `deploy/mysql/init/001_schema.sql`, `deploy/mysql/migrations/*.sql`.
+- 위치: `deploy/mysql/apply-migrations.sh`, `deploy/mysql/migrations/*.sql`.
 - 문제: 새 DB를 init schema만으로 만들면 stats/images/index/notification 등 최신 구조와 다르다.
-- 원인: Flyway/Liquibase 같은 migration runner나 schema_migrations table이 없다.
+- 원인: 기존에는 migration runner나 `schema_migrations` table이 없었다.
 - 영향도: 재설치/복구/테스트 DB에서 운영과 다른 schema가 만들어진다.
-- 해결방안:
-  - 과한 도구가 싫다면 `schema_migrations` table + `apply-migrations.sh`부터 도입.
-  - 각 migration의 row count 검증 SQL과 rollback SQL을 같이 유지.
-  - baseline schema를 최신 snapshot으로 주기적으로 갱신.
+- 적용: `schema_migrations` table을 생성하고, `*.up.sql` 파일을 version/checksum 기반으로 적용하는 runner를 추가했다. 운영 DB는 002-015 migration을 baseline으로 기록했고, 이후 신규 migration은 runner로 적용 가능하다.
+- 남은 작업: 각 migration 검증 SQL 보강, baseline schema 최신 snapshot 주기 갱신.
 - API 호환성 영향: 없음.
 
 ### Medium
@@ -445,8 +443,8 @@ Downtime 최소화:
 1. secret rotation + DB app user 전환.
 2. Android/iOS/Web에서 feed cursor query 또는 `/api/community/feeds/page` 사용 시작.
 3. Android/iOS/Web에서 comments cursor endpoint 사용 시작.
-4. migration apply script/schema_migrations 도입.
-5. migration script 적용 후 운영 schema drift 점검.
+4. 각 migration 검증 SQL/rollback rehearsal 보강.
+5. baseline schema 최신 snapshot 주기 갱신.
 
 다음 스프린트:
 
@@ -471,7 +469,7 @@ Downtime 최소화:
 
 적용 가능한 개선안:
 
-- 적용 완료: cursor pagination 진입점, additional composite indexes, stats table, Caddy static serving, batch GPS trace loading, date range monthly query, comments pagination endpoint, transaction/uniqueness fixes, coaching feedback request 호환, background thumbnail executor. 다음 적용: migration automation, search index/fulltext.
+- 적용 완료: cursor pagination 진입점, additional composite indexes, stats table, Caddy static serving, batch GPS trace loading, date range monthly query, comments pagination endpoint, transaction/uniqueness fixes, coaching feedback request 호환, background thumbnail executor, migration apply script/schema_migrations, 운영 baseline 기록. 다음 적용: search index/fulltext.
 
 API 호환성 영향:
 
@@ -494,7 +492,7 @@ API 호환성 영향:
 
 남은 리스크:
 
-- secret rotation, DB app user 전환, detail comments payload, background thumbnail executor, migration drift.
+- secret rotation, DB app user 전환, detail comments payload, search/index drift, migration 검증 SQL 부족.
 
 테스트 및 검증 계획:
 
