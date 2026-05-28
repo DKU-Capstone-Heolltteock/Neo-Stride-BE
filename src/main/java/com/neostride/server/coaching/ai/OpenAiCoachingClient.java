@@ -81,8 +81,10 @@ public class OpenAiCoachingClient implements AiCoachingClient {
 			String content = completeJson(feedbackPrompt(request), feedbackResponseFormat());
 			return parseFeedbackForDatabase(content);
 		} catch (RuntimeException exception) {
+			logger.warn("OpenAI feedback generation failed for plan_day_id={}", request.planDayId(), exception);
 			return null;
 		} catch (Exception exception) {
+			logger.warn("OpenAI feedback generation failed for plan_day_id={}", request.planDayId(), exception);
 			return null;
 		}
 	}

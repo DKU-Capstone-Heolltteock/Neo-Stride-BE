@@ -156,6 +156,12 @@ public class CommunityController {
 	) { return ResponseEntity.ok(service.getFriendList(authenticatedUserId(authorization, headerUserId), status)); }
 	@GetMapping("/community/friends/user/{userId}")
 	public ResponseEntity<List<FriendResponse>> getUserFriendList(@org.springframework.web.bind.annotation.PathVariable long userId) { return ResponseEntity.ok(service.getUserFriendList(userId)); }
+	@GetMapping("/api/friends/{userId}")
+	public ResponseEntity<List<FriendResponse>> getApiUserFriendList(
+			@RequestHeader(value = "Authorization", required = false) String authorization,
+			@RequestHeader(value = "X-User-Id", required = false) Long headerUserId,
+			@org.springframework.web.bind.annotation.PathVariable long userId
+	) { return ResponseEntity.ok(service.getUserFriendList(authenticatedUserId(authorization, headerUserId), userId)); }
 	@PostMapping({"/community/friends/action", "/api/community/friends/action"})
 	public ResponseEntity<Map<String, String>> updateCommunityRelationship(
 			@RequestHeader(value = "Authorization", required = false) String authorization,
@@ -205,6 +211,17 @@ public class CommunityController {
 			@RequestHeader(value = "X-User-Id", required = false) Long headerUserId,
 			@org.springframework.web.bind.annotation.PathVariable long feedId
 	) { return ResponseEntity.ok(service.toggleFeedBookmark(authenticatedUserId(authorization, headerUserId), feedId)); }
+	@GetMapping("/api/community/feeds/{feedId}/comments")
+	public ResponseEntity<CommentPageResponse> getFeedComments(
+			@RequestHeader(value = "Authorization", required = false) String authorization,
+			@RequestHeader(value = "X-User-Id", required = false) Long headerUserId,
+			@org.springframework.web.bind.annotation.PathVariable long feedId,
+			@RequestParam(defaultValue = "20") int limit,
+			@RequestParam(value = "cursorCreatedAt", required = false) String cursorCreatedAt,
+			@RequestParam(value = "cursor_created_at", required = false) String cursorCreatedAtSnake,
+			@RequestParam(value = "cursorId", required = false) Long cursorId,
+			@RequestParam(value = "cursor_id", required = false) Long cursorIdSnake
+	) { return ResponseEntity.ok(service.getFeedComments(authenticatedUserId(authorization, headerUserId), feedId, firstNonBlank(cursorCreatedAt, cursorCreatedAtSnake), firstNonNull(cursorId, cursorIdSnake), limit)); }
 	@PostMapping("/api/community/feeds/{feedId}/comments")
 	public ResponseEntity<CommentResponse> createFeedComment(
 			@RequestHeader(value = "Authorization", required = false) String authorization,
@@ -275,8 +292,13 @@ public class CommunityController {
 	@GetMapping("/api/community/feeds")
 	public ResponseEntity<List<FeedUploadResponse>> getCommunityFeedList(
 			@RequestHeader(value = "Authorization", required = false) String authorization,
-			@RequestHeader(value = "X-User-Id", required = false) Long headerUserId
-	) { return ResponseEntity.ok(service.getFeedList(optionalUserId(authorization, headerUserId))); }
+			@RequestHeader(value = "X-User-Id", required = false) Long headerUserId,
+			@RequestParam(required = false) Integer limit,
+			@RequestParam(value = "cursorCreatedAt", required = false) String cursorCreatedAt,
+			@RequestParam(value = "cursor_created_at", required = false) String cursorCreatedAtSnake,
+			@RequestParam(value = "cursorId", required = false) Long cursorId,
+			@RequestParam(value = "cursor_id", required = false) Long cursorIdSnake
+	) { return ResponseEntity.ok(service.getFeedList(optionalUserId(authorization, headerUserId), firstNonBlank(cursorCreatedAt, cursorCreatedAtSnake), firstNonNull(cursorId, cursorIdSnake), limit)); }
 	@GetMapping("/api/community/feeds/page")
 	public ResponseEntity<FeedPageResponse> getCommunityFeedPage(
 			@RequestHeader(value = "Authorization", required = false) String authorization,
@@ -361,6 +383,17 @@ public class CommunityController {
 			@RequestHeader(value = "X-User-Id", required = false) Long headerUserId,
 			@org.springframework.web.bind.annotation.PathVariable long tipId
 	) { return ResponseEntity.ok(service.toggleTipBookmark(authenticatedUserId(authorization, headerUserId), tipId)); }
+	@GetMapping("/api/community/tips/{tipId}/comments")
+	public ResponseEntity<CommentPageResponse> getTipComments(
+			@RequestHeader(value = "Authorization", required = false) String authorization,
+			@RequestHeader(value = "X-User-Id", required = false) Long headerUserId,
+			@org.springframework.web.bind.annotation.PathVariable long tipId,
+			@RequestParam(defaultValue = "20") int limit,
+			@RequestParam(value = "cursorCreatedAt", required = false) String cursorCreatedAt,
+			@RequestParam(value = "cursor_created_at", required = false) String cursorCreatedAtSnake,
+			@RequestParam(value = "cursorId", required = false) Long cursorId,
+			@RequestParam(value = "cursor_id", required = false) Long cursorIdSnake
+	) { return ResponseEntity.ok(service.getTipComments(authenticatedUserId(authorization, headerUserId), tipId, firstNonBlank(cursorCreatedAt, cursorCreatedAtSnake), firstNonNull(cursorId, cursorIdSnake), limit)); }
 	@PostMapping("/api/community/tips/{tipId}/comments")
 	public ResponseEntity<CommentResponse> createTipComment(
 			@RequestHeader(value = "Authorization", required = false) String authorization,

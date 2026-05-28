@@ -1,5 +1,6 @@
 package com.neostride.server.coaching.service;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.neostride.server.coaching.ai.AiCoachingClient;
 import com.neostride.server.coaching.ai.AiCoachingFeedbackRequest;
 import com.neostride.server.coaching.ai.AiCoachingPlan;
@@ -235,6 +236,34 @@ class CoachingServiceTest {
 		verify(aiCoachingClient, never()).generateFeedback(any());
 		verify(repository, never()).updateFeedbackForUser(eq(1L), eq(20L), any());
 		verify(repository, never()).findRecentPlanPerformances(eq(1L), eq(10L), eq(5));
+	}
+
+	@Test
+	void requestFeedback_acceptsMinutePaceAliasAndConvertsToSeconds() throws Exception {
+		FeedbackRequest request = new ObjectMapper().readValue("""
+				{
+				  "plan_day_id": 20,
+				  "actual_distance_km": 3.20,
+				  "actual_time_sec": 1240,
+				  "actual_pace_min_per_km": 6.45
+				}
+				""", FeedbackRequest.class);
+		PlanDayRow planDay = new PlanDayRow(20L, 1L, 10L, LocalDate.parse("2026-05-04"),
+				new BigDecimal("5.00"), 360, false, null, LocalDateTime.parse("2026-05-01T09:00:00"));
+		when(repository.findPlanDayByIdForUser(20L, 1L)).thenReturn(planDay);
+		when(aiCoachingClient.generateFeedback(any())).thenReturn(null);
+		when(repository.updateFeedbackForUser(eq(1L), eq(20L), any())).thenReturn(true);
+
+		var response = service.requestFeedback(1L, 20L, request);
+
+		assertThat(request.actualPaceSecPerKm()).isNull();
+		assertThat(response.aiFeedbackComment())
+				.contains("평균 페이스 6:27/km")
+				.contains("목표보다 1.80km 부족");
+		verify(aiCoachingClient).generateFeedback(argThat(aiRequest ->
+				aiRequest.feedbackRequest().actualPaceSecPerKm().equals(387)
+						&& aiRequest.paceDeltaSecPerKm().equals(27)
+		));
 	}
 
 	@Test

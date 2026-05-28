@@ -118,6 +118,7 @@ public class CoachingService {
 		validatePositive(userId, "user_id");
 		validatePositive(planDayId, "plan_day_id");
 		validateFeedbackRequest(planDayId, request);
+		request = request.withResolvedActualPaceSecPerKm();
 		PlanDayRow planDay = coachingRepository.findPlanDayByIdForUser(planDayId, userId);
 		if (hasExistingFeedback(planDay)) {
 			return new FeedbackResponse(planDayId, Boolean.TRUE.equals(planDay.completed()), planDay.feedback().trim(), feedbackUpdatedAt(planDay));
@@ -201,7 +202,7 @@ public class CoachingService {
 		if (request.actualTimeSec() == null || request.actualTimeSec() <= 0) {
 			throw new IllegalArgumentException("actual_time_sec는 1 이상의 값이어야 합니다.");
 		}
-		requirePositive(request.actualPaceSecPerKm(), "actual_pace_sec_per_km");
+		requirePositive(request.resolvedActualPaceSecPerKm(), "actual_pace_sec_per_km");
 	}
 
 	private void validateGoalStatusUpdateRequest(GoalStatusUpdateRequest request) {

@@ -160,8 +160,9 @@ public class CoachingRepository {
 				SELECT p.plan_id, p.user_id, p.goal_id, p.plan_date, p.target_distance, p.target_pace, p.is_completed, p.feedback, p.updated_at
 				FROM plans p
 				JOIN goals g ON g.goal_id = p.goal_id
-				WHERE p.user_id = ? AND p.plan_date = ? AND g.is_active = TRUE
-				ORDER BY p.plan_id DESC
+				WHERE p.user_id = ? AND p.plan_date = ?
+				  AND (g.is_active = TRUE OR p.is_completed = TRUE OR p.feedback IS NOT NULL)
+				ORDER BY g.is_active DESC, p.is_completed DESC, p.updated_at DESC, p.plan_id DESC
 				LIMIT 1
 				""", planDayRowMapper, userId, today);
 		return rows.isEmpty() ? null : rows.getFirst();

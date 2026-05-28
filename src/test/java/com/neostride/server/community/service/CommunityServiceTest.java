@@ -30,6 +30,31 @@ class CommunityServiceTest {
 		verify(repository, never()).myFeeds(2L);
 	}
 
+
+	@Test
+	void getFeedListWithLimitKeepsLegacyShapeWhileUsingCursorQuery() {
+		FeedUploadResponse first = new FeedUploadResponse(76L, null, "neo", "2026-05-26T22:14:32", "title", "body", 0, 0, 0, "1.00 km", null, null, false, null, List.of());
+		when(repository.listFeedsPage(null, null, null, 2)).thenReturn(List.of(first));
+
+		List<FeedUploadResponse> result = service.getFeedList(null, null, null, 1);
+
+		assertThat(result).containsExactly(first);
+		verify(repository).listFeedsPage(null, null, null, 2);
+	}
+
+	@Test
+	void getFeedCommentsBuildsCursorPage() {
+		var first = new com.neostride.server.community.dto.CommentResponse(5L, 2L, "runner", null, "nice", "2026-05-28T10:00:00", false, "NONE", false);
+		var second = new com.neostride.server.community.dto.CommentResponse(6L, 3L, "runner2", null, "good", "2026-05-28T10:01:00", false, "NONE", false);
+		when(repository.commentsPage(1L, 99L, LocalDateTime.parse("2026-05-28T09:00:00"), 4L, 2)).thenReturn(List.of(first, second));
+
+		var result = service.getFeedComments(1L, 99L, "2026-05-28T09:00:00", 4L, 1);
+
+		assertThat(result.items()).containsExactly(first);
+		assertThat(result.hasMore()).isTrue();
+		assertThat(result.nextCursor().commentId()).isEqualTo(5L);
+	}
+
 	@Test
 	void getFeedPage_requestsOneExtraRowAndBuildsNextCursor() {
 		FeedUploadResponse first = new FeedUploadResponse(76L, null, "neo", "2026-05-26T22:14:32", "title", "body", 0, 0, 0, "1.00 km", null, null, false, null, List.of());

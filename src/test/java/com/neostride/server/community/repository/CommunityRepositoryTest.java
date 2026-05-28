@@ -69,7 +69,8 @@ class CommunityRepositoryTest {
 		ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
 		verify(jdbcTemplate).query(sql.capture(), any(RowMapper.class), any(Object[].class));
 		assertThat(sql.getValue()).contains("LEFT JOIN community_content_stats stats");
-		assertThat(sql.getValue()).contains("community_content_images");
+		assertThat(sql.getValue()).contains("community_content_images cci");
+		assertThat(sql.getValue()).doesNotContain("GROUP BY content_id) images");
 		assertThat(sql.getValue()).doesNotContain("SUM(interaction_type='LIKE')");
 	}
 
@@ -259,6 +260,28 @@ class CommunityRepositoryTest {
 		verify(preparedStatement).setString(3, "좋은 팁입니다");
 	}
 
+
+
+	@Test
+	void commentsPage_usesCursorAndLimitAfterAccessCheck() {
+		when(jdbcTemplate.queryForObject(anyString(), eq(Integer.class), eq(10L), eq(1L), eq(1L), eq(1L), eq(1L), eq(1L))).thenReturn(1);
+		when(jdbcTemplate.query(anyString(), any(RowMapper.class), any(Object[].class))).thenReturn(List.of());
+
+		repository.commentsPage(1L, 10L, LocalDateTime.parse("2026-05-28T10:00:00"), 5L, 21);
+
+		ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
+		ArgumentCaptor<Object[]> args = ArgumentCaptor.forClass(Object[].class);
+		verify(jdbcTemplate).query(sql.capture(), any(RowMapper.class), args.capture());
+		assertThat(sql.getValue()).contains("ci.created_at > ?", "ci.interaction_id > ?", "LIMIT ?");
+		assertThat(args.getValue()).containsExactly(
+				10L,
+				1L,
+				Timestamp.valueOf("2026-05-28 10:00:00"),
+				Timestamp.valueOf("2026-05-28 10:00:00"),
+				5L,
+				21
+		);
+	}
 
 	@Test
 	void listTipsWithViewer_usesContentStatsTableForCounts() {
@@ -476,6 +499,26 @@ class CommunityRepositoryTest {
 		verify(jdbcTemplate).query(sql.capture(), any(RowMapper.class), args.capture());
 		assertThat(sql.getValue()).contains("AS relationship_status", "THEN 'sent'", "THEN 'received'", "r.status='REQUESTED' AND r.user1_id=?");
 		assertThat(args.getValue()).containsExactly(1L, 1L, 1L, 1L, 1L, "%neo%", 1L, 1L, 10, 0);
+	}
+
+	@Test
+	void getUserFriendListProjectsRelationshipStatusFromViewerPerspective() {
+		when(jdbcTemplate.query(anyString(), any(RowMapper.class), any(Object[].class))).thenReturn(List.of());
+
+		repository.getUserFriendList(1L, 2L);
+
+		ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
+		ArgumentCaptor<Object[]> args = ArgumentCaptor.forClass(Object[].class);
+		verify(jdbcTemplate).query(sql.capture(), any(RowMapper.class), args.capture());
+		assertThat(sql.getValue())
+				.contains("AS relationship_status")
+				.contains("THEN 'blocked'")
+				.contains("THEN 'friends'")
+				.contains("THEN 'sent'")
+				.contains("THEN 'received'")
+				.contains("ELSE 'none'")
+				.contains("WHERE (r.user1_id = ? OR r.user2_id = ?) AND r.status = 'ACCEPTED'");
+		assertThat(args.getValue()).containsExactly(1L, 1L, 1L, 1L, 1L, 2L, 2L, 2L);
 	}
 
 	@Test

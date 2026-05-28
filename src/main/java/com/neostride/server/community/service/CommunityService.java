@@ -42,6 +42,7 @@ public class CommunityService {
 	public BadgeDetailResponse getBadgeDetail(long userId) { validatePositive(userId, "user_id"); return repository.getBadgeDetail(userId); }
 	public List<FriendResponse> getFriendList(long userId, String status) { validatePositive(userId, "user_id"); return repository.getFriendList(userId, status); }
 	public List<FriendResponse> getUserFriendList(long userId) { validatePositive(userId, "user_id"); return repository.getFriendList(userId, "friends"); }
+	public List<FriendResponse> getUserFriendList(long viewerUserId, long userId) { validatePositive(viewerUserId, "viewer_user_id"); validatePositive(userId, "user_id"); return repository.getUserFriendList(viewerUserId, userId); }
 	@Transactional
 	public Map<String, String> updateRelationship(long userId, FriendRequest request) { validatePositive(userId, "user_id"); requireBody(request); repository.updateRelationship(userId, request); return Map.of("status", "success", "message", "관계 상태가 변경되었습니다."); }
 	@Transactional
@@ -64,6 +65,12 @@ public class CommunityService {
 	public List<FriendResponse> getTaggedUsers(long feedId) { validatePositive(feedId, "feed_id"); return repository.getTaggedUsers(feedId); }
 	public List<FeedUploadResponse> getFeedList() { return getFeedList(null); }
 	public List<FeedUploadResponse> getFeedList(Long viewerUserId) { return repository.listFeeds(viewerUserId); }
+	public List<FeedUploadResponse> getFeedList(Long viewerUserId, String cursorCreatedAt, Long cursorId, Integer limit) {
+		if (limit == null && isBlank(cursorCreatedAt) && cursorId == null) {
+			return getFeedList(viewerUserId);
+		}
+		return getFeedPage(viewerUserId, cursorCreatedAt, cursorId, limit == null ? 20 : limit).items();
+	}
 	public FeedPageResponse getFeedPage(Long viewerUserId, String cursorCreatedAt, Long cursorId, int limit) {
 		validateLimit(limit);
 		if (viewerUserId != null) validatePositive(viewerUserId, "viewer_user_id");
@@ -78,6 +85,19 @@ public class CommunityService {
 		}
 		return new FeedPageResponse(items, nextCursor, hasMore);
 	}
+
+	public CommentPageResponse getFeedComments(long userId, long feedId, String cursorCreatedAt, Long cursorId, int limit) {
+		validatePositive(userId, "user_id");
+		validatePositive(feedId, "feed_id");
+		return getComments(userId, feedId, cursorCreatedAt, cursorId, limit);
+	}
+
+	public CommentPageResponse getTipComments(long userId, long tipId, String cursorCreatedAt, Long cursorId, int limit) {
+		validatePositive(userId, "user_id");
+		validatePositive(tipId, "tip_id");
+		return getComments(userId, tipId, cursorCreatedAt, cursorId, limit);
+	}
+
 	@Transactional
 	public TipUploadResponse uploadTip(long userId, TipUploadRequest request) { validatePositive(userId, "user_id"); requireBody(request); long id = repository.insertTip(userId, request); return repository.findTip(id); }
 	public TipListResponse getTips(Long viewerUserId) { return new TipListResponse(viewerUserId == null ? repository.listTips() : repository.listTips(viewerUserId)); }
@@ -120,6 +140,21 @@ public class CommunityService {
 	public List<SearchUserResponse> getTopProfiles(int page, int size) { validatePage(page, size); return repository.getTopProfiles(page, size); }
 	public List<SearchUserResponse> getTopProfiles(Long viewerUserId, int page, int size) { if (viewerUserId != null) validatePositive(viewerUserId, "viewer_user_id"); validatePage(page, size); return repository.getTopProfiles(viewerUserId, page, size); }
 	public List<SearchUserResponse> getMyFriends(long userId) { validatePositive(userId, "user_id"); return repository.getMyFriends(userId); }
+
+
+	private CommentPageResponse getComments(long userId, long contentId, String cursorCreatedAt, Long cursorId, int limit) {
+		validateLimit(limit);
+		LocalDateTime parsedCursorCreatedAt = parseFeedCursor(cursorCreatedAt, cursorId);
+		List<CommentResponse> rows = repository.commentsPage(userId, contentId, parsedCursorCreatedAt, cursorId, limit + 1);
+		boolean hasMore = rows.size() > limit;
+		List<CommentResponse> items = hasMore ? rows.subList(0, limit) : rows;
+		CommentCursorResponse nextCursor = null;
+		if (hasMore && !items.isEmpty()) {
+			CommentResponse last = items.getLast();
+			nextCursor = new CommentCursorResponse(last.createdAt(), last.commentId());
+		}
+		return new CommentPageResponse(items, nextCursor, hasMore);
+	}
 
 	private Map<String, String> interactionResult(String key, boolean enabled) {
 		return Map.of("status", "success", key, String.valueOf(enabled));

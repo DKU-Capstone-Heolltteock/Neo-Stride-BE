@@ -18,47 +18,87 @@ Target: Neo-Stride Spring Boot backend, Docker MySQL, self-hosted single-server 
 
 가장 큰 리스크:
 
-- `FRIENDS` scope 피드가 실제 친구 관계 확인 없이 공개 목록에 포함된다.
 - 운영 backend가 DB root 계정을 사용하고, Docker inspect로 DB/OpenAI/JWT secret이 노출된다. 이미 노출된 secret은 회전해야 한다.
-- `community_interactions`에 reaction 중복 방지 constraint가 없어 like/bookmark/tag count가 race condition으로 틀어질 수 있다.
-- Community write flow 일부가 transaction 없이 여러 SQL을 순차 실행한다.
-- 기존 legacy feed/list/detail API 중 일부는 여전히 전체 데이터 반환 또는 댓글 전체 반환 구조다.
+- 기존 상세 API는 API contract 유지를 위해 댓글 전체를 계속 포함하므로, 인기 게시물에서 payload가 커질 수 있다. 신규 comments cursor endpoint로 client 전환이 필요하다.
+- migration 운영 체계가 수동이라 baseline schema와 운영 schema drift가 생길 수 있다.
+- thumbnail 생성은 아직 request path에 있어 업로드 순간 CPU/IO spike 가능성이 남아 있다.
+- search API는 `%LIKE%`와 offset pagination 중심이라 데이터 증가 시 별도 index/fulltext 전략이 필요하다.
 
 운영 가능성 평가:
 
-현재 데이터 규모에서는 운영 가능하다. 다만 게시글/댓글/러닝 기록이 늘면 legacy list API, interaction 중복, 댓글/러닝 trace 조회, migration 운영 방식이 먼저 한계가 된다. 단일 홈서버에서는 Kubernetes/MSA보다 index, pagination, thumbnail, Caddy static serving, backup/migration 절차 정리가 우선이다.
+현재 데이터 규모에서는 운영 가능하다. 1차로 privacy predicate, reaction uniqueness, transaction 경계, running GPS N+1, feed/comment cursor 진입점, coaching feedback 호환성을 개선했다. 다음 병목은 legacy detail payload, upload image background processing, migration 자동화, search indexing이다. 단일 홈서버에서는 Kubernetes/MSA보다 index, pagination, thumbnail, Caddy static serving, backup/migration 절차 정리가 우선이다.
 
-## 2. 이번에 적용한 변경
+## 2. 현재까지 적용한 변경
 
+Coaching/running feedback:
+
+- [src/main/java/com/neostride/server/coaching/dto/FeedbackRequest.java](../src/main/java/com/neostride/server/coaching/dto/FeedbackRequest.java)
+  - 기존 `actual_pace_sec_per_km`는 유지하고, client가 보내는 `actual_pace_min_per_km`도 optional alias로 수용한다.
+  - alias 값은 서버 내부에서 seconds/km로 반올림 변환한다.
+- [src/main/java/com/neostride/server/coaching/service/CoachingService.java](../src/main/java/com/neostride/server/coaching/service/CoachingService.java)
+  - feedback 요청 검증과 AI/fallback feedback 생성에 정규화된 pace 값을 사용한다.
+  - `POST /api/coaching/plans/{plan_day_id}/feedback`는 비동기 큐가 아니라 요청 안에서 동기 처리하며, OpenAI 실패 시 fallback 문구를 DB에 저장한다.
+- [src/main/java/com/neostride/server/coaching/repository/CoachingRepository.java](../src/main/java/com/neostride/server/coaching/repository/CoachingRepository.java)
+  - goal이 완료 직후 비활성화되어도 오늘 완료된 plan/feedback은 `GET /api/coaching/plans/today`에서 다시 조회될 수 있도록 했다.
+- [src/main/java/com/neostride/server/coaching/ai/OpenAiCoachingClient.java](../src/main/java/com/neostride/server/coaching/ai/OpenAiCoachingClient.java)
+  - OpenAI feedback 호출 실패를 plan_day_id와 함께 warn log로 남긴다.
+
+Community API/성능:
+
+- [src/main/java/com/neostride/server/community/controller/CommunityController.java](../src/main/java/com/neostride/server/community/controller/CommunityController.java)
+  - 기존 `GET /api/community/feeds` URL과 list response shape는 유지하면서 optional `limit`, `cursorCreatedAt`, `cursorId`를 추가했다.
+  - 신규 `GET /api/community/feeds/{feedId}/comments`와 `GET /api/community/tips/{tipId}/comments` cursor endpoint를 추가했다.
+  - `GET /api/friends/{userId}`를 추가해 남의 친구 목록을 볼 때 status가 요청자(JWT) 기준으로 계산되도록 했다.
+- [src/main/java/com/neostride/server/community/service/CommunityService.java](../src/main/java/com/neostride/server/community/service/CommunityService.java)
+  - legacy feed list는 파라미터가 없으면 기존 전체 목록 흐름을 유지하고, cursor 파라미터가 있으면 내부적으로 page query를 사용한다.
+  - 댓글 cursor 응답은 `limit + 1` 조회로 `hasMore`와 `nextCursor`를 계산한다.
+- [src/main/java/com/neostride/server/community/repository/CommunityRepository.java](../src/main/java/com/neostride/server/community/repository/CommunityRepository.java)
+  - feed/tip query에서 전체 `community_content_images`를 매번 `GROUP BY`하던 derived table을 제거했다.
+  - image URL 집계는 `content_id` 기준 indexed lookup으로 바꿔 page limit이 있는 query에서 불필요한 전체 image table aggregation을 피한다.
+  - comments page query는 `created_at ASC, interaction_id ASC` cursor와 limit을 사용하고, content visibility를 먼저 검증한다.
+  - 남의 친구 목록 status는 목록 소유자와의 관계가 아니라 요청자와 각 목록 항목 간 관계(`none/sent/received/friends/blocked`)로 계산한다.
+
+이전 1차 수정:
+
+- FRIENDS scope visibility predicate를 실제 accepted relationship 기준으로 수정했다.
+- unauthenticated 요청에서는 `X-User-Id`를 신뢰하지 않도록 optional viewer context를 정리했다.
+- Community write method에 transaction 경계를 추가했다.
+- interaction uniqueness migration과 idempotent toggle 흐름을 추가했다.
+- coaching running record 409 원인으로 확인된 `plans.feedback VARCHAR(100)` 제한을 `TEXT`로 확장했다.
 - [src/main/java/com/neostride/server/running/repository/RunningRecordRepository.java](../src/main/java/com/neostride/server/running/repository/RunningRecordRepository.java)
   - 러닝 기록 목록/월별/상세 조회에서 GPS trace를 row mapper 내부에서 매 행마다 조회하던 DB-level N+1 구조를 batch 조회로 변경했다.
   - 월별 조회 조건을 `YEAR(created_at)`/`MONTH(created_at)`에서 range predicate로 변경했다.
-- [deploy/mysql/migrations/013_query_pattern_indexes.up.sql](../deploy/mysql/migrations/013_query_pattern_indexes.up.sql)
-  - 댓글 정렬, running record 목록, GPS trace 정렬, coaching goals/plans lock wait 완화용 index를 추가했다.
-- [deploy/mysql/migrations/013_query_pattern_indexes.down.sql](../deploy/mysql/migrations/013_query_pattern_indexes.down.sql)
-  - 위 index rollback SQL을 추가했다.
-- [src/test/java/com/neostride/server/running/repository/RunningRecordRepositoryTest.java](../src/test/java/com/neostride/server/running/repository/RunningRecordRepositoryTest.java)
-  - 월별 조회가 date range predicate를 유지하도록 회귀 테스트를 추가했다.
-- 기존 feed 성능 문서는 `docs/archive/`로 이동했다.
+- [deploy/mysql/migrations/013_query_pattern_indexes.up.sql](../deploy/mysql/migrations/013_query_pattern_indexes.up.sql), [deploy/mysql/migrations/014_community_interaction_uniqueness.up.sql](../deploy/mysql/migrations/014_community_interaction_uniqueness.up.sql), [deploy/mysql/migrations/015_widen_plan_feedback.up.sql](../deploy/mysql/migrations/015_widen_plan_feedback.up.sql)
+  - query pattern index, reaction uniqueness, coaching feedback 길이 확장을 운영 DB에 적용했다.
+
+운영 DB 확인:
+
+- `plan_id=2922`, `user_id=1000004`: `plans.feedback IS NULL`, `is_completed=0`, 연결된 `running_records` 없음. 즉 해당 plan_id에는 성공한 feedback 저장/record 연결이 없었다.
+- 최신 실기기 저장으로 보이는 `plan_id=3034`: `is_completed=1`, feedback 저장 완료, `run_record_id=116` 연결 확인.
+- 운영 로그: OpenAI plan generation timeout이 확인됐다. feedback generation은 기존 코드가 실패를 조용히 fallback 처리했으므로 이번 변경부터 warn log가 남는다.
 
 운영 DB 적용:
 
-- 적용 전 backup: `/tmp/neostride-before-013-query-pattern-indexes.sql`
-- `013_query_pattern_indexes.up.sql` 운영 MySQL에 적용 완료.
+- 적용 전 backup:
+  - `/tmp/neostride-before-013-query-pattern-indexes.sql`
+  - `/tmp/neostride-before-014-community-interaction-uniqueness.sql`
+  - `/tmp/neostride-before-015-widen-plan-feedback.sql`
+  - `/tmp/neostride-before-agent-test-data-cleanup.sql`
 - backend health 확인: `200`
-- `/api/community/feeds` local 측정: 약 `0.0025s`, `1229B`
+- 테스트/에이전트 생성 의심 user tuple 21개 삭제 및 cascade count 0 확인. 실사용으로 보이는 `1000004`, `1000011`, `1000029`, `1000038`은 유지했다.
 
 검증:
 
-- `./mvnw test`는 현재 호스트가 JRE라서 compiler 없음으로 실패했다.
-- Docker JDK 환경 전체 테스트 통과:
-  - `docker run --rm -v $(pwd):/work -w /work maven:3.9.9-eclipse-temurin-21 mvn -q test`
+- `./mvnw test`는 현재 호스트가 JRE라서 compiler 없음으로 실패한다.
+- Docker JDK 환경 전체 테스트를 사용한다.
 
 ## 3. 심각도별 이슈 목록
 
 ### Critical
 
 #### C1. FRIENDS scope 피드가 친구 검증 없이 노출됨
+
+- 상태: 해결 완료.
 
 - 위치: `CommunityRepository.listFeeds`, `listFeedsPage`, `searchFeeds` 계열. `cc.feed_scope IN ('PUBLIC', 'FRIENDS')` 조건 사용.
 - 문제: 비로그인 또는 친구가 아닌 사용자도 `FRIENDS` 피드를 목록에서 볼 수 있다.
@@ -87,7 +127,9 @@ Target: Neo-Stride Spring Boot backend, Docker MySQL, self-hosted single-server 
 
 ### High
 
-#### H1. Legacy feed list는 여전히 전체 데이터 반환 가능
+#### H1. Legacy feed list는 전체 데이터 반환 경로가 남아 있음
+
+- 상태: 부분 해결.
 
 - 위치: `GET /api/community/feeds`, `CommunityRepository.listFeeds`.
 - 문제: 신규 page endpoint는 있지만 기존 feed endpoint는 limit 없이 전체 반환한다.
@@ -100,6 +142,8 @@ Target: Neo-Stride Spring Boot backend, Docker MySQL, self-hosted single-server 
 - API 호환성 영향: 신규 endpoint/optional param 추가는 호환. legacy cap은 rollout 필요.
 
 #### H2. interaction 중복 방지 constraint 부재
+
+- 상태: 해결 완료.
 
 - 위치: `community_interactions`, `toggleInteraction`, `toggleBookmark`.
 - 문제: LIKE/BOOKMARK/TAG가 count-then-insert 방식이며 unique constraint가 없다.
@@ -115,6 +159,8 @@ Target: Neo-Stride Spring Boot backend, Docker MySQL, self-hosted single-server 
 
 #### H3. Community write flow transaction 경계 부족
 
+- 상태: 1차 해결 완료.
+
 - 위치: `CommunityService.uploadFeed`, `uploadTip`, `updateFeed`, `createComment`, `toggleFeedLike` 등.
 - 문제: content insert, image table insert, tag insert, notification insert가 부분 성공할 수 있다.
 - 원인: 일부 write method에 `@Transactional`이 없다.
@@ -123,6 +169,8 @@ Target: Neo-Stride Spring Boot backend, Docker MySQL, self-hosted single-server 
 - API 호환성 영향: 없음.
 
 #### H4. feed image aggregation derived table이 전체 image table을 매번 group by
+
+- 상태: 1차 해결 완료.
 
 - 위치: feed/tip query의 `LEFT JOIN (SELECT content_id, GROUP_CONCAT(...) FROM community_content_images GROUP BY content_id)`.
 - 문제: page limit이 있어도 derived table은 전체 image rows를 group by할 수 있다.
@@ -135,6 +183,8 @@ Target: Neo-Stride Spring Boot backend, Docker MySQL, self-hosted single-server 
 - API 호환성 영향: 없음.
 
 #### H5. comments 전체 반환과 pagination 부재
+
+- 상태: 부분 해결.
 
 - 위치: `findFeedDetail`, `findTipDetail`, `commentsForContent`.
 - 문제: 상세 조회가 댓글 전체를 항상 반환한다.
@@ -258,7 +308,7 @@ Auth:
 Community:
 
 - 가장 많은 기능과 리스크가 집중되어 있다.
-- feed count는 stats table로 개선되어 있지만 privacy predicate, legacy full list, comment pagination, reaction uniqueness가 남았다.
+- feed count/stats, privacy predicate, reaction uniqueness, write transaction, legacy feed optional cursor, comments cursor endpoint까지 1차 개선했다. 남은 핵심은 detail comments payload 축소 rollout, repository 책임 분리, 검색/이미지 후처리다.
 - Repository가 notification 생성까지 수행해 책임이 크다.
 - 목록 응답에 `liked/bookmarked/commented/tagged`를 포함하는 방향은 client API 호출 수 감소 측면에서 좋다.
 
@@ -306,10 +356,10 @@ Operations:
 
 다음 개선:
 
-1. FRIENDS privacy predicate 수정.
-2. Android/iOS/Web feed client를 `/api/community/feeds/page`로 전환.
-3. feed/tip query를 content page 조회 + image batch 조회로 분리.
-4. comments cursor endpoint 추가.
+1. Android/iOS/Web feed client를 optional cursor 또는 `/api/community/feeds/page`로 전환.
+2. Android/iOS/Web comments client를 신규 cursor endpoint로 전환.
+3. client 전환 후 detail comments payload 축소 또는 v2 detail endpoint 도입.
+4. 이미지 row가 더 늘면 feed/tip image 조회를 content page 조회 + image batch 조회로 한 번 더 분리.
 5. search fulltext/index 전략 도입.
 6. upload thumbnail background executor 도입.
 7. Redis는 위 항목 이후 first page/hot feed cache만 검토.
@@ -388,37 +438,36 @@ Downtime 최소화:
 
 지금 바로:
 
-1. FRIENDS scope 노출 수정.
-2. secret rotation + DB app user 전환.
-3. Community write method `@Transactional` 적용.
-4. reaction uniqueness/dedupe migration 설계.
-5. clients feed page endpoint 전환 시작.
+1. secret rotation + DB app user 전환.
+2. Android/iOS/Web에서 feed cursor query 또는 `/api/community/feeds/page` 사용 시작.
+3. Android/iOS/Web에서 comments cursor endpoint 사용 시작.
+4. migration apply script/schema_migrations 도입.
+5. background thumbnail executor.
 
 다음 스프린트:
 
-1. comments cursor endpoint.
-2. feed/tip image aggregation batch 조회로 개선.
-3. background thumbnail executor.
-4. migration apply script/schema_migrations 도입.
-5. refresh token persistence/rotation.
+1. client 전환율 확인 후 legacy no-param feed cap 정책 결정.
+2. detail comments 축소/v2 endpoint migration guide 작성.
+3. feed/tip image 조회 batch 분리 추가 검토.
+4. refresh token persistence/rotation.
+5. search fulltext/index 전략 도입.
 
 장기:
 
 1. delimiter 기반 `content_text` 제거.
 2. community repository 분리.
-3. FULLTEXT/search 구조 개선.
-4. optional Redis first-page cache.
-5. notification outbox 검토.
+3. optional Redis first-page cache.
+4. notification outbox 검토.
 
 ## 9. 최종 산출물 요약
 
 병목 원인:
 
-- legacy full feed, image original/thumbnail 처리, image aggregation derived table, comments no pagination, SQL index 부족, running GPS N+1, coaching goals/plans index 부족.
+- legacy full feed/detail payload, image original/thumbnail 처리, search `%LIKE%`/offset pagination, migration drift, secret/root DB 운영, 일부 장기 구조 부채.
 
 적용 가능한 개선안:
 
-- Cursor pagination, additional composite indexes, stats table, thumbnail/Caddy static serving, batch GPS trace loading, date range monthly query, comments pagination, transaction/uniqueness fixes.
+- 적용 완료: cursor pagination 진입점, additional composite indexes, stats table, Caddy static serving, batch GPS trace loading, date range monthly query, comments pagination endpoint, transaction/uniqueness fixes, coaching feedback request 호환. 다음 적용: background thumbnail executor, migration automation, search index/fulltext.
 
 API 호환성 영향:
 
@@ -429,18 +478,19 @@ API 호환성 영향:
 필요 migration:
 
 - 이미 적용: 006-013 인덱스/stats/images/notifications/pace normalization.
-- 다음 필요: interaction dedupe/unique, content_text column normalization, refresh_tokens, schema_migrations.
+- 이미 적용: interaction dedupe/unique.
+- 다음 필요: content_text column normalization, refresh_tokens, schema_migrations.
 
 예상 성능 개선 효과:
 
 - feed warm local latency는 현재 약 수 ms 수준.
-- 데이터 증가 시 cursor pagination과 image thumbnail/Caddy가 가장 큰 체감 개선이다.
+- 데이터 증가 시 cursor pagination, comments page 분리, Caddy thumbnail serving이 가장 큰 체감 개선이다.
 - running list는 records N개일 때 GPS query N회에서 1회로 감소했다.
 - coaching lock wait는 goals/plans index로 완화될 가능성이 높다.
 
 남은 리스크:
 
-- privacy predicate, secret rotation, reaction duplicate, transaction boundary, migration drift.
+- secret rotation, DB app user 전환, detail comments payload, background thumbnail executor, migration drift.
 
 테스트 및 검증 계획:
 
@@ -456,4 +506,8 @@ API 호환성 영향:
 - Fixed community feed visibility so unauthenticated feed/search only returns PUBLIC posts, while authenticated viewers can see PUBLIC, own, and accepted-friend FRIENDS posts. Detail and interaction paths now enforce the same visibility plus blocked-user filtering.
 - Added interaction uniqueness migration for LIKE, BOOKMARK, and TAG while preserving multiple COMMENT rows.
 - Widened `plans.feedback` from `VARCHAR(100)` to `TEXT` because coaching running save calls feedback completion in the same transaction; long AI/fallback feedback could raise `DataIntegrityViolationException` and roll back `POST /api/running/records` with HTTP 409.
+- Added `actual_pace_min_per_km` as an optional feedback request alias while preserving `actual_pace_sec_per_km`. The server normalizes the alias to seconds/km before AI/fallback feedback generation.
+- Adjusted today-plan lookup so a just-completed plan remains readable after the client marks the goal inactive/achieved.
+- Added feed/comment cursor compatibility and removed the feed/tip image derived-table aggregation.
+- Added `GET /api/friends/{userId}` with viewer-based relationship status so another user's friend list does not render every row as `friends` for the requester.
 - Cleaned obvious test/agent DB users after taking `/tmp/neostride-before-agent-test-data-cleanup.sql`; real-looking users were left intact.

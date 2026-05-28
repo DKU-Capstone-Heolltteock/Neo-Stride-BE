@@ -119,7 +119,7 @@ public class CommunityRepository {
 			       COALESCE(cu.community_profile_name, u.community_profile_name, u.name) AS nickname,
 			       COALESCE(cu.profile_photo, u.profile_photo) AS profile_image_url,
 			       COALESCE(cu.badge, 'NONE') AS badge_tier,
-			       cc.content_text, cc.include_route_detail, COALESCE(images.image_urls, cc.image) AS image_urls,
+			       cc.content_text, cc.include_route_detail, COALESCE((SELECT GROUP_CONCAT(cci.image_url ORDER BY cci.image_order SEPARATOR '\n---NEOSTRIDE-IMAGE---\n') FROM community_content_images cci WHERE cci.content_id = cc.content_id), cc.image) AS image_urls,
 			       rr.run_record_id AS joined_running_record_id, COALESCE(rr.total_distance, 0) AS total_distance, rr.duration, rr.pace, cc.created_at,
 			       COALESCE(stats.tagged_count, 0) AS tagged_count,
 			       COALESCE(stats.like_count, 0) AS like_count,
@@ -133,7 +133,6 @@ public class CommunityRepository {
 			LEFT JOIN community_users cu ON cu.user_id = u.user_id
 			LEFT JOIN running_records rr ON rr.run_record_id = cc.running_record_id
 			LEFT JOIN community_content_stats stats ON stats.content_id = cc.content_id
-			LEFT JOIN (SELECT content_id, GROUP_CONCAT(image_url ORDER BY image_order SEPARATOR '\n---NEOSTRIDE-IMAGE---\n') AS image_urls FROM community_content_images GROUP BY content_id) images ON images.content_id=cc.content_id
 			WHERE
 			""" + feedPredicate(predicate) + " AND " + blockedByCurrentUserPredicate() + " ORDER BY cc.created_at DESC, cc.content_id DESC", (rs, n) -> {
 			DecodedFeedContent decoded = decodeFeedContent(rs.getString("content_text"));
@@ -213,6 +212,28 @@ public class CommunityRepository {
 			LEFT JOIN community_users cu ON cu.user_id = other_user.user_id
 			WHERE
 			""" + predicate + " ORDER BY other_user.user_id", (rs, n) -> new FriendResponse(rs.getLong("user_id"), rs.getString("nickname"), rs.getString("badge_tier"), rs.getInt("friend_count"), rs.getString("profile_image_url"), responseStatus), args);
+	}
+
+	public List<FriendResponse> getUserFriendList(long viewerUserId, long userId) {
+		return jdbcTemplate.query("""
+			SELECT other_user.user_id, COALESCE(cu.community_profile_name, other_user.community_profile_name, other_user.name) AS nickname,
+			       COALESCE(cu.badge, 'NONE') AS badge_tier,
+			       (SELECT COUNT(*) FROM relationships rf WHERE (rf.user1_id = other_user.user_id OR rf.user2_id = other_user.user_id) AND rf.status='ACCEPTED') AS friend_count,
+			       COALESCE(cu.profile_photo, other_user.profile_photo) AS profile_image_url,
+			       CASE
+			           WHEN EXISTS (SELECT 1 FROM relationships rv WHERE rv.status='BLOCKED' AND rv.user1_id=? AND rv.user2_id=other_user.user_id) THEN 'blocked'
+			           WHEN EXISTS (SELECT 1 FROM relationships rv WHERE rv.status='ACCEPTED' AND ((rv.user1_id=? AND rv.user2_id=other_user.user_id) OR (rv.user2_id=? AND rv.user1_id=other_user.user_id))) THEN 'friends'
+			           WHEN EXISTS (SELECT 1 FROM relationships rv WHERE rv.status='REQUESTED' AND rv.user1_id=? AND rv.user2_id=other_user.user_id) THEN 'sent'
+			           WHEN EXISTS (SELECT 1 FROM relationships rv WHERE rv.status='REQUESTED' AND rv.user2_id=? AND rv.user1_id=other_user.user_id) THEN 'received'
+			           ELSE 'none'
+			       END AS relationship_status
+			FROM relationships r
+			JOIN users other_user ON other_user.user_id = CASE WHEN r.user1_id = ? THEN r.user2_id ELSE r.user1_id END
+			LEFT JOIN community_users cu ON cu.user_id = other_user.user_id
+			WHERE (r.user1_id = ? OR r.user2_id = ?) AND r.status = 'ACCEPTED'
+			ORDER BY other_user.user_id
+			""", (rs, n) -> new FriendResponse(rs.getLong("user_id"), rs.getString("nickname"), rs.getString("badge_tier"), rs.getInt("friend_count"), rs.getString("profile_image_url"), rs.getString("relationship_status")),
+				viewerUserId, viewerUserId, viewerUserId, viewerUserId, viewerUserId, userId, userId, userId);
 	}
 
 	public void updateRelationship(long userId, FriendRequest request) {
@@ -318,7 +339,7 @@ public class CommunityRepository {
 		return jdbcTemplate.query("""
 			SELECT cc.content_id, cc.author_user_id, COALESCE(cu.profile_photo, u.profile_photo) AS profile_image_url,
 			       COALESCE(cu.community_profile_name, u.community_profile_name, u.name) AS nickname,
-			       COALESCE(cu.badge, 'NONE') AS badge, cc.created_at, cc.content_text, cc.include_route_detail, COALESCE(images.image_urls, cc.image) AS image_urls,
+			       COALESCE(cu.badge, 'NONE') AS badge, cc.created_at, cc.content_text, cc.include_route_detail, COALESCE((SELECT GROUP_CONCAT(cci.image_url ORDER BY cci.image_order SEPARATOR '\n---NEOSTRIDE-IMAGE---\n') FROM community_content_images cci WHERE cci.content_id = cc.content_id), cc.image) AS image_urls,
 			       rr.run_record_id AS joined_running_record_id, COALESCE(rr.total_distance, 0) AS total_distance, rr.duration, rr.pace,
 			       COALESCE(stats.tagged_count, 0) AS tagged_count,
 			       COALESCE(stats.like_count, 0) AS like_count,
@@ -327,7 +348,6 @@ public class CommunityRepository {
 			       EXISTS (SELECT 1 FROM community_interactions ci WHERE ci.content_id=cc.content_id AND ci.user_id=? AND ci.interaction_type='BOOKMARK') AS bookmarked
 			FROM community_contents cc JOIN users u ON u.user_id=cc.author_user_id LEFT JOIN community_users cu ON cu.user_id=u.user_id
 			LEFT JOIN community_content_stats stats ON stats.content_id=cc.content_id
-			LEFT JOIN (SELECT content_id, GROUP_CONCAT(image_url ORDER BY image_order SEPARATOR '\n---NEOSTRIDE-IMAGE---\n') AS image_urls FROM community_content_images GROUP BY content_id) images ON images.content_id=cc.content_id
 			LEFT JOIN running_records rr ON rr.run_record_id=cc.running_record_id WHERE cc.content_type='POST' AND cc.content_id=? AND 
 			""" + VIEWER_SCOPE_PREDICATE + " AND " + blockedByCurrentUserPredicate() + """
 			""", (rs, n) -> {
@@ -447,14 +467,13 @@ public class CommunityRepository {
 		return jdbcTemplate.query("""
 			SELECT cc.content_id, cc.author_user_id, COALESCE(cu.community_profile_name, u.community_profile_name, u.name) AS nickname,
 			       COALESCE(cu.profile_photo, u.profile_photo) AS profile_image_url, COALESCE(cu.badge, 'NONE') AS badge,
-			       cc.tip_type, cc.content_text, cc.include_route_detail, COALESCE(images.image_urls, cc.image) AS image_urls, cc.created_at,
+			       cc.tip_type, cc.content_text, cc.include_route_detail, COALESCE((SELECT GROUP_CONCAT(cci.image_url ORDER BY cci.image_order SEPARATOR '\n---NEOSTRIDE-IMAGE---\n') FROM community_content_images cci WHERE cci.content_id = cc.content_id), cc.image) AS image_urls, cc.created_at,
 			       COALESCE(stats.like_count, 0) AS like_count,
 			       COALESCE(stats.comment_count, 0) AS comment_count,
 			       EXISTS (SELECT 1 FROM community_interactions ci WHERE ci.content_id=cc.content_id AND ci.user_id=? AND ci.interaction_type='LIKE') AS liked,
 			       EXISTS (SELECT 1 FROM community_interactions ci WHERE ci.content_id=cc.content_id AND ci.user_id=? AND ci.interaction_type='BOOKMARK') AS bookmarked
 			FROM community_contents cc JOIN users u ON u.user_id=cc.author_user_id LEFT JOIN community_users cu ON cu.user_id=u.user_id
 			LEFT JOIN community_content_stats stats ON stats.content_id=cc.content_id
-			LEFT JOIN (SELECT content_id, GROUP_CONCAT(image_url ORDER BY image_order SEPARATOR '\n---NEOSTRIDE-IMAGE---\n') AS image_urls FROM community_content_images GROUP BY content_id) images ON images.content_id=cc.content_id
 			WHERE cc.content_type='TIP' AND cc.content_id=?
 			""", (rs, n) -> {
 			String[] parts = decodeTipContent(rs.getString("content_text"));
@@ -573,7 +592,7 @@ public class CommunityRepository {
 			SELECT cc.content_id, cc.author_user_id, FALSE AS mine, COALESCE(cu.profile_photo, u.profile_photo) AS profile_image_url,
 			       COALESCE(cu.community_profile_name, u.community_profile_name, u.name) AS nickname,
 			       COALESCE(cu.badge, 'NONE') AS badge, cc.created_at,
-			       cc.content_text, cc.include_route_detail, COALESCE(images.image_urls, cc.image) AS image_urls,
+			       cc.content_text, cc.include_route_detail, COALESCE((SELECT GROUP_CONCAT(cci.image_url ORDER BY cci.image_order SEPARATOR '\n---NEOSTRIDE-IMAGE---\n') FROM community_content_images cci WHERE cci.content_id = cc.content_id), cc.image) AS image_urls,
 			       rr.run_record_id AS joined_running_record_id, COALESCE(rr.total_distance, 0) AS total_distance, rr.duration, rr.pace,
 			       COALESCE(stats.tagged_count, 0) AS tagged_count,
 			       COALESCE(stats.like_count, 0) AS like_count,
@@ -584,7 +603,6 @@ public class CommunityRepository {
 			LEFT JOIN community_users cu ON cu.user_id=u.user_id
 			LEFT JOIN running_records rr ON rr.run_record_id=cc.running_record_id
 			LEFT JOIN community_content_stats stats ON stats.content_id=cc.content_id
-			LEFT JOIN (SELECT content_id, GROUP_CONCAT(image_url ORDER BY image_order SEPARATOR '\n---NEOSTRIDE-IMAGE---\n') AS image_urls FROM community_content_images GROUP BY content_id) images ON images.content_id=cc.content_id
 			WHERE
 			""" + predicate + " ORDER BY cc.created_at DESC, cc.content_id DESC", (rs, n) -> mapFeed(rs), args);
 	}
@@ -594,7 +612,7 @@ public class CommunityRepository {
 			SELECT cc.content_id, cc.author_user_id, (cc.author_user_id = ?) AS mine, COALESCE(cu.profile_photo, u.profile_photo) AS profile_image_url,
 			       COALESCE(cu.community_profile_name, u.community_profile_name, u.name) AS nickname,
 			       COALESCE(cu.badge, 'NONE') AS badge, cc.created_at,
-			       cc.content_text, cc.include_route_detail, COALESCE(images.image_urls, cc.image) AS image_urls,
+			       cc.content_text, cc.include_route_detail, COALESCE((SELECT GROUP_CONCAT(cci.image_url ORDER BY cci.image_order SEPARATOR '\n---NEOSTRIDE-IMAGE---\n') FROM community_content_images cci WHERE cci.content_id = cc.content_id), cc.image) AS image_urls,
 			       rr.run_record_id AS joined_running_record_id, COALESCE(rr.total_distance, 0) AS total_distance, rr.duration, rr.pace,
 			       COALESCE(stats.tagged_count, 0) AS tagged_count,
 			       COALESCE(stats.like_count, 0) AS like_count,
@@ -608,7 +626,6 @@ public class CommunityRepository {
 			LEFT JOIN community_users cu ON cu.user_id=u.user_id
 			LEFT JOIN running_records rr ON rr.run_record_id=cc.running_record_id
 			LEFT JOIN community_content_stats stats ON stats.content_id=cc.content_id
-			LEFT JOIN (SELECT content_id, GROUP_CONCAT(image_url ORDER BY image_order SEPARATOR '\n---NEOSTRIDE-IMAGE---\n') AS image_urls FROM community_content_images GROUP BY content_id) images ON images.content_id=cc.content_id
 			WHERE
 			""" + predicate + " ORDER BY cc.created_at DESC, cc.content_id DESC", (rs, n) -> mapFeed(rs), args);
 	}
@@ -618,7 +635,7 @@ public class CommunityRepository {
 			SELECT cc.content_id, cc.author_user_id, FALSE AS mine, COALESCE(cu.profile_photo, u.profile_photo) AS profile_image_url,
 			       COALESCE(cu.community_profile_name, u.community_profile_name, u.name) AS nickname,
 			       COALESCE(cu.badge, 'NONE') AS badge, cc.created_at,
-			       cc.content_text, cc.include_route_detail, COALESCE(images.image_urls, cc.image) AS image_urls,
+			       cc.content_text, cc.include_route_detail, COALESCE((SELECT GROUP_CONCAT(cci.image_url ORDER BY cci.image_order SEPARATOR '\n---NEOSTRIDE-IMAGE---\n') FROM community_content_images cci WHERE cci.content_id = cc.content_id), cc.image) AS image_urls,
 			       rr.run_record_id AS joined_running_record_id, COALESCE(rr.total_distance, 0) AS total_distance, rr.duration, rr.pace,
 			       COALESCE(stats.tagged_count, 0) AS tagged_count,
 			       COALESCE(stats.like_count, 0) AS like_count,
@@ -629,7 +646,6 @@ public class CommunityRepository {
 			LEFT JOIN community_users cu ON cu.user_id=u.user_id
 			LEFT JOIN running_records rr ON rr.run_record_id=cc.running_record_id
 			LEFT JOIN community_content_stats stats ON stats.content_id=cc.content_id
-			LEFT JOIN (SELECT content_id, GROUP_CONCAT(image_url ORDER BY image_order SEPARATOR '\n---NEOSTRIDE-IMAGE---\n') AS image_urls FROM community_content_images GROUP BY content_id) images ON images.content_id=cc.content_id
 			WHERE
 			""" + predicate + " ORDER BY cc.created_at DESC, cc.content_id DESC LIMIT ?", (rs, n) -> mapFeed(rs), args);
 	}
@@ -639,7 +655,7 @@ public class CommunityRepository {
 			SELECT cc.content_id, cc.author_user_id, (cc.author_user_id = ?) AS mine, COALESCE(cu.profile_photo, u.profile_photo) AS profile_image_url,
 			       COALESCE(cu.community_profile_name, u.community_profile_name, u.name) AS nickname,
 			       COALESCE(cu.badge, 'NONE') AS badge, cc.created_at,
-			       cc.content_text, cc.include_route_detail, COALESCE(images.image_urls, cc.image) AS image_urls,
+			       cc.content_text, cc.include_route_detail, COALESCE((SELECT GROUP_CONCAT(cci.image_url ORDER BY cci.image_order SEPARATOR '\n---NEOSTRIDE-IMAGE---\n') FROM community_content_images cci WHERE cci.content_id = cc.content_id), cc.image) AS image_urls,
 			       rr.run_record_id AS joined_running_record_id, COALESCE(rr.total_distance, 0) AS total_distance, rr.duration, rr.pace,
 			       COALESCE(stats.tagged_count, 0) AS tagged_count,
 			       COALESCE(stats.like_count, 0) AS like_count,
@@ -653,7 +669,6 @@ public class CommunityRepository {
 			LEFT JOIN community_users cu ON cu.user_id=u.user_id
 			LEFT JOIN running_records rr ON rr.run_record_id=cc.running_record_id
 			LEFT JOIN community_content_stats stats ON stats.content_id=cc.content_id
-			LEFT JOIN (SELECT content_id, GROUP_CONCAT(image_url ORDER BY image_order SEPARATOR '\n---NEOSTRIDE-IMAGE---\n') AS image_urls FROM community_content_images GROUP BY content_id) images ON images.content_id=cc.content_id
 			WHERE
 			""" + predicate + " ORDER BY cc.created_at DESC, cc.content_id DESC LIMIT ?", (rs, n) -> mapFeed(rs), args);
 	}
@@ -669,13 +684,12 @@ public class CommunityRepository {
 		return jdbcTemplate.query("""
 			SELECT cc.content_id, cc.author_user_id, COALESCE(cu.community_profile_name, u.community_profile_name, u.name) AS nickname,
 			       COALESCE(cu.profile_photo, u.profile_photo) AS profile_image_url, COALESCE(cu.badge, 'NONE') AS badge,
-			       cc.tip_type, cc.content_text, cc.include_route_detail, COALESCE(images.image_urls, cc.image) AS image_urls, cc.created_at,
+			       cc.tip_type, cc.content_text, cc.include_route_detail, COALESCE((SELECT GROUP_CONCAT(cci.image_url ORDER BY cci.image_order SEPARATOR '\n---NEOSTRIDE-IMAGE---\n') FROM community_content_images cci WHERE cci.content_id = cc.content_id), cc.image) AS image_urls, cc.created_at,
 			       COALESCE(stats.like_count, 0) AS like_count,
 			       COALESCE(stats.comment_count, 0) AS comment_count,
 			       FALSE AS liked, FALSE AS bookmarked, FALSE AS commented, FALSE AS mine
 			FROM community_contents cc JOIN users u ON u.user_id=cc.author_user_id LEFT JOIN community_users cu ON cu.user_id=u.user_id
 			LEFT JOIN community_content_stats stats ON stats.content_id=cc.content_id
-			LEFT JOIN (SELECT content_id, GROUP_CONCAT(image_url ORDER BY image_order SEPARATOR '\n---NEOSTRIDE-IMAGE---\n') AS image_urls FROM community_content_images GROUP BY content_id) images ON images.content_id=cc.content_id
 			WHERE
 			""" + predicate + " ORDER BY cc.created_at DESC, cc.content_id DESC", this::mapTip, args);
 	}
@@ -685,7 +699,7 @@ public class CommunityRepository {
 			SELECT cc.content_id, cc.author_user_id, FALSE AS mine, COALESCE(cu.profile_photo, u.profile_photo) AS profile_image_url,
 			       COALESCE(cu.community_profile_name, u.community_profile_name, u.name) AS nickname,
 			       COALESCE(cu.badge, 'NONE') AS badge, cc.created_at,
-			       cc.content_text, cc.include_route_detail, COALESCE(images.image_urls, cc.image) AS image_urls,
+			       cc.content_text, cc.include_route_detail, COALESCE((SELECT GROUP_CONCAT(cci.image_url ORDER BY cci.image_order SEPARATOR '\n---NEOSTRIDE-IMAGE---\n') FROM community_content_images cci WHERE cci.content_id = cc.content_id), cc.image) AS image_urls,
 			       rr.run_record_id AS joined_running_record_id, COALESCE(rr.total_distance, 0) AS total_distance, rr.duration, rr.pace,
 			       COALESCE(stats.tagged_count, 0) AS tagged_count,
 			       COALESCE(stats.like_count, 0) AS like_count,
@@ -696,7 +710,6 @@ public class CommunityRepository {
 			LEFT JOIN community_users cu ON cu.user_id=u.user_id
 			LEFT JOIN running_records rr ON rr.run_record_id=cc.running_record_id
 			LEFT JOIN community_content_stats stats ON stats.content_id=cc.content_id
-			LEFT JOIN (SELECT content_id, GROUP_CONCAT(image_url ORDER BY image_order SEPARATOR '\n---NEOSTRIDE-IMAGE---\n') AS image_urls FROM community_content_images GROUP BY content_id) images ON images.content_id=cc.content_id
 			WHERE
 			""" + predicate + " ORDER BY cc.created_at DESC, cc.content_id DESC LIMIT ? OFFSET ?", (rs, n) -> mapFeed(rs), args);
 	}
@@ -705,13 +718,12 @@ public class CommunityRepository {
 		return jdbcTemplate.query("""
 			SELECT cc.content_id, cc.author_user_id, COALESCE(cu.community_profile_name, u.community_profile_name, u.name) AS nickname,
 			       COALESCE(cu.profile_photo, u.profile_photo) AS profile_image_url, COALESCE(cu.badge, 'NONE') AS badge,
-			       cc.tip_type, cc.content_text, cc.include_route_detail, COALESCE(images.image_urls, cc.image) AS image_urls, cc.created_at,
+			       cc.tip_type, cc.content_text, cc.include_route_detail, COALESCE((SELECT GROUP_CONCAT(cci.image_url ORDER BY cci.image_order SEPARATOR '\n---NEOSTRIDE-IMAGE---\n') FROM community_content_images cci WHERE cci.content_id = cc.content_id), cc.image) AS image_urls, cc.created_at,
 			       COALESCE(stats.like_count, 0) AS like_count,
 			       COALESCE(stats.comment_count, 0) AS comment_count,
 			       FALSE AS liked, FALSE AS bookmarked, FALSE AS commented, FALSE AS mine
 			FROM community_contents cc JOIN users u ON u.user_id=cc.author_user_id LEFT JOIN community_users cu ON cu.user_id=u.user_id
 			LEFT JOIN community_content_stats stats ON stats.content_id=cc.content_id
-			LEFT JOIN (SELECT content_id, GROUP_CONCAT(image_url ORDER BY image_order SEPARATOR '\n---NEOSTRIDE-IMAGE---\n') AS image_urls FROM community_content_images GROUP BY content_id) images ON images.content_id=cc.content_id
 			WHERE
 			""" + predicate + " ORDER BY cc.created_at DESC, cc.content_id DESC LIMIT ? OFFSET ?", this::mapTip, args);
 	}
@@ -721,7 +733,7 @@ public class CommunityRepository {
 			SELECT cc.content_id, cc.author_user_id, (cc.author_user_id = ?) AS mine, COALESCE(cu.profile_photo, u.profile_photo) AS profile_image_url,
 			       COALESCE(cu.community_profile_name, u.community_profile_name, u.name) AS nickname,
 			       COALESCE(cu.badge, 'NONE') AS badge, cc.created_at,
-			       cc.content_text, cc.include_route_detail, COALESCE(images.image_urls, cc.image) AS image_urls,
+			       cc.content_text, cc.include_route_detail, COALESCE((SELECT GROUP_CONCAT(cci.image_url ORDER BY cci.image_order SEPARATOR '\n---NEOSTRIDE-IMAGE---\n') FROM community_content_images cci WHERE cci.content_id = cc.content_id), cc.image) AS image_urls,
 			       rr.run_record_id AS joined_running_record_id, COALESCE(rr.total_distance, 0) AS total_distance, rr.duration, rr.pace,
 			       COALESCE(stats.tagged_count, 0) AS tagged_count,
 			       COALESCE(stats.like_count, 0) AS like_count,
@@ -735,7 +747,6 @@ public class CommunityRepository {
 			LEFT JOIN community_users cu ON cu.user_id=u.user_id
 			LEFT JOIN running_records rr ON rr.run_record_id=cc.running_record_id
 			LEFT JOIN community_content_stats stats ON stats.content_id=cc.content_id
-			LEFT JOIN (SELECT content_id, GROUP_CONCAT(image_url ORDER BY image_order SEPARATOR '\n---NEOSTRIDE-IMAGE---\n') AS image_urls FROM community_content_images GROUP BY content_id) images ON images.content_id=cc.content_id
 			WHERE
 			""" + predicate + " ORDER BY cc.created_at DESC, cc.content_id DESC LIMIT ? OFFSET ?", (rs, n) -> mapFeed(rs), args);
 	}
@@ -744,7 +755,7 @@ public class CommunityRepository {
 		return jdbcTemplate.query("""
 			SELECT cc.content_id, cc.author_user_id, COALESCE(cu.community_profile_name, u.community_profile_name, u.name) AS nickname,
 			       COALESCE(cu.profile_photo, u.profile_photo) AS profile_image_url, COALESCE(cu.badge, 'NONE') AS badge,
-			       cc.tip_type, cc.content_text, cc.include_route_detail, COALESCE(images.image_urls, cc.image) AS image_urls, cc.created_at,
+			       cc.tip_type, cc.content_text, cc.include_route_detail, COALESCE((SELECT GROUP_CONCAT(cci.image_url ORDER BY cci.image_order SEPARATOR '\n---NEOSTRIDE-IMAGE---\n') FROM community_content_images cci WHERE cci.content_id = cc.content_id), cc.image) AS image_urls, cc.created_at,
 			       COALESCE(stats.like_count, 0) AS like_count,
 			       COALESCE(stats.comment_count, 0) AS comment_count,
 			       EXISTS (SELECT 1 FROM community_interactions ci WHERE ci.content_id=cc.content_id AND ci.user_id=? AND ci.interaction_type='LIKE') AS liked,
@@ -753,7 +764,6 @@ public class CommunityRepository {
 			       (cc.author_user_id = ?) AS mine
 			FROM community_contents cc JOIN users u ON u.user_id=cc.author_user_id LEFT JOIN community_users cu ON cu.user_id=u.user_id
 			LEFT JOIN community_content_stats stats ON stats.content_id=cc.content_id
-			LEFT JOIN (SELECT content_id, GROUP_CONCAT(image_url ORDER BY image_order SEPARATOR '\n---NEOSTRIDE-IMAGE---\n') AS image_urls FROM community_content_images GROUP BY content_id) images ON images.content_id=cc.content_id
 			WHERE
 			""" + predicate + " ORDER BY cc.created_at DESC, cc.content_id DESC LIMIT ? OFFSET ?", this::mapTip, args);
 	}
@@ -762,7 +772,7 @@ public class CommunityRepository {
 		return jdbcTemplate.query("""
 			SELECT cc.content_id, cc.author_user_id, COALESCE(cu.community_profile_name, u.community_profile_name, u.name) AS nickname,
 			       COALESCE(cu.profile_photo, u.profile_photo) AS profile_image_url, COALESCE(cu.badge, 'NONE') AS badge,
-			       cc.tip_type, cc.content_text, cc.include_route_detail, COALESCE(images.image_urls, cc.image) AS image_urls, cc.created_at,
+			       cc.tip_type, cc.content_text, cc.include_route_detail, COALESCE((SELECT GROUP_CONCAT(cci.image_url ORDER BY cci.image_order SEPARATOR '\n---NEOSTRIDE-IMAGE---\n') FROM community_content_images cci WHERE cci.content_id = cc.content_id), cc.image) AS image_urls, cc.created_at,
 			       COALESCE(stats.like_count, 0) AS like_count,
 			       COALESCE(stats.comment_count, 0) AS comment_count,
 			       EXISTS (SELECT 1 FROM community_interactions ci WHERE ci.content_id=cc.content_id AND ci.user_id=? AND ci.interaction_type='LIKE') AS liked,
@@ -771,7 +781,6 @@ public class CommunityRepository {
 			       (cc.author_user_id = ?) AS mine
 			FROM community_contents cc JOIN users u ON u.user_id=cc.author_user_id LEFT JOIN community_users cu ON cu.user_id=u.user_id
 			LEFT JOIN community_content_stats stats ON stats.content_id=cc.content_id
-			LEFT JOIN (SELECT content_id, GROUP_CONCAT(image_url ORDER BY image_order SEPARATOR '\n---NEOSTRIDE-IMAGE---\n') AS image_urls FROM community_content_images GROUP BY content_id) images ON images.content_id=cc.content_id
 			WHERE
 			""" + predicate + " ORDER BY cc.created_at DESC, cc.content_id DESC", this::mapTip, args);
 	}
@@ -843,7 +852,30 @@ public class CommunityRepository {
 			""", (rs, n) -> mapComment(rs, viewerUserId), commentId).stream().findFirst().orElse(null);
 	}
 
+	public List<CommentResponse> commentsPage(long viewerUserId, long contentId, LocalDateTime cursorCreatedAt, Long cursorId, int limit) {
+		requireViewableContent(viewerUserId, contentId);
+		return commentsForContent(viewerUserId, contentId, cursorCreatedAt, cursorId, limit);
+	}
+
 	private List<CommentResponse> commentsForContent(long viewerUserId, long contentId) {
+		return commentsForContent(viewerUserId, contentId, null, null, null);
+	}
+
+	private List<CommentResponse> commentsForContent(long viewerUserId, long contentId, LocalDateTime cursorCreatedAt, Long cursorId, Integer limit) {
+		String cursorPredicate = "";
+		java.util.List<Object> args = new java.util.ArrayList<>();
+		args.add(contentId);
+		args.add(viewerUserId);
+		if (cursorCreatedAt != null && cursorId != null) {
+			cursorPredicate = " AND (ci.created_at > ? OR (ci.created_at = ? AND ci.interaction_id > ?))";
+			Timestamp cursorTimestamp = Timestamp.valueOf(cursorCreatedAt);
+			args.add(cursorTimestamp);
+			args.add(cursorTimestamp);
+			args.add(cursorId);
+		}
+		if (limit != null) {
+			args.add(limit);
+		}
 		return jdbcTemplate.query("""
 			SELECT ci.interaction_id, ci.user_id, COALESCE(cu.community_profile_name, u.community_profile_name, u.name) AS nickname,
 			       COALESCE(cu.profile_photo, u.profile_photo) AS profile_image_url, ci.comment_text, ci.created_at,
@@ -854,8 +886,9 @@ public class CommunityRepository {
 			  SELECT 1 FROM relationships r
 			  WHERE r.user1_id=? AND r.user2_id=ci.user_id AND r.status='BLOCKED'
 			  )
+			""" + cursorPredicate + """
 			ORDER BY ci.created_at ASC, ci.interaction_id ASC
-			""", (rs, n) -> mapComment(rs, viewerUserId), contentId, viewerUserId);
+			""" + (limit == null ? "" : " LIMIT ?"), (rs, n) -> mapComment(rs, viewerUserId), args.toArray());
 	}
 
 	private CommentResponse mapComment(java.sql.ResultSet rs, long viewerUserId) throws java.sql.SQLException {

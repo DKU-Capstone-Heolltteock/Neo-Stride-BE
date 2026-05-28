@@ -2,6 +2,7 @@ package com.neostride.server.community.controller;
 
 import com.neostride.server.auth.service.AuthenticatedUserService;
 import com.neostride.server.community.dto.BadgeDetailResponse;
+import com.neostride.server.community.dto.CommentResponse;
 import com.neostride.server.community.dto.CommunityContentResponse;
 import com.neostride.server.community.dto.FeedCursorResponse;
 import com.neostride.server.community.dto.FeedPageResponse;
@@ -280,11 +281,13 @@ class CommunityControllerTest {
 		when(service.getBadgeDetail(2L)).thenReturn(badge);
 		when(service.getUserFeeds(2L)).thenReturn(feeds);
 		when(service.getUserFriendList(2L)).thenReturn(friends);
+		when(service.getUserFriendList(1L, 2L)).thenReturn(friends);
 
 		assertThat(controller.getRunnerProfile(AUTHORIZATION, 1L, 2L).getBody()).isSameAs(profile);
 		assertThat(controller.getUserBadgeDetail(2L).getBody()).isSameAs(badge);
 		assertThat(controller.getRunnerFeeds(2L).getBody()).isSameAs(feeds);
 		assertThat(controller.getUserFriendList(2L).getBody()).isSameAs(friends);
+		assertThat(controller.getApiUserFriendList(AUTHORIZATION, 1L, 2L).getBody()).isSameAs(friends);
 	}
 
 	@Test
@@ -308,12 +311,12 @@ class CommunityControllerTest {
 	@Test
 	void getCommunityFeedList_ignoresUnauthenticatedUserIdHeader() {
 		FeedUploadResponse feed = new FeedUploadResponse(99L, null, "neo", "2026-05-11T00:00:00", "title", "content", 1, 0, 0, "3.20 km", "20:00", "6'15\"", true, "route.png", List.of("image.png"));
-		when(service.getFeedList((Long) null)).thenReturn(List.of(feed));
+		when(service.getFeedList((Long) null, null, null, null)).thenReturn(List.of(feed));
 
-		var response = controller.getCommunityFeedList(null, 1L);
+		var response = controller.getCommunityFeedList(null, 1L, null, null, null, null, null);
 
 		assertThat(response.getBody()).containsExactly(feed);
-		verify(service).getFeedList((Long) null);
+		verify(service).getFeedList((Long) null, null, null, null);
 		verify(authenticatedUserService, never()).requireUserId(any());
 	}
 
@@ -328,6 +331,23 @@ class CommunityControllerTest {
 
 		assertThat(response.getBody()).isSameAs(page);
 		verify(service).getFeedPage(1L, "2026-05-26T22:14:32", 76L, 10);
+	}
+
+
+	@Test
+	void commentPageApis_supportCursorAliases() {
+		CommentResponse comment = new CommentResponse(5L, 2L, "runner", null, "nice", "2026-05-28T10:00:00", false, "NONE", false);
+		var page = new com.neostride.server.community.dto.CommentPageResponse(
+				List.of(comment),
+				new com.neostride.server.community.dto.CommentCursorResponse("2026-05-28T10:00:00", 5L),
+				true
+		);
+		authenticate();
+		when(service.getFeedComments(1L, 99L, "2026-05-28T09:00:00", 4L, 10)).thenReturn(page);
+		when(service.getTipComments(1L, 7L, "2026-05-28T09:00:00", 4L, 10)).thenReturn(page);
+
+		assertThat(controller.getFeedComments(AUTHORIZATION, 1L, 99L, 10, null, "2026-05-28T09:00:00", null, 4L).getBody()).isSameAs(page);
+		assertThat(controller.getTipComments(AUTHORIZATION, 1L, 7L, 10, null, "2026-05-28T09:00:00", null, 4L).getBody()).isSameAs(page);
 	}
 
 	@Test
