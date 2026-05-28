@@ -97,9 +97,14 @@ public class RunningRecordService {
 		if (ownerUserId.longValue() != userId) {
 			return DeleteResult.FORBIDDEN;
 		}
-		return runningRecordRepository.deleteByRecordIdForUser(userId, recordId) > 0
-				? DeleteResult.DELETED
-				: DeleteResult.NOT_FOUND;
+		Long planId = runningRecordRepository.findPlanIdByRecordIdForUser(userId, recordId);
+		if (runningRecordRepository.deleteByRecordIdForUser(userId, recordId) <= 0) {
+			return DeleteResult.NOT_FOUND;
+		}
+		if (planId != null && coachingService != null) {
+			coachingService.restorePlanToPendingAfterRunningRecordDeleted(userId, planId);
+		}
+		return DeleteResult.DELETED;
 	}
 
 	private void requirePositiveUserId(long userId) {

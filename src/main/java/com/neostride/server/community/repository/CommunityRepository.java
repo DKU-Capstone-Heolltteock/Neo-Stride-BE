@@ -82,6 +82,16 @@ public class CommunityRepository {
 			""", nickname, userId);
 	}
 
+	public boolean existsByCommunityProfileNameExcludingUserId(String nickname, long userId) {
+		Integer count = jdbcTemplate.queryForObject(
+				"SELECT COUNT(*) FROM users WHERE community_profile_name = ? AND user_id <> ?",
+				Integer.class,
+				nickname,
+				userId
+		);
+		return count != null && count > 0;
+	}
+
 	public void deleteAccount(long userId) {
 		jdbcTemplate.update("DELETE FROM users WHERE user_id = ?", userId);
 	}

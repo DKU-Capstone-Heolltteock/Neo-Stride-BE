@@ -1,10 +1,12 @@
 package com.neostride.server.community.service;
 
+import com.neostride.server.auth.exception.DuplicateUserFieldException;
 import com.neostride.server.community.dto.FeedUploadResponse;
 import com.neostride.server.community.dto.SearchUserResponse;
 import com.neostride.server.community.repository.CommunityRepository;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -117,6 +119,17 @@ class CommunityServiceTest {
 				.hasMessageContaining("검색어");
 
 		verify(repository, never()).searchProfiles("neo' OR '1'='1", 0, 10);
+	}
+
+	@Test
+	void updateNickname_rejectsDuplicateNicknameBeforeRepositoryCall() {
+		when(repository.existsByCommunityProfileNameExcludingUserId("neo2", 1L)).thenReturn(true);
+
+		assertThatThrownBy(() -> service.updateNickname(1L, Map.of("nickname", "neo2")))
+				.isInstanceOf(DuplicateUserFieldException.class)
+				.hasMessage("이미 사용 중인 닉네임입니다.");
+
+		verify(repository, never()).updateNickname(1L, "neo2");
 	}
 
 	@Test

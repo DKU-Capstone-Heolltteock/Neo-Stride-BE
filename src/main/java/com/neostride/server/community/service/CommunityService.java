@@ -1,5 +1,6 @@
 package com.neostride.server.community.service;
 
+import com.neostride.server.auth.exception.DuplicateUserFieldException;
 import com.neostride.server.community.dto.*;
 import com.neostride.server.community.repository.CommunityRepository;
 import java.time.LocalDateTime;
@@ -24,7 +25,15 @@ public class CommunityService {
 	@Transactional
 	public void updateStatusMessage(long userId, Map<String, String> body) { validatePositive(userId, "user_id"); requireBody(body); repository.updateStatusMessage(userId, body.get("status_message")); }
 	@Transactional
-	public void updateNickname(long userId, Map<String, String> body) { validatePositive(userId, "user_id"); requireBody(body); repository.updateNickname(userId, body.get("nickname")); }
+	public void updateNickname(long userId, Map<String, String> body) {
+		validatePositive(userId, "user_id");
+		requireBody(body);
+		String nickname = body.get("nickname");
+		if (repository.existsByCommunityProfileNameExcludingUserId(nickname, userId)) {
+			throw DuplicateUserFieldException.nickname();
+		}
+		repository.updateNickname(userId, nickname);
+	}
 	@Transactional
 	public void deleteAccount(long userId) { validatePositive(userId, "user_id"); repository.deleteAccount(userId); }
 	@Transactional

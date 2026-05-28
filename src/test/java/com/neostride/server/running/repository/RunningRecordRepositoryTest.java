@@ -103,6 +103,24 @@ class RunningRecordRepositoryTest {
 
 	@Test
 	@SuppressWarnings({"unchecked", "rawtypes"})
+	void findPlanIdByRecordIdForUserSelectsNonNullPlanForOwnedRecord() {
+		JdbcTemplate jdbcTemplate = mock(JdbcTemplate.class);
+		when(jdbcTemplate.query(anyString(), any(RowMapper.class), eq(7L), eq(10L))).thenReturn(List.of(20L));
+		RunningRecordRepository repository = new RunningRecordRepository(jdbcTemplate);
+
+		Long planId = repository.findPlanIdByRecordIdForUser(7L, 10L);
+
+		var sqlCaptor = org.mockito.ArgumentCaptor.forClass(String.class);
+		verify(jdbcTemplate).query(sqlCaptor.capture(), any(RowMapper.class), eq(7L), eq(10L));
+		assertThat(planId).isEqualTo(20L);
+		assertThat(sqlCaptor.getValue())
+				.contains("SELECT plan_id")
+				.contains("WHERE user_id = ? AND run_record_id = ?")
+				.contains("plan_id IS NOT NULL");
+	}
+
+	@Test
+	@SuppressWarnings({"unchecked", "rawtypes"})
 	void insertGpsTracesPersistsNullableHeartRateAndCadenceColumns() throws Exception {
 		JdbcTemplate jdbcTemplate = mock(JdbcTemplate.class);
 		when(jdbcTemplate.queryForObject(anyString(), eq(Integer.class))).thenReturn(2);

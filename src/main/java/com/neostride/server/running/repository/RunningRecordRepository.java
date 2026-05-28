@@ -144,6 +144,15 @@ public class RunningRecordRepository {
 		return userIds.isEmpty() ? null : userIds.getFirst();
 	}
 
+	public Long findPlanIdByRecordIdForUser(long userId, long recordId) {
+		List<Long> planIds = jdbcTemplate.query("""
+				SELECT plan_id
+				FROM running_records
+				WHERE user_id = ? AND run_record_id = ? AND plan_id IS NOT NULL
+				""", (rs, rowNum) -> rs.getLong("plan_id"), userId, recordId);
+		return planIds.isEmpty() ? null : planIds.getFirst();
+	}
+
 	public int deleteByRecordIdForUser(long userId, long recordId) {
 		return jdbcTemplate.update("DELETE FROM running_records WHERE user_id = ? AND run_record_id = ?", userId, recordId);
 	}

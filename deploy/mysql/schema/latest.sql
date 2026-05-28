@@ -207,6 +207,7 @@ CREATE TABLE `community_users` (
   `status_message` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `badge` enum('NONE','BRONZE','SILVER','GOLD','PLATINUM','DIAMOND','MASTER','CHALLENGER') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'NONE',
   PRIMARY KEY (`user_id`),
+  UNIQUE KEY `uq_community_users_community_profile_name` (`community_profile_name`),
   CONSTRAINT `fk_community_users_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`user_id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
@@ -347,7 +348,9 @@ CREATE TABLE `users` (
   `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`user_id`),
-  UNIQUE KEY `email` (`email`)
+  UNIQUE KEY `uq_users_email` (`email`),
+  UNIQUE KEY `uq_users_name` (`name`),
+  UNIQUE KEY `uq_users_community_profile_name` (`community_profile_name`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 /*!40103 SET TIME_ZONE=@OLD_TIME_ZONE */;

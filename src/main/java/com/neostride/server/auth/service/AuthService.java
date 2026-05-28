@@ -4,7 +4,7 @@ import com.neostride.server.auth.dto.LoginRequest;
 import com.neostride.server.auth.dto.LoginResponse;
 import com.neostride.server.auth.dto.SignupRequest;
 import com.neostride.server.auth.dto.SignupResponse;
-import com.neostride.server.auth.exception.DuplicateEmailException;
+import com.neostride.server.auth.exception.DuplicateUserFieldException;
 import com.neostride.server.auth.exception.InvalidCredentialsException;
 import com.neostride.server.auth.repository.UserRepository;
 import com.neostride.server.auth.repository.UserRow;
@@ -39,7 +39,13 @@ public class AuthService {
 		String email = normalizeEmail(request.email());
 		String name = request.name().trim();
 		if (userRepository.existsByEmail(email)) {
-			throw new DuplicateEmailException("이미 가입된 이메일입니다.");
+			throw DuplicateUserFieldException.email();
+		}
+		if (userRepository.existsByName(name)) {
+			throw DuplicateUserFieldException.name();
+		}
+		if (userRepository.existsByCommunityProfileName(name)) {
+			throw DuplicateUserFieldException.nickname();
 		}
 		String hashedPassword = passwordHashService.hash(request.password());
 		long userId = userRepository.insertUser(email, hashedPassword, name, normalizeOptionalUrl(profilePhotoUrl));

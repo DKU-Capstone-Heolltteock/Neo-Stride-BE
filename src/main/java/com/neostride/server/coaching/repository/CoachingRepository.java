@@ -231,6 +231,15 @@ public class CoachingRepository {
 		return updated > 0;
 	}
 
+	public boolean restorePlanToPendingForUser(long userId, long planDayId) {
+		int updated = jdbcTemplate.update("""
+				UPDATE plans
+				SET is_completed = FALSE, feedback = NULL, updated_at = CURRENT_TIMESTAMP
+				WHERE plan_id = ? AND user_id = ?
+				""", planDayId, userId);
+		return updated > 0;
+	}
+
 	public boolean deleteGoalForUser(long userId, long goalId) {
 		int updated = jdbcTemplate.update("""
 				UPDATE goals

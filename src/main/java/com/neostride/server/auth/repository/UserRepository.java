@@ -23,6 +23,20 @@ public class UserRepository {
 		return count != null && count > 0;
 	}
 
+	public boolean existsByName(String name) {
+		Integer count = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM users WHERE name = ?", Integer.class, name);
+		return count != null && count > 0;
+	}
+
+	public boolean existsByCommunityProfileName(String communityProfileName) {
+		Integer count = jdbcTemplate.queryForObject(
+				"SELECT COUNT(*) FROM users WHERE community_profile_name = ?",
+				Integer.class,
+				communityProfileName
+		);
+		return count != null && count > 0;
+	}
+
 	public Optional<UserRow> findByEmail(String email) {
 		List<UserRow> users = jdbcTemplate.query("""
 				SELECT user_id, email, name, password

@@ -4,6 +4,7 @@ import com.neostride.server.auth.dto.LoginResponse;
 import com.neostride.server.auth.dto.SignupResponse;
 import com.neostride.server.auth.exception.AuthenticationRequiredException;
 import com.neostride.server.auth.exception.DuplicateEmailException;
+import com.neostride.server.auth.exception.DuplicateUserFieldException;
 import com.neostride.server.auth.exception.ForbiddenException;
 import com.neostride.server.auth.exception.InvalidCredentialsException;
 import com.neostride.server.running.dto.RunningRecordResponse;
@@ -30,6 +31,11 @@ public class ApiExceptionHandler {
 		return ResponseEntity.status(HttpStatus.CONFLICT).body(SignupResponse.error(exception.getMessage()));
 	}
 
+	@ExceptionHandler(DuplicateUserFieldException.class)
+	public ResponseEntity<?> handleDuplicateUserField(DuplicateUserFieldException exception, WebRequest request) {
+		return ResponseEntity.status(HttpStatus.CONFLICT).body(errorBody(request, exception.getMessage()));
+	}
+
 	@ExceptionHandler(InvalidCredentialsException.class)
 	public ResponseEntity<LoginResponse> handleInvalidCredentials(InvalidCredentialsException exception) {
 		return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
@@ -48,6 +54,10 @@ public class ApiExceptionHandler {
 
 	@ExceptionHandler(DataIntegrityViolationException.class)
 	public ResponseEntity<?> handleDataIntegrityViolation(DataIntegrityViolationException exception, WebRequest request) {
+		DuplicateUserFieldException duplicateUserField = duplicateUserField(exception);
+		if (duplicateUserField != null) {
+			return handleDuplicateUserField(duplicateUserField, request);
+		}
 		if (isAuthRequest(request)) {
 			return ResponseEntity.status(HttpStatus.CONFLICT).body(SignupResponse.error("이미 가입된 이메일입니다."));
 		}
@@ -106,6 +116,26 @@ public class ApiExceptionHandler {
 
 	private boolean isRunningRequest(WebRequest request) {
 		return requestUri(request).startsWith("/api/running");
+	}
+
+	private DuplicateUserFieldException duplicateUserField(DataIntegrityViolationException exception) {
+		String message = exception.getMostSpecificCause() == null
+				? exception.getMessage()
+				: exception.getMostSpecificCause().getMessage();
+		if (message == null) {
+			return null;
+		}
+		String normalized = message.toLowerCase();
+		if (normalized.contains("uq_users_email") || normalized.contains(" for key 'email'") || normalized.contains("for key 'users.email'")) {
+			return DuplicateUserFieldException.email();
+		}
+		if (normalized.contains("uq_users_name")) {
+			return DuplicateUserFieldException.name();
+		}
+		if (normalized.contains("uq_users_community_profile_name") || normalized.contains("uq_community_users_community_profile_name")) {
+			return DuplicateUserFieldException.nickname();
+		}
+		return null;
 	}
 
 	private String requestUri(WebRequest request) {
