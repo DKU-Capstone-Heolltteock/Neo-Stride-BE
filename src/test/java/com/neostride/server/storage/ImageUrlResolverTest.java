@@ -98,6 +98,35 @@ class ImageUrlResolverTest {
 	}
 
 	@Test
+	void toPublicUrl_cachesStoredUploadReadabilityForConfiguredTtl() throws Exception {
+		Path communityDir = tempDir.resolve("community");
+		Files.createDirectories(communityDir);
+		Path upload = communityDir.resolve("cached.png");
+		ImageUrlResolver resolver = new ImageUrlResolver("https://api.neostride.test", tempDir, "/uploads", 60_000, 16);
+
+		assertThat(resolver.toPublicUrl("/uploads/community/cached.png")).isNull();
+
+		Files.write(upload, imageBytes("png"));
+
+		assertThat(resolver.toPublicUrl("/uploads/community/cached.png")).isNull();
+	}
+
+	@Test
+	void toPublicUrl_allowsDisablingStoredUploadReadabilityCache() throws Exception {
+		Path communityDir = tempDir.resolve("community");
+		Files.createDirectories(communityDir);
+		Path upload = communityDir.resolve("uncached.png");
+		ImageUrlResolver resolver = new ImageUrlResolver("https://api.neostride.test", tempDir, "/uploads", 0, 16);
+
+		assertThat(resolver.toPublicUrl("/uploads/community/uncached.png")).isNull();
+
+		Files.write(upload, imageBytes("png"));
+
+		assertThat(resolver.toPublicUrl("/uploads/community/uncached.png"))
+				.isEqualTo("https://api.neostride.test/uploads/community/uncached.png");
+	}
+
+	@Test
 	void toPublicUrl_dropsMissingStoredUploadPathsWithoutDecodingImages() throws Exception {
 		Path communityDir = tempDir.resolve("community");
 		Files.createDirectories(communityDir);

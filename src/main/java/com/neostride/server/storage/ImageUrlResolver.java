@@ -4,6 +4,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Locale;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
@@ -13,18 +15,25 @@ import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 public class ImageUrlResolver {
 	private static final int THUMBNAIL_MAX_DIMENSION = 480;
 	private static final String THUMBNAIL_DIRECTORY = "_thumbs";
+	private static final long DEFAULT_READABLE_CACHE_TTL_MILLIS = 5_000L;
+	private static final int DEFAULT_READABLE_CACHE_MAX_SIZE = 4_096;
 
 	private final String publicBaseUrl;
 	private final Path uploadBaseDir;
 	private final String publicPrefix;
+	private final long readableCacheTtlNanos;
+	private final int readableCacheMaxSize;
+	private final ConcurrentMap<String, ReadableCacheEntry> readableCache = new ConcurrentHashMap<>();
 
 	@Autowired
 	public ImageUrlResolver(
 			@Value("${neostride.upload.public-base-url:}") String publicBaseUrl,
 			@Value("${neostride.upload.base-dir:./uploads}") String uploadBaseDir,
-			@Value("${neostride.upload.public-prefix:/uploads}") String publicPrefix
+			@Value("${neostride.upload.public-prefix:/uploads}") String publicPrefix,
+			@Value("${neostride.upload.readable-cache-ttl-ms:5000}") long readableCacheTtlMillis,
+			@Value("${neostride.upload.readable-cache-max-size:4096}") int readableCacheMaxSize
 	) {
-		this(publicBaseUrl, Path.of(uploadBaseDir).toAbsolutePath().normalize(), publicPrefix);
+		this(publicBaseUrl, Path.of(uploadBaseDir).toAbsolutePath().normalize(), publicPrefix, readableCacheTtlMillis, readableCacheMaxSize);
 	}
 
 	public ImageUrlResolver(String publicBaseUrl) {
@@ -32,9 +41,15 @@ public class ImageUrlResolver {
 	}
 
 	public ImageUrlResolver(String publicBaseUrl, Path uploadBaseDir, String publicPrefix) {
+		this(publicBaseUrl, uploadBaseDir, publicPrefix, DEFAULT_READABLE_CACHE_TTL_MILLIS, DEFAULT_READABLE_CACHE_MAX_SIZE);
+	}
+
+	ImageUrlResolver(String publicBaseUrl, Path uploadBaseDir, String publicPrefix, long readableCacheTtlMillis, int readableCacheMaxSize) {
 		this.publicBaseUrl = normalizeBaseUrl(publicBaseUrl);
 		this.uploadBaseDir = uploadBaseDir == null ? null : uploadBaseDir.toAbsolutePath().normalize();
 		this.publicPrefix = normalizePublicPrefix(publicPrefix);
+		this.readableCacheTtlNanos = Math.max(0L, readableCacheTtlMillis) * 1_000_000L;
+		this.readableCacheMaxSize = Math.max(0, readableCacheMaxSize);
 	}
 
 	public String toPublicUrl(String value) {
@@ -126,6 +141,20 @@ public class ImageUrlResolver {
 		if (uploadBaseDir == null) {
 			return true;
 		}
+		if (readableCacheTtlNanos <= 0 || readableCacheMaxSize <= 0) {
+			return isReadableStoredUploadUncached(url);
+		}
+		long now = System.nanoTime();
+		ReadableCacheEntry cached = readableCache.get(url);
+		if (cached != null && now - cached.checkedAtNanos() <= readableCacheTtlNanos) {
+			return cached.readable();
+		}
+		boolean readable = isReadableStoredUploadUncached(url);
+		cacheReadableResult(url, readable, now);
+		return readable;
+	}
+
+	private boolean isReadableStoredUploadUncached(String url) {
 		String relative = url.substring(publicPrefix.length() + 1);
 		Path path = uploadBaseDir.resolve(relative).normalize();
 		if (!path.startsWith(uploadBaseDir) || !Files.isRegularFile(path)) {
@@ -136,6 +165,13 @@ public class ImageUrlResolver {
 		} catch (java.io.IOException exception) {
 			return false;
 		}
+	}
+
+	private void cacheReadableResult(String url, boolean readable, long checkedAtNanos) {
+		if (readableCache.size() >= readableCacheMaxSize && !readableCache.containsKey(url)) {
+			readableCache.clear();
+		}
+		readableCache.put(url, new ReadableCacheEntry(readable, checkedAtNanos));
 	}
 
 	private String currentBaseUrl() {
@@ -170,4 +206,5 @@ public class ImageUrlResolver {
 		}
 		return prefix;
 	}
+	private record ReadableCacheEntry(boolean readable, long checkedAtNanos) {}
 }

@@ -226,13 +226,13 @@ Community API/성능:
 - 남은 운영 포인트: queue reject 로그 모니터링, 기존 이미지 backfill/metadata 관리.
 - API 호환성 영향: 없음. 목록 응답은 thumbnail 존재 시 사용하고 없으면 원본 fallback을 유지한다.
 
-#### M2. 조회 시 image URL마다 filesystem stat 수행
+#### M2. 조회 시 image URL마다 filesystem stat 수행 - 해결 완료
 
 - 위치: `ImageUrlResolver.isReadableStoredUpload`.
 - 문제: `Files.isRegularFile`/`Files.size`를 응답 URL마다 수행한다.
 - 원인: 응답 직전 파일 존재성 검증을 유지한다.
 - 영향도: 대량 list 응답에서 filesystem I/O 증가. 기존 `ImageIO.read` 제거로 위험은 많이 줄었다.
-- 해결방안: 업로드 시 검증을 신뢰하고 조회 시 stat 제거 또는 short TTL memory cache 적용.
+- 적용: `ImageUrlResolver`에 short TTL memory cache를 추가해 같은 stored upload URL의 `Files.isRegularFile`/`Files.size` 반복 호출을 줄였다. 기본 TTL은 5초, max entry는 4096이며 환경변수로 조정 가능하다.
 - API 호환성 영향: 없음.
 
 #### M3. 검색 API가 `%LIKE%`와 offset pagination에 의존
