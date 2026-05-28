@@ -35,6 +35,21 @@ class CommunityRepositoryTest {
 	private final CommunityRepository repository = new CommunityRepository(jdbcTemplate);
 
 	@Test
+	void existsByCommunityProfileNameExcludingUserIdChecksUsersAndCommunityUsers() {
+		when(jdbcTemplate.queryForObject(anyString(), eq(Integer.class), eq("neo"), eq("neo"), eq(1L))).thenReturn(0);
+
+		boolean exists = repository.existsByCommunityProfileNameExcludingUserId("neo", 1L);
+
+		ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
+		verify(jdbcTemplate).queryForObject(sql.capture(), eq(Integer.class), eq("neo"), eq("neo"), eq(1L));
+		assertThat(exists).isFalse();
+		assertThat(sql.getValue())
+				.contains("users")
+				.contains("community_users")
+				.contains("user_id <> ?");
+	}
+
+	@Test
 	void listFeeds_filtersOutTipRows() {
 		when(jdbcTemplate.query(anyString(), any(RowMapper.class), any(Object[].class))).thenReturn(List.of());
 

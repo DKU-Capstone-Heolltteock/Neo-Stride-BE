@@ -84,8 +84,14 @@ public class CommunityRepository {
 
 	public boolean existsByCommunityProfileNameExcludingUserId(String nickname, long userId) {
 		Integer count = jdbcTemplate.queryForObject(
-				"SELECT COUNT(*) FROM users WHERE community_profile_name = ? AND user_id <> ?",
+				"""
+				SELECT COUNT(*)
+				FROM users u
+				LEFT JOIN community_users cu ON cu.user_id = u.user_id
+				WHERE (u.community_profile_name = ? OR cu.community_profile_name = ?) AND u.user_id <> ?
+				""",
 				Integer.class,
+				nickname,
 				nickname,
 				userId
 		);
