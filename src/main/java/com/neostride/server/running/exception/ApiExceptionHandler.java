@@ -121,21 +121,48 @@ public class ApiExceptionHandler {
 	private DuplicateUserFieldException duplicateUserField(DataIntegrityViolationException exception) {
 		String message = exception.getMostSpecificCause() == null
 				? exception.getMessage()
-				: exception.getMostSpecificCause().getMessage();
+				: exception.getMostSpecificCause().getMessage() + " " + exception.getMessage();
 		if (message == null) {
 			return null;
 		}
 		String normalized = message.toLowerCase();
-		if (normalized.contains("uq_users_email") || normalized.contains(" for key 'email'") || normalized.contains("for key 'users.email'")) {
+		if (containsAny(normalized,
+				"uq_users_email",
+				" for key 'email'",
+				" for key `email`",
+				"for key 'users.email'",
+				"for key `users.email`")) {
 			return DuplicateUserFieldException.email();
 		}
-		if (normalized.contains("uq_users_name")) {
+		if (containsAny(normalized,
+				"uq_users_name",
+				" for key 'name'",
+				" for key `name`",
+				"for key 'users.name'",
+				"for key `users.name`")) {
 			return DuplicateUserFieldException.name();
 		}
-		if (normalized.contains("uq_users_community_profile_name") || normalized.contains("uq_community_users_community_profile_name")) {
+		if (containsAny(normalized,
+				"uq_users_community_profile_name",
+				"uq_community_users_community_profile_name",
+				" for key 'community_profile_name'",
+				" for key `community_profile_name`",
+				"for key 'users.community_profile_name'",
+				"for key `users.community_profile_name`",
+				"for key 'community_users.community_profile_name'",
+				"for key `community_users.community_profile_name`")) {
 			return DuplicateUserFieldException.nickname();
 		}
 		return null;
+	}
+
+	private boolean containsAny(String value, String... needles) {
+		for (String needle : needles) {
+			if (value.contains(needle)) {
+				return true;
+			}
+		}
+		return false;
 	}
 
 	private String requestUri(WebRequest request) {
