@@ -32,8 +32,17 @@ Example MySQL bootstrap:
 ```sql
 CREATE DATABASE neostride CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 CREATE USER 'neostride_app'@'%' IDENTIFIED BY 'change-me';
-GRANT ALL PRIVILEGES ON neostride.* TO 'neostride_app'@'%';
+GRANT SELECT, INSERT, UPDATE, DELETE ON neostride.* TO 'neostride_app'@'%';
 FLUSH PRIVILEGES;
+```
+
+For Docker-hosted MySQL, prefer the provisioning helper so the backend runtime
+does not use the MySQL root account:
+
+```bash
+MYSQL_CONTAINER=neostride-mysql USE_CONTAINER_MYSQL_ENV=true \
+  APP_DB_PASSWORD=change-me \
+  deploy/mysql/provision-app-user.sh
 ```
 
 ## Environment Variables
@@ -68,22 +77,22 @@ The application uses:
 spring.datasource.url=jdbc:mysql://${DB_HOST:localhost}:${DB_PORT:3306}/${DB_NAME:neostride}?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Seoul
 ```
 
-Apply the team's baseline schema before starting the app. The latest schema-only baseline is `deploy/mysql/schema/latest.sql`; it contains no data rows and reflects migrations through `016`.
+Apply the team's baseline schema before starting the app. The latest schema-only baseline is `deploy/mysql/schema/latest.sql`; it contains no data rows and reflects schema migrations through `017` (`018` only reconciles derived stats rows).
 
 For a fresh empty database, import the baseline and mark the included migrations as applied:
 
 ```bash
-mysql -h "$DB_HOST" -P "$DB_PORT" -u "$DB_USERNAME" -p"$DB_PASSWORD" "$DB_NAME" < deploy/mysql/schema/latest.sql
-DB_USERNAME=neostride_app DB_PASSWORD=change-me deploy/mysql/apply-migrations.sh --baseline
-DB_USERNAME=neostride_app DB_PASSWORD=change-me deploy/mysql/apply-migrations.sh --verify
+mysql -h "$DB_HOST" -P "$DB_PORT" -u "$MIGRATION_DB_USERNAME" -p"$MIGRATION_DB_PASSWORD" "$DB_NAME" < deploy/mysql/schema/latest.sql
+DB_USERNAME="$MIGRATION_DB_USERNAME" DB_PASSWORD="$MIGRATION_DB_PASSWORD" deploy/mysql/apply-migrations.sh --baseline
+DB_USERNAME="$MIGRATION_DB_USERNAME" DB_PASSWORD="$MIGRATION_DB_PASSWORD" deploy/mysql/apply-migrations.sh --verify
 ```
 
-Use the migration runner to track and apply new `*.up.sql` files:
+Use an admin or migration DB user, not the runtime app user, to track and apply new `*.up.sql` files:
 
 ```bash
-DB_USERNAME=neostride_app DB_PASSWORD=change-me deploy/mysql/apply-migrations.sh --status
-DB_USERNAME=neostride_app DB_PASSWORD=change-me deploy/mysql/apply-migrations.sh
-DB_USERNAME=neostride_app DB_PASSWORD=change-me deploy/mysql/apply-migrations.sh --verify
+DB_USERNAME="$MIGRATION_DB_USERNAME" DB_PASSWORD="$MIGRATION_DB_PASSWORD" deploy/mysql/apply-migrations.sh --status
+DB_USERNAME="$MIGRATION_DB_USERNAME" DB_PASSWORD="$MIGRATION_DB_PASSWORD" deploy/mysql/apply-migrations.sh
+DB_USERNAME="$MIGRATION_DB_USERNAME" DB_PASSWORD="$MIGRATION_DB_PASSWORD" deploy/mysql/apply-migrations.sh --verify
 ```
 
 For an existing database where the migration files were already applied manually, initialize only the tracking table once:
@@ -135,6 +144,7 @@ docker run --rm -u "$(id -u):$(id -g)" \
 
 - Build the container with `docker build -t neo-stride-backend .`.
 - Provide all required secrets through the runtime environment, not committed property files.
+- Run the backend with a least-privilege DB user such as `neostride_app`; keep MySQL root for database administration and migrations only.
 - Run database migrations before deploying a new image.
 - Keep Swagger/OpenAPI enabled for capstone review environments; disable it for production if the API should not be public.
 - Verify the deployed app with `/actuator/health` and the Swagger UI URL after startup.

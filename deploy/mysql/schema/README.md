@@ -1,15 +1,15 @@
 # MySQL Schema Baseline
 
-`latest.sql` is a schema-only baseline generated from the operational MySQL schema after migration `016_community_content_stats_insert_trigger`.
+`latest.sql` is a schema-only baseline generated from the operational MySQL schema after migration `017_user_identity_uniqueness`. Migration `018_reconcile_community_content_stats` only reconciles derived data rows and does not change the schema.
 
 It intentionally excludes application data and volatile auto-increment values. Trigger definers are omitted so the importing MySQL user becomes the definer in the target environment.
 
 Fresh database bootstrap:
 
 ```bash
-mysql -h "$DB_HOST" -P "$DB_PORT" -u "$DB_USERNAME" -p"$DB_PASSWORD" "$DB_NAME" < deploy/mysql/schema/latest.sql
-DB_USERNAME=neostride_app DB_PASSWORD=change-me deploy/mysql/apply-migrations.sh --baseline
-DB_USERNAME=neostride_app DB_PASSWORD=change-me deploy/mysql/apply-migrations.sh --verify
+mysql -h "$DB_HOST" -P "$DB_PORT" -u "$MIGRATION_DB_USERNAME" -p"$MIGRATION_DB_PASSWORD" "$DB_NAME" < deploy/mysql/schema/latest.sql
+DB_USERNAME="$MIGRATION_DB_USERNAME" DB_PASSWORD="$MIGRATION_DB_PASSWORD" deploy/mysql/apply-migrations.sh --baseline
+DB_USERNAME="$MIGRATION_DB_USERNAME" DB_PASSWORD="$MIGRATION_DB_PASSWORD" deploy/mysql/apply-migrations.sh --verify
 ```
 
 Refresh command used for this snapshot:

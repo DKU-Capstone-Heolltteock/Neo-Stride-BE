@@ -18,7 +18,7 @@ Target: Neo-Stride Spring Boot backend, Docker MySQL, self-hosted single-server 
 
 가장 큰 리스크:
 
-- 운영 backend가 DB root 계정을 사용하고, Docker inspect로 DB/OpenAI/JWT secret이 노출된다. 이미 노출된 secret은 회전해야 한다.
+- 운영 backend가 DB root 계정을 사용하던 문제는 `neostride_app` 런타임 계정 전환으로 1차 완화했다. Docker inspect로 DB/OpenAI/JWT secret이 노출되는 구조와 이미 노출된 secret rotation은 여전히 남아 있다.
 - 기존 상세 API는 API contract 유지를 위해 댓글 전체를 계속 포함하므로, 인기 게시물에서 payload가 커질 수 있다. 신규 comments cursor endpoint로 client 전환이 필요하다.
 - `schema_migrations` 기반 apply script, `--verify`, 핵심 검증 SQL, 최신 schema-only baseline snapshot을 추가했다. 남은 리스크는 오래된 migration 검증 범위 확대다.
 - thumbnail 생성은 `imageThumbnailExecutor`로 request thread에서 분리됐다. 남은 이미지 리스크는 기존 파일 backfill/metadata 운영과 실패 모니터링이다.
@@ -120,13 +120,13 @@ Community API/성능:
 #### C2. 운영 secret 노출 및 DB root 계정 사용
 
 - 위치: 운영 Docker env, backend compose, MySQL 접속 설정.
-- 문제: backend container env에 DB password, JWT secret, OpenAI API key가 들어 있으며 `docker inspect`로 확인 가능하다. backend가 DB root로 접속한다.
+- 문제: backend container env에 DB password, JWT secret, OpenAI API key가 들어 있으며 `docker inspect`로 확인 가능하다. backend가 DB root로 접속하던 문제는 2026-05-28에 app user 전환으로 1차 완화했다.
 - 원인: root 계정 재사용, container env 기반 secret 주입, secret rotation 절차 부재.
 - 영향도: host 계정 또는 CI 로그 접근자가 DB/OpenAI/JWT를 탈취할 수 있다.
 - 해결방안:
   - OpenAI key, JWT secret, DB password 즉시 rotation.
-  - DB app user 생성: `neostride_app`에 `neostride.*` 최소 권한 부여.
-  - backend `DB_USERNAME`을 root에서 app user로 변경.
+  - DB app user 생성: `neostride_app`에 `neostride.*` 최소 권한 부여. 2026-05-28에 `SELECT/INSERT/UPDATE/DELETE` 권한의 runtime user로 전환했다.
+  - backend `DB_USERNAME`을 root에서 app user로 변경. 2026-05-28에 운영 backend `DB_USERNAME=neostride_app` 적용.
   - `.env` 파일 권한 `600`, 배포 로그에서 env 출력 금지.
   - Docker secret까지는 과할 수 있으나, 최소한 root 계정 제거는 필수.
 - API 호환성 영향: 없음.
@@ -208,8 +208,8 @@ Community API/성능:
 - 문제: 새 DB를 init schema만으로 만들면 stats/images/index/notification 등 최신 구조와 다르다.
 - 원인: 기존에는 migration runner나 `schema_migrations` table이 없었다.
 - 영향도: 재설치/복구/테스트 DB에서 운영과 다른 schema가 만들어진다.
-- 적용: `schema_migrations` table을 생성하고, `*.up.sql` 파일을 version/checksum 기반으로 적용하는 runner를 추가했다. 운영 DB는 002-016 migration 적용/기록이 완료됐다.
-- 적용: `--verify` 모드와 007/008/013/014/015/016 검증 SQL을 추가했다. 016은 신규 content 생성 시 stats 0-row를 보장하는 trigger와 누락 row backfill을 포함한다.
+- 적용: `schema_migrations` table을 생성하고, `*.up.sql` 파일을 version/checksum 기반으로 적용하는 runner를 추가했다. 운영 DB는 002-018 migration 적용/기록이 완료됐다.
+- 적용: `--verify` 모드와 007/008/013/014/015/016/017/018 검증 SQL을 추가했다. 016은 신규 content 생성 시 stats 0-row를 보장하는 trigger와 누락 row backfill을 포함하고, 018은 stats drift를 실제 interaction 기준으로 재조정한다.
 - 적용: [deploy/mysql/schema/latest.sql](../deploy/mysql/schema/latest.sql) schema-only baseline snapshot을 추가했고 임시 DB restore 후 `--baseline`/`--verify` 통과를 확인했다.
 - 남은 작업: 오래된 migration 검증 SQL 추가 확대.
 - API 호환성 영향: 없음.
@@ -307,7 +307,7 @@ Auth:
 - 자체 JWT HS256 구현은 secret 길이 검증과 constant-time compare가 있다.
 - access/refresh `type` claim 분리는 좋다.
 - refresh token 저장/폐기/회전 DB가 없어 보안 운영성은 부족하다.
-- DB root 사용과 secret rotation 부재가 가장 큰 문제다.
+- DB root 사용은 app user 전환으로 완화했지만 secret rotation 부재가 가장 큰 남은 문제다.
 
 Community:
 
@@ -442,7 +442,7 @@ Downtime 최소화:
 
 지금 바로:
 
-1. secret rotation + DB app user 전환.
+1. secret rotation 수행. DB app user 전환은 2026-05-28 적용 완료.
 2. Android/iOS/Web에서 feed cursor query 또는 `/api/community/feeds/page` 사용 시작.
 3. Android/iOS/Web에서 comments cursor endpoint 사용 시작.
 4. 남은 오래된 migration 검증 SQL/rollback rehearsal 확대.
@@ -466,11 +466,11 @@ Downtime 최소화:
 
 병목 원인:
 
-- legacy full feed/detail payload, image original/thumbnail 처리, search `%LIKE%`/offset pagination, migration drift, secret/root DB 운영, 일부 장기 구조 부채.
+- legacy full feed/detail payload, image original/thumbnail 처리, search `%LIKE%`/offset pagination, migration drift, secret env 노출, 일부 장기 구조 부채.
 
 적용 가능한 개선안:
 
-- 적용 완료: cursor pagination 진입점, additional composite indexes, stats table, Caddy static serving, batch GPS trace loading, date range monthly query, comments pagination endpoint, transaction/uniqueness fixes, coaching feedback request 호환, background thumbnail executor, migration apply script/schema_migrations, 운영 baseline 기록, schema-only baseline snapshot. 다음 적용: search index/fulltext.
+- 적용 완료: cursor pagination 진입점, additional composite indexes, stats table, Caddy static serving, batch GPS trace loading, date range monthly query, comments pagination endpoint, transaction/uniqueness fixes, coaching feedback request 호환, background thumbnail executor, migration apply script/schema_migrations, 운영 baseline 기록, schema-only baseline snapshot, DB runtime app user 전환. 다음 적용: search index/fulltext.
 
 API 호환성 영향:
 
@@ -480,8 +480,7 @@ API 호환성 영향:
 
 필요 migration:
 
-- 이미 적용: 006-013 인덱스/stats/images/notifications/pace normalization.
-- 이미 적용: interaction dedupe/unique.
+- 이미 적용: 006-018 인덱스/stats/images/notifications/pace normalization, interaction dedupe/unique, user identity uniqueness, stats reconciliation.
 - 다음 필요: content_text column normalization, refresh_tokens.
 
 예상 성능 개선 효과:
@@ -493,7 +492,7 @@ API 호환성 영향:
 
 남은 리스크:
 
-- secret rotation, DB app user 전환, detail comments payload, search/index drift, 오래된 migration 검증 SQL 부족.
+- secret rotation, detail comments payload, search/index drift, 오래된 migration 검증 SQL 부족.
 
 테스트 및 검증 계획:
 

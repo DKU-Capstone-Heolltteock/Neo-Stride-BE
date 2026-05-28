@@ -1,5 +1,5 @@
 -- Neo-Stride MySQL schema baseline.
--- Generated from the operational schema after migration 016 on 2026-05-28.
+-- Generated from the operational schema after migration 017 on 2026-05-28.
 -- Data rows are intentionally excluded; import into an empty database, then run apply-migrations.sh --baseline and --verify.
 
 /*!40101 SET @OLD_CHARACTER_SET_CLIENT=@@CHARACTER_SET_CLIENT */;
