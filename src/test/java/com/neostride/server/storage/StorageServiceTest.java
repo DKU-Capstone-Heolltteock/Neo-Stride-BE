@@ -5,6 +5,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.concurrent.atomic.AtomicReference;
 import javax.imageio.ImageIO;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -64,6 +65,33 @@ class StorageServiceTest {
 		BufferedImage thumbnailImage = ImageIO.read(thumbnail.toFile());
 		assertThat(thumbnailImage.getWidth()).isEqualTo(480);
 		assertThat(thumbnailImage.getHeight()).isEqualTo(270);
+	}
+
+	@Test
+	void storeImage_schedulesThumbnailAfterOriginalFileIsStored() throws Exception {
+		AtomicReference<Runnable> thumbnailTask = new AtomicReference<>();
+		StorageService storageService = new StorageService(tempDir, "/uploads", command -> {
+			if (!thumbnailTask.compareAndSet(null, command)) {
+				throw new IllegalStateException("unexpected extra thumbnail task");
+			}
+		});
+		byte[] imageBytes = imageBytes("jpg", 1600, 900);
+		MockMultipartFile file = new MockMultipartFile("image", "wide.jpg", "image/jpeg", imageBytes);
+
+		String url = storageService.storeImage(file, "community");
+
+		Path storedPath = tempDir.resolve(url.replaceFirst("^/uploads/", ""));
+		String filename = storedPath.getFileName().toString();
+		String basename = filename.substring(0, filename.lastIndexOf('.'));
+		Path thumbnail = storedPath.getParent().resolve("_thumbs").resolve(basename + "_480.jpg");
+		assertThat(Files.exists(storedPath)).isTrue();
+		assertThat(Files.exists(thumbnail)).isFalse();
+		assertThat(thumbnailTask.get()).isNotNull();
+
+		thumbnailTask.get().run();
+
+		assertThat(Files.exists(thumbnail)).isTrue();
+		assertThat(Files.size(thumbnail)).isGreaterThan(0);
 	}
 
 	@Test

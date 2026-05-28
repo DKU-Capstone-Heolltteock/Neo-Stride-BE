@@ -54,6 +54,9 @@ Optional:
 - `OPENAI_API_KEY`: enables real AI coaching plan/feedback generation. If unset, deterministic fallback logic is used.
 - `OPENAI_BASE_URL`: OpenAI-compatible API base URL, default `https://api.openai.com/v1`.
 - `OPENAI_MODEL`: chat model for coaching, default `gpt-5.4-mini`.
+- `IMAGE_THUMBNAIL_CORE_POOL_SIZE`: background thumbnail worker core size, default `1`.
+- `IMAGE_THUMBNAIL_MAX_POOL_SIZE`: background thumbnail worker max size, default `2`.
+- `IMAGE_THUMBNAIL_QUEUE_CAPACITY`: background thumbnail queue capacity, default `32`.
 
 ## MySQL Configuration
 

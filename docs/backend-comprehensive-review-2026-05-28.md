@@ -21,12 +21,12 @@ Target: Neo-Stride Spring Boot backend, Docker MySQL, self-hosted single-server 
 - 운영 backend가 DB root 계정을 사용하고, Docker inspect로 DB/OpenAI/JWT secret이 노출된다. 이미 노출된 secret은 회전해야 한다.
 - 기존 상세 API는 API contract 유지를 위해 댓글 전체를 계속 포함하므로, 인기 게시물에서 payload가 커질 수 있다. 신규 comments cursor endpoint로 client 전환이 필요하다.
 - migration 운영 체계가 수동이라 baseline schema와 운영 schema drift가 생길 수 있다.
-- thumbnail 생성은 아직 request path에 있어 업로드 순간 CPU/IO spike 가능성이 남아 있다.
+- thumbnail 생성은 `imageThumbnailExecutor`로 request thread에서 분리됐다. 남은 이미지 리스크는 기존 파일 backfill/metadata 운영과 실패 모니터링이다.
 - search API는 `%LIKE%`와 offset pagination 중심이라 데이터 증가 시 별도 index/fulltext 전략이 필요하다.
 
 운영 가능성 평가:
 
-현재 데이터 규모에서는 운영 가능하다. 1차로 privacy predicate, reaction uniqueness, transaction 경계, running GPS N+1, feed/comment cursor 진입점, coaching feedback 호환성을 개선했다. 다음 병목은 legacy detail payload, upload image background processing, migration 자동화, search indexing이다. 단일 홈서버에서는 Kubernetes/MSA보다 index, pagination, thumbnail, Caddy static serving, backup/migration 절차 정리가 우선이다.
+현재 데이터 규모에서는 운영 가능하다. 1차로 privacy predicate, reaction uniqueness, transaction 경계, running GPS N+1, feed/comment cursor 진입점, coaching feedback 호환성, upload thumbnail background processing을 개선했다. 다음 병목은 legacy detail payload, migration 자동화, search indexing이다. 단일 홈서버에서는 Kubernetes/MSA보다 index, pagination, thumbnail, Caddy static serving, backup/migration 절차 정리가 우선이다.
 
 ## 2. 현재까지 적용한 변경
 
@@ -216,17 +216,15 @@ Community API/성능:
 
 ### Medium
 
-#### M1. Image thumbnail 생성이 upload request thread에서 수행됨
+#### M1. Image thumbnail 생성이 upload request thread에서 수행됨 - 해결 완료
 
-- 위치: `StorageService.storeImage`, `writeThumbnailIfPossible`, `writeWebpIfAvailable`.
-- 문제: JPEG resize와 cwebp 실행이 업로드 요청 thread에서 동기 수행된다.
-- 원인: background image executor가 없다.
+- 위치: `StorageService.storeImage`, `AsyncConfig.imageThumbnailExecutor`.
+- 문제: JPEG resize와 cwebp 실행이 업로드 요청 thread에서 동기 수행됐다.
+- 원인: background image executor가 없었다.
 - 영향도: 큰 이미지나 cwebp 지연 시 upload latency와 servlet thread 점유 증가.
-- 해결방안:
-  - 원본 저장 후 DB에는 원본 URL 저장.
-  - bounded executor 1-2 threads로 thumbnail 생성.
-  - 목록 응답은 thumbnail 존재 시 사용, 없으면 원본 fallback 유지.
-- API 호환성 영향: 없음.
+- 적용: 원본 저장/검증 후 `imageThumbnailExecutor`에 thumbnail/WebP 생성을 예약한다. executor는 기본 core 1, max 2, queue 32로 bounded 처리한다.
+- 남은 운영 포인트: queue reject 로그 모니터링, 기존 이미지 backfill/metadata 관리.
+- API 호환성 영향: 없음. 목록 응답은 thumbnail 존재 시 사용하고 없으면 원본 fallback을 유지한다.
 
 #### M2. 조회 시 image URL마다 filesystem stat 수행
 
@@ -340,7 +338,7 @@ File/Image:
 - 업로드 시 magic byte 검증, path normalization, thumbnail 생성이 있다.
 - 조회 시 ImageIO decode는 제거되어 좋다.
 - Caddy direct serving과 cache header가 적용되어 있다.
-- thumbnail generation은 request thread에서 background executor로 이동해야 한다.
+- thumbnail generation은 `imageThumbnailExecutor`로 request thread에서 분리됐다.
 
 Operations:
 
@@ -448,7 +446,7 @@ Downtime 최소화:
 2. Android/iOS/Web에서 feed cursor query 또는 `/api/community/feeds/page` 사용 시작.
 3. Android/iOS/Web에서 comments cursor endpoint 사용 시작.
 4. migration apply script/schema_migrations 도입.
-5. background thumbnail executor.
+5. migration script 적용 후 운영 schema drift 점검.
 
 다음 스프린트:
 
@@ -473,7 +471,7 @@ Downtime 최소화:
 
 적용 가능한 개선안:
 
-- 적용 완료: cursor pagination 진입점, additional composite indexes, stats table, Caddy static serving, batch GPS trace loading, date range monthly query, comments pagination endpoint, transaction/uniqueness fixes, coaching feedback request 호환. 다음 적용: background thumbnail executor, migration automation, search index/fulltext.
+- 적용 완료: cursor pagination 진입점, additional composite indexes, stats table, Caddy static serving, batch GPS trace loading, date range monthly query, comments pagination endpoint, transaction/uniqueness fixes, coaching feedback request 호환, background thumbnail executor. 다음 적용: migration automation, search index/fulltext.
 
 API 호환성 영향:
 

@@ -13,6 +13,8 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.Executor;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
 import javax.imageio.IIOImage;
 import javax.imageio.ImageIO;
@@ -22,6 +24,7 @@ import javax.imageio.stream.ImageOutputStream;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
@@ -46,18 +49,25 @@ public class StorageService {
 
 	private final Path baseDir;
 	private final String publicPrefix;
+	private final Executor thumbnailExecutor;
 
 	@Autowired
 	public StorageService(
 			@Value("${neostride.upload.base-dir:./uploads}") String baseDir,
-			@Value("${neostride.upload.public-prefix:/uploads}") String publicPrefix
+			@Value("${neostride.upload.public-prefix:/uploads}") String publicPrefix,
+			@Qualifier("imageThumbnailExecutor") Executor thumbnailExecutor
 	) {
-		this(Path.of(baseDir), publicPrefix);
+		this(Path.of(baseDir), publicPrefix, thumbnailExecutor);
 	}
 
 	public StorageService(Path baseDir, String publicPrefix) {
+		this(baseDir, publicPrefix, Runnable::run);
+	}
+
+	StorageService(Path baseDir, String publicPrefix, Executor thumbnailExecutor) {
 		this.baseDir = baseDir.toAbsolutePath().normalize();
 		this.publicPrefix = normalizePublicPrefix(publicPrefix);
+		this.thumbnailExecutor = thumbnailExecutor == null ? Runnable::run : thumbnailExecutor;
 	}
 
 	public String storeImage(MultipartFile file, String directory) {
@@ -106,7 +116,7 @@ public class StorageService {
 		} catch (IOException exception) {
 			throw new IllegalStateException("이미지 파일 저장에 실패했습니다.", exception);
 		}
-		writeThumbnailIfPossible(raster, targetDirectory, filename);
+		scheduleThumbnailIfPossible(raster, targetDirectory, filename);
 		return publicPrefix + "/" + safeDirectory + "/" + filename;
 	}
 
@@ -292,10 +302,18 @@ public class StorageService {
 				| (long) (bytes[offset + 3] & 0xff);
 	}
 
-	private static void writeThumbnailIfPossible(BufferedImage source, Path targetDirectory, String filename) {
+	private void scheduleThumbnailIfPossible(BufferedImage source, Path targetDirectory, String filename) {
 		if (source == null) {
 			return;
 		}
+		try {
+			thumbnailExecutor.execute(() -> writeThumbnailIfPossible(source, targetDirectory, filename));
+		} catch (RejectedExecutionException exception) {
+			log.warn("Rejected image thumbnail task for {}", filename, exception);
+		}
+	}
+
+	private static void writeThumbnailIfPossible(BufferedImage source, Path targetDirectory, String filename) {
 		try {
 			Path thumbnailDirectory = targetDirectory.resolve(THUMBNAIL_DIRECTORY);
 			Files.createDirectories(thumbnailDirectory);
