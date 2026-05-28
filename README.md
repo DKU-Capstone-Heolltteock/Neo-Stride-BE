@@ -66,7 +66,15 @@ The application uses:
 spring.datasource.url=jdbc:mysql://${DB_HOST:localhost}:${DB_PORT:3306}/${DB_NAME:neostride}?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Seoul
 ```
 
-Apply the team's baseline schema before starting the app. This repository currently includes incremental migrations under `deploy/mysql/migrations`.
+Apply the team's baseline schema before starting the app. The latest schema-only baseline is `deploy/mysql/schema/latest.sql`; it contains no data rows and reflects migrations through `016`.
+
+For a fresh empty database, import the baseline and mark the included migrations as applied:
+
+```bash
+mysql -h "$DB_HOST" -P "$DB_PORT" -u "$DB_USERNAME" -p"$DB_PASSWORD" "$DB_NAME" < deploy/mysql/schema/latest.sql
+DB_USERNAME=neostride_app DB_PASSWORD=change-me deploy/mysql/apply-migrations.sh --baseline
+DB_USERNAME=neostride_app DB_PASSWORD=change-me deploy/mysql/apply-migrations.sh --verify
+```
 
 Use the migration runner to track and apply new `*.up.sql` files:
 
