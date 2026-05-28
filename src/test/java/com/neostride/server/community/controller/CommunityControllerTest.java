@@ -304,6 +304,19 @@ class CommunityControllerTest {
 		assertThat(controller.getTips(AUTHORIZATION, 1L).getBody()).isSameAs(tipList);
 	}
 
+
+	@Test
+	void getCommunityFeedList_ignoresUnauthenticatedUserIdHeader() {
+		FeedUploadResponse feed = new FeedUploadResponse(99L, null, "neo", "2026-05-11T00:00:00", "title", "content", 1, 0, 0, "3.20 km", "20:00", "6'15\"", true, "route.png", List.of("image.png"));
+		when(service.getFeedList((Long) null)).thenReturn(List.of(feed));
+
+		var response = controller.getCommunityFeedList(null, 1L);
+
+		assertThat(response.getBody()).containsExactly(feed);
+		verify(service).getFeedList((Long) null);
+		verify(authenticatedUserService, never()).requireUserId(any());
+	}
+
 	@Test
 	void getCommunityFeedPage_supportsCursorAliasesWithoutChangingLegacyList() {
 		FeedUploadResponse feed = new FeedUploadResponse(99L, null, "neo", "2026-05-11T00:00:00", "title", "content", 1, 0, 0, "3.20 km", "20:00", "6'15\"", true, "route.png", List.of("image.png"));

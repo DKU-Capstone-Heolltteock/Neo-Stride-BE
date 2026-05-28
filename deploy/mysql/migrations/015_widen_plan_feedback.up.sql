@@ -1,0 +1,2 @@
+ALTER TABLE plans
+    MODIFY COLUMN feedback TEXT NULL;

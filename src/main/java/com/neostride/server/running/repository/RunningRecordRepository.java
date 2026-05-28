@@ -5,11 +5,15 @@ import com.neostride.server.running.dto.RunningRecordRequest;
 import com.neostride.server.running.dto.RunningRecordResponse;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.LocalDate;
 import java.sql.PreparedStatement;
 import java.sql.Statement;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.jdbc.support.GeneratedKeyHolder;
@@ -33,7 +37,7 @@ public class RunningRecordRepository {
 			nullableInt(rs.getObject("duration")),
 			nullableInt(rs.getObject("pace")),
 			nullableInt(rs.getObject("calories")),
-			findGpsTracesByRecordId(rs.getLong("run_record_id")),
+			List.of(),
 			List.of()
 	);
 
@@ -101,21 +105,25 @@ public class RunningRecordRepository {
 	}
 
 	public List<RunningRecordResponse> findByUserId(long userId) {
-		return jdbcTemplate.query("""
+		List<RunningRecordResponse> records = jdbcTemplate.query("""
 				SELECT run_record_id, plan_id, created_at, total_distance, duration, pace, calories
 				FROM running_records
 				WHERE user_id = ?
 				ORDER BY created_at DESC, run_record_id DESC
 				""", runningRecordRowMapper, userId);
+		return attachGpsTraces(records);
 	}
 
 	public List<RunningRecordResponse> findByUserIdAndMonth(long userId, int year, int month) {
-		return jdbcTemplate.query("""
+		LocalDate startDate = LocalDate.of(year, month, 1);
+		LocalDate endDate = startDate.plusMonths(1);
+		List<RunningRecordResponse> records = jdbcTemplate.query("""
 				SELECT run_record_id, plan_id, created_at, total_distance, duration, pace, calories
 				FROM running_records
-				WHERE user_id = ? AND YEAR(created_at) = ? AND MONTH(created_at) = ?
+				WHERE user_id = ? AND created_at >= ? AND created_at < ?
 				ORDER BY created_at DESC, run_record_id DESC
-				""", runningRecordRowMapper, userId, year, month);
+				""", runningRecordRowMapper, userId, startDate, endDate);
+		return attachGpsTraces(records);
 	}
 
 	public RunningRecordResponse findByRecordIdForUser(long userId, long recordId) {
@@ -124,7 +132,57 @@ public class RunningRecordRepository {
 				FROM running_records
 				WHERE user_id = ? AND run_record_id = ?
 				""", runningRecordRowMapper, userId, recordId);
-		return records.isEmpty() ? null : records.getFirst();
+		return records.isEmpty() ? null : attachGpsTraces(records).getFirst();
+	}
+
+	private List<RunningRecordResponse> attachGpsTraces(List<RunningRecordResponse> records) {
+		if (records == null || records.isEmpty()) {
+			return List.of();
+		}
+		List<Long> recordIds = records.stream().map(RunningRecordResponse::runRecordId).toList();
+		Map<Long, List<GpsTraceRequest>> tracesByRecordId = findGpsTracesByRecordIds(recordIds);
+		return records.stream()
+				.map(record -> RunningRecordResponse.record(
+						record.runRecordId(),
+						record.planId(),
+						record.createdAt(),
+						record.totalDistance(),
+						record.duration(),
+						record.pace(),
+						record.calories(),
+						tracesByRecordId.getOrDefault(record.runRecordId(), List.of()),
+						List.of()
+				))
+				.toList();
+	}
+
+	private Map<Long, List<GpsTraceRequest>> findGpsTracesByRecordIds(List<Long> recordIds) {
+		if (recordIds == null || recordIds.isEmpty()) {
+			return Map.of();
+		}
+		String placeholders = String.join(",", java.util.Collections.nCopies(recordIds.size(), "?"));
+		boolean includeWatchMetrics = supportsWatchMetricColumns();
+		String metricColumns = includeWatchMetrics ? ", heart_rate, cadence" : "";
+		String sql = """
+				SELECT run_record_id, latitude, longitude, recorded_time%s
+				FROM gps_traces
+				WHERE run_record_id IN (%s)
+				ORDER BY run_record_id ASC, recorded_time ASC, trace_id ASC
+				""".formatted(metricColumns, placeholders);
+		Map<Long, List<GpsTraceRequest>> tracesByRecordId = new LinkedHashMap<>();
+		jdbcTemplate.query(sql, rs -> {
+			long runRecordId = rs.getLong("run_record_id");
+			Double heartRate = includeWatchMetrics ? nullableDouble(rs.getObject("heart_rate")) : null;
+			Double cadence = includeWatchMetrics ? nullableDouble(rs.getObject("cadence")) : null;
+			tracesByRecordId.computeIfAbsent(runRecordId, ignored -> new ArrayList<>()).add(new GpsTraceRequest(
+					rs.getDouble("latitude"),
+					rs.getDouble("longitude"),
+					rs.getTimestamp("recorded_time").toLocalDateTime().format(TRACE_TIME_FORMATTER),
+					heartRate,
+					cadence
+			));
+		}, recordIds.toArray());
+		return tracesByRecordId;
 	}
 
 	private List<GpsTraceRequest> findGpsTracesByRecordId(long recordId) {

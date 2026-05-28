@@ -43,9 +43,22 @@ class CommunityRepositoryTest {
 		ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
 		verify(jdbcTemplate).query(sql.capture(), any(RowMapper.class), any(Object[].class));
 		assertThat(sql.getValue()).contains("cc.content_type = 'POST'");
-		assertThat(sql.getValue()).contains("cc.feed_scope IN ('PUBLIC', 'FRIENDS')");
+		assertThat(sql.getValue()).contains("cc.feed_scope = 'PUBLIC'");
+		assertThat(sql.getValue()).doesNotContain("cc.feed_scope IN ('PUBLIC', 'FRIENDS')");
 	}
 
+	@Test
+	void listFeedsWithViewer_allowsFriendsScopeOnlyThroughAcceptedRelationship() {
+		when(jdbcTemplate.query(anyString(), any(RowMapper.class), any(Object[].class))).thenReturn(List.of());
+
+		repository.listFeeds(1L);
+
+		ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
+		ArgumentCaptor<Object[]> args = ArgumentCaptor.forClass(Object[].class);
+		verify(jdbcTemplate).query(sql.capture(), any(RowMapper.class), args.capture());
+		assertThat(sql.getValue()).contains("cc.feed_scope = 'FRIENDS'", "relationships r", "r.status = 'ACCEPTED'");
+		assertThat(args.getValue()).containsExactly(1L, 1L, 1L, 1L, 1L, 1L, 1L, 1L, 1L, 1L);
+	}
 
 	@Test
 	void listFeeds_usesContentStatsTableForCounts() {
@@ -85,6 +98,7 @@ class CommunityRepositoryTest {
 		assertThat(sql.getValue()).contains("cc.created_at < ?", "cc.content_id < ?", "LIMIT ?");
 		assertThat(args.getValue()).containsExactly(
 				1L, 1L, 1L, 1L, 1L,
+				1L, 1L, 1L,
 				Timestamp.valueOf("2026-05-26 22:14:32"),
 				Timestamp.valueOf("2026-05-26 22:14:32"),
 				76L, 1L, 1L, 11
@@ -222,6 +236,7 @@ class CommunityRepositoryTest {
 
 	@Test
 	void createComment_persistsCommentTextInsteadOfOnlyCountingInteraction() throws Exception {
+		when(jdbcTemplate.queryForObject(anyString(), eq(Integer.class), eq(10L), eq(1L), eq(1L), eq(1L), eq(1L), eq(1L))).thenReturn(1);
 		when(jdbcTemplate.query(anyString(), any(RowMapper.class), eq(99L))).thenReturn(List.of(commentRow(99L, 1L, "좋은 팁입니다")));
 		doAnswer(invocation -> {
 			KeyHolder keyHolder = invocation.getArgument(1);

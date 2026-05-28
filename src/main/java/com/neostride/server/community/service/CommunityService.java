@@ -21,9 +21,13 @@ public class CommunityService {
 	public UserProfileResponse getUserProfile(long userId) { validatePositive(userId, "user_id"); return repository.getUserProfile(userId); }
 	public UserProfileResponse getUserProfile(Long viewerUserId, long targetUserId) { validatePositive(targetUserId, "user_id"); if (viewerUserId != null) validatePositive(viewerUserId, "viewer_user_id"); return repository.getUserProfile(viewerUserId, targetUserId); }
 	public AccountInfoResponse getAccountInfo(long userId) { validatePositive(userId, "user_id"); return repository.getAccountInfo(userId); }
+	@Transactional
 	public void updateStatusMessage(long userId, Map<String, String> body) { validatePositive(userId, "user_id"); requireBody(body); repository.updateStatusMessage(userId, body.get("status_message")); }
+	@Transactional
 	public void updateNickname(long userId, Map<String, String> body) { validatePositive(userId, "user_id"); requireBody(body); repository.updateNickname(userId, body.get("nickname")); }
+	@Transactional
 	public void deleteAccount(long userId) { validatePositive(userId, "user_id"); repository.deleteAccount(userId); }
+	@Transactional
 	public void updateProfileImage(long userId, String profileImageUrl) { validatePositive(userId, "user_id"); repository.updateProfileImage(userId, profileImageUrl); }
 	@Transactional
 	public void deleteProfileImage(long userId) { validatePositive(userId, "user_id"); repository.deleteProfileImage(userId); }
@@ -32,21 +36,30 @@ public class CommunityService {
 	public List<CommunityContentResponse> getCommentedFeeds(long userId) { validatePositive(userId, "user_id"); return repository.interactedFeeds(userId, "COMMENT"); }
 	public List<CommunityContentResponse> getLikedFeeds(long userId) { validatePositive(userId, "user_id"); return repository.interactedFeeds(userId, "LIKE"); }
 	public List<CommunityContentResponse> getBookmarkedFeeds(long userId) { validatePositive(userId, "user_id"); return repository.interactedFeeds(userId, "BOOKMARK"); }
-	public List<CommunityContentResponse> getUserFeeds(long userId) { validatePositive(userId, "user_id"); return repository.myFeeds(userId); }
+	public List<CommunityContentResponse> getUserFeeds(long userId) { validatePositive(userId, "user_id"); return repository.publicFeedsByUser(userId); }
+	@Transactional
 	public Map<String, String> toggleBookmark(long userId, long contentId) { validatePositive(userId, "user_id"); validatePositive(contentId, "content_id"); boolean bookmarked = repository.toggleBookmark(userId, contentId); return Map.of("status", "success", "bookmarked", String.valueOf(bookmarked)); }
 	public BadgeDetailResponse getBadgeDetail(long userId) { validatePositive(userId, "user_id"); return repository.getBadgeDetail(userId); }
 	public List<FriendResponse> getFriendList(long userId, String status) { validatePositive(userId, "user_id"); return repository.getFriendList(userId, status); }
 	public List<FriendResponse> getUserFriendList(long userId) { validatePositive(userId, "user_id"); return repository.getFriendList(userId, "friends"); }
 	@Transactional
 	public Map<String, String> updateRelationship(long userId, FriendRequest request) { validatePositive(userId, "user_id"); requireBody(request); repository.updateRelationship(userId, request); return Map.of("status", "success", "message", "관계 상태가 변경되었습니다."); }
+	@Transactional
 	public FeedUploadResponse uploadFeed(long userId, FeedUploadRequest request) { validatePositive(userId, "user_id"); requireBody(request); long id = repository.insertFeed(userId, request); return repository.findFeed(id); }
 	public FeedDetailResponse getFeedDetail(long userId, long feedId) { validatePositive(userId, "user_id"); validatePositive(feedId, "feed_id"); return repository.findFeedDetail(userId, feedId); }
+	@Transactional
 	public Map<String, String> toggleFeedLike(long userId, long feedId) { validatePositive(userId, "user_id"); validatePositive(feedId, "feed_id"); return interactionResult("liked", repository.toggleInteraction(userId, feedId, "LIKE")); }
+	@Transactional
 	public Map<String, String> toggleFeedBookmark(long userId, long feedId) { validatePositive(userId, "user_id"); validatePositive(feedId, "feed_id"); return interactionResult("bookmarked", repository.toggleInteraction(userId, feedId, "BOOKMARK")); }
+	@Transactional
 	public CommentResponse createFeedComment(long userId, long feedId, CommentRequest request) { validatePositive(userId, "user_id"); validatePositive(feedId, "feed_id"); requireBody(request); return repository.createComment(userId, feedId, request); }
+	@Transactional
 	public FeedUploadResponse updateFeed(long userId, long feedId, FeedUploadRequest request) { validatePositive(userId, "user_id"); validatePositive(feedId, "feed_id"); requireBody(request); repository.updateFeed(userId, feedId, request); return repository.findFeed(feedId); }
+	@Transactional
 	public void deleteFeed(long userId, long feedId) { validatePositive(userId, "user_id"); validatePositive(feedId, "feed_id"); repository.deleteContent(userId, feedId, "POST"); }
+	@Transactional
 	public CommentResponse updateFeedComment(long userId, long feedId, long commentId, CommentRequest request) { validatePositive(userId, "user_id"); validatePositive(feedId, "feed_id"); validatePositive(commentId, "comment_id"); requireBody(request); return repository.updateComment(userId, feedId, commentId, request); }
+	@Transactional
 	public void deleteFeedComment(long userId, long feedId, long commentId) { validatePositive(userId, "user_id"); validatePositive(feedId, "feed_id"); validatePositive(commentId, "comment_id"); repository.deleteComment(userId, feedId, commentId); }
 	public List<FriendResponse> getTaggedUsers(long feedId) { validatePositive(feedId, "feed_id"); return repository.getTaggedUsers(feedId); }
 	public List<FeedUploadResponse> getFeedList() { return getFeedList(null); }
@@ -65,6 +78,7 @@ public class CommunityService {
 		}
 		return new FeedPageResponse(items, nextCursor, hasMore);
 	}
+	@Transactional
 	public TipUploadResponse uploadTip(long userId, TipUploadRequest request) { validatePositive(userId, "user_id"); requireBody(request); long id = repository.insertTip(userId, request); return repository.findTip(id); }
 	public TipListResponse getTips(Long viewerUserId) { return new TipListResponse(viewerUserId == null ? repository.listTips() : repository.listTips(viewerUserId)); }
 	public List<TipUploadResponse> getMyTips(long userId) { validatePositive(userId, "user_id"); return repository.listTipsByUser(userId); }
@@ -73,12 +87,19 @@ public class CommunityService {
 	public List<TipUploadResponse> getBookmarkedTips(long userId) { validatePositive(userId, "user_id"); return repository.listTipsBookmarkedByUser(userId); }
 	public List<TipUploadResponse> getCommentedTips(long userId) { validatePositive(userId, "user_id"); return repository.listTipsCommentedByUser(userId); }
 	public TipDetailResponse getTipDetail(long userId, long tipId) { validatePositive(userId, "user_id"); validatePositive(tipId, "tip_id"); return repository.findTipDetail(userId, tipId); }
+	@Transactional
 	public Map<String, String> toggleTipLike(long userId, long tipId) { validatePositive(userId, "user_id"); validatePositive(tipId, "tip_id"); return interactionResult("liked", repository.toggleInteraction(userId, tipId, "LIKE")); }
+	@Transactional
 	public Map<String, String> toggleTipBookmark(long userId, long tipId) { validatePositive(userId, "user_id"); validatePositive(tipId, "tip_id"); return interactionResult("bookmarked", repository.toggleInteraction(userId, tipId, "BOOKMARK")); }
+	@Transactional
 	public CommentResponse createTipComment(long userId, long tipId, CommentRequest request) { validatePositive(userId, "user_id"); validatePositive(tipId, "tip_id"); requireBody(request); return repository.createComment(userId, tipId, request); }
+	@Transactional
 	public TipUploadResponse updateTip(long userId, long tipId, TipUploadRequest request) { validatePositive(userId, "user_id"); validatePositive(tipId, "tip_id"); requireBody(request); repository.updateTip(userId, tipId, request); return repository.findTip(tipId); }
+	@Transactional
 	public void deleteTip(long userId, long tipId) { validatePositive(userId, "user_id"); validatePositive(tipId, "tip_id"); repository.deleteContent(userId, tipId, "TIP"); }
+	@Transactional
 	public CommentResponse updateTipComment(long userId, long tipId, long commentId, CommentRequest request) { validatePositive(userId, "user_id"); validatePositive(tipId, "tip_id"); validatePositive(commentId, "comment_id"); requireBody(request); return repository.updateComment(userId, tipId, commentId, request); }
+	@Transactional
 	public void deleteTipComment(long userId, long tipId, long commentId) { validatePositive(userId, "user_id"); validatePositive(tipId, "tip_id"); validatePositive(commentId, "comment_id"); repository.deleteComment(userId, tipId, commentId); }
 	public List<FeedUploadResponse> searchFeeds(String keyword, int page, int size) { validatePage(page, size); return repository.searchFeeds(keyword, page, size); }
 	public List<FeedUploadResponse> searchFeeds(Long viewerUserId, String keyword, int page, int size) { if (viewerUserId != null) validatePositive(viewerUserId, "viewer_user_id"); validatePage(page, size); return repository.searchFeeds(viewerUserId, keyword, page, size); }

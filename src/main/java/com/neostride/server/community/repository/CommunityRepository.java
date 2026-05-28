@@ -11,6 +11,7 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Locale;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.support.GeneratedKeyHolder;
 import org.springframework.jdbc.support.KeyHolder;
@@ -24,6 +25,9 @@ public class CommunityRepository {
 	private static final String ROUTE_DELIMITER = "\n---NEOSTRIDE-ROUTE---\n";
 	private static final String METRICS_DELIMITER = "\n---NEOSTRIDE-METRICS---\n";
 	private static final String METRIC_VALUE_DELIMITER = "\n---NEOSTRIDE-METRIC---\n";
+	private static final String PUBLIC_FEED_PREDICATE = "cc.content_type = 'POST' AND cc.feed_scope = 'PUBLIC'";
+	private static final String VIEWER_SCOPE_PREDICATE = "(cc.feed_scope = 'PUBLIC' OR cc.author_user_id = ? OR (cc.feed_scope = 'FRIENDS' AND EXISTS (SELECT 1 FROM relationships r WHERE r.status = 'ACCEPTED' AND ((r.user1_id = ? AND r.user2_id = cc.author_user_id) OR (r.user2_id = ? AND r.user1_id = cc.author_user_id)))))";
+	private static final String VIEWER_FEED_PREDICATE = "cc.content_type = 'POST' AND " + VIEWER_SCOPE_PREDICATE;
 	private final JdbcTemplate jdbcTemplate;
 
 	public CommunityRepository(JdbcTemplate jdbcTemplate) { this.jdbcTemplate = jdbcTemplate; }
@@ -97,6 +101,7 @@ public class CommunityRepository {
 	}
 
 	public List<CommunityContentResponse> myFeeds(long userId) { return contentQuery("cc.author_user_id = ?", userId, userId); }
+	public List<CommunityContentResponse> publicFeedsByUser(long userId) { return contentQuery("cc.author_user_id = ? AND cc.feed_scope = 'PUBLIC'", 0L, userId); }
 	public List<CommunityContentResponse> taggedFeeds(long userId) { return contentQuery("EXISTS (SELECT 1 FROM community_interactions ci WHERE ci.content_id = cc.content_id AND ci.interaction_type='TAG' AND ci.tagged_user_id = ?)", userId, userId); }
 	public List<CommunityContentResponse> interactedFeeds(long userId, String type) { return contentQuery("EXISTS (SELECT 1 FROM community_interactions ci WHERE ci.content_id = cc.content_id AND ci.interaction_type='" + type + "' AND ci.user_id = ?)", userId, userId); }
 
@@ -158,13 +163,7 @@ public class CommunityRepository {
 	}
 
 	public boolean toggleBookmark(long userId, long contentId) {
-		Integer existing = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM community_interactions WHERE user_id=? AND content_id=? AND interaction_type='BOOKMARK'", Integer.class, userId, contentId);
-		if (existing != null && existing > 0) {
-			jdbcTemplate.update("DELETE FROM community_interactions WHERE user_id=? AND content_id=? AND interaction_type='BOOKMARK'", userId, contentId);
-			return false;
-		}
-		jdbcTemplate.update("INSERT INTO community_interactions (user_id, content_id, interaction_type) VALUES (?, ?, 'BOOKMARK')", userId, contentId);
-		return true;
+		return toggleInteraction(userId, contentId, "BOOKMARK");
 	}
 
 	public BadgeDetailResponse getBadgeDetail(long userId) {
@@ -265,7 +264,7 @@ public class CommunityRepository {
 		long contentId = generatedKey(kh, "피드 ID를 생성하지 못했습니다.");
 		insertContentImages(contentId, request.imageUrls());
 		if (request.taggedUserIds() != null) {
-			for (Long tagged : request.taggedUserIds()) {
+			for (Long tagged : new java.util.LinkedHashSet<>(request.taggedUserIds())) {
 				if (tagged != null) {
 					jdbcTemplate.update("INSERT INTO community_interactions (user_id, content_id, interaction_type, tagged_user_id) VALUES (?, ?, 'TAG', ?)", userId, contentId, tagged);
 					notifyTaggedUser(userId, contentId, tagged);
@@ -278,22 +277,26 @@ public class CommunityRepository {
 	public FeedUploadResponse findFeed(long feedId) { return feedQuery("cc.content_id = ?", feedId).stream().findFirst().orElse(null); }
 	public List<FeedUploadResponse> listFeeds() { return listFeeds(null); }
 	public List<FeedUploadResponse> listFeeds(Long viewerUserId) {
-		String predicate = "cc.content_type = 'POST' AND cc.feed_scope IN ('PUBLIC', 'FRIENDS')";
-		if (viewerUserId == null) return feedQuery(predicate);
-		return feedQueryForViewer(predicate + " AND " + blockedByCurrentUserPredicate(), viewerUserId, viewerUserId, viewerUserId, viewerUserId, viewerUserId, viewerUserId, viewerUserId);
+		if (viewerUserId == null) return feedQuery(PUBLIC_FEED_PREDICATE);
+		return feedQueryForViewer(VIEWER_FEED_PREDICATE + " AND " + blockedByCurrentUserPredicate(), viewerUserId, viewerUserId, viewerUserId, viewerUserId, viewerUserId, viewerUserId, viewerUserId, viewerUserId, viewerUserId, viewerUserId);
 	}
 
 	public List<FeedUploadResponse> listFeedsPage(Long viewerUserId, LocalDateTime cursorCreatedAt, Long cursorId, int limit) {
-		String predicate = "cc.content_type = 'POST' AND cc.feed_scope IN ('PUBLIC', 'FRIENDS')";
-		java.util.List<Object> cursorArgs = new java.util.ArrayList<>();
+		String predicate = viewerUserId == null ? PUBLIC_FEED_PREDICATE : VIEWER_FEED_PREDICATE;
+		java.util.List<Object> predicateArgs = new java.util.ArrayList<>();
+		if (viewerUserId != null) {
+			predicateArgs.add(viewerUserId);
+			predicateArgs.add(viewerUserId);
+			predicateArgs.add(viewerUserId);
+		}
 		if (cursorCreatedAt != null && cursorId != null) {
 			Timestamp cursorTimestamp = Timestamp.valueOf(cursorCreatedAt);
 			predicate += " AND (cc.created_at < ? OR (cc.created_at = ? AND cc.content_id < ?))";
-			cursorArgs.add(cursorTimestamp);
-			cursorArgs.add(cursorTimestamp);
-			cursorArgs.add(cursorId);
+			predicateArgs.add(cursorTimestamp);
+			predicateArgs.add(cursorTimestamp);
+			predicateArgs.add(cursorId);
 		}
-		java.util.List<Object> limitedArgs = new java.util.ArrayList<>(cursorArgs);
+		java.util.List<Object> limitedArgs = new java.util.ArrayList<>(predicateArgs);
 		limitedArgs.add(limit);
 		if (viewerUserId == null) {
 			return feedQueryLimited(predicate, limitedArgs.toArray());
@@ -304,7 +307,7 @@ public class CommunityRepository {
 		args.add(viewerUserId);
 		args.add(viewerUserId);
 		args.add(viewerUserId);
-		args.addAll(cursorArgs);
+		args.addAll(predicateArgs);
 		args.add(viewerUserId);
 		args.add(viewerUserId);
 		args.add(limit);
@@ -325,29 +328,39 @@ public class CommunityRepository {
 			FROM community_contents cc JOIN users u ON u.user_id=cc.author_user_id LEFT JOIN community_users cu ON cu.user_id=u.user_id
 			LEFT JOIN community_content_stats stats ON stats.content_id=cc.content_id
 			LEFT JOIN (SELECT content_id, GROUP_CONCAT(image_url ORDER BY image_order SEPARATOR '\n---NEOSTRIDE-IMAGE---\n') AS image_urls FROM community_content_images GROUP BY content_id) images ON images.content_id=cc.content_id
-			LEFT JOIN running_records rr ON rr.run_record_id=cc.running_record_id WHERE cc.content_type='POST' AND cc.content_id=?
+			LEFT JOIN running_records rr ON rr.run_record_id=cc.running_record_id WHERE cc.content_type='POST' AND cc.content_id=? AND 
+			""" + VIEWER_SCOPE_PREDICATE + " AND " + blockedByCurrentUserPredicate() + """
 			""", (rs, n) -> {
 			DecodedFeedContent parts = decodeFeedContent(rs.getString("content_text"));
 			String badge = rs.getString("badge");
 			long contentId = rs.getLong("content_id");
 			return new FeedDetailResponse(contentId, rs.getLong("author_user_id"), rs.getString("profile_image_url"), rs.getString("nickname"), badgeOwned(badge), badge, rs.getTimestamp("created_at").toLocalDateTime().format(ISO), parts.title(), parts.content(), rs.getInt("tagged_count"), rs.getInt("like_count"), rs.getInt("comment_count"), rs.getBoolean("liked"), rs.getBoolean("bookmarked"), rs.getLong("author_user_id") == userId, feedDistance(rs, parts), feedDuration(rs, parts), feedPace(rs, parts), rs.getBoolean("include_route_detail"), parts.routeMapImageUri(), decodeImages(imageUrls(rs)), commentsForContent(userId, contentId));
-		}, userId, userId, feedId).stream().findFirst().orElse(null);
+		}, userId, userId, feedId, userId, userId, userId, userId, userId).stream().findFirst().orElse(null);
 	}
 
 	public boolean toggleInteraction(long userId, long contentId, String type) {
-		Integer existing = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM community_interactions WHERE user_id=? AND content_id=? AND interaction_type=?", Integer.class, userId, contentId, type);
-		if (existing != null && existing > 0) {
-			jdbcTemplate.update("DELETE FROM community_interactions WHERE user_id=? AND content_id=? AND interaction_type=?", userId, contentId, type);
+		requireViewableContent(userId, contentId);
+		String normalizedType = normalizeInteractionType(type);
+		List<Long> existing = jdbcTemplate.query(
+				"SELECT interaction_id FROM community_interactions WHERE user_id=? AND content_id=? AND interaction_type=? ORDER BY interaction_id ASC LIMIT 1",
+				(rs, n) -> rs.getLong("interaction_id"), userId, contentId, normalizedType);
+		if (!existing.isEmpty()) {
+			jdbcTemplate.update("DELETE FROM community_interactions WHERE interaction_id=?", existing.getFirst());
 			return false;
 		}
-		jdbcTemplate.update("INSERT INTO community_interactions (user_id, content_id, interaction_type) VALUES (?, ?, ?)", userId, contentId, type);
-		if ("LIKE".equalsIgnoreCase(type)) {
+		try {
+			jdbcTemplate.update("INSERT INTO community_interactions (user_id, content_id, interaction_type) VALUES (?, ?, ?)", userId, contentId, normalizedType);
+		} catch (DuplicateKeyException duplicate) {
+			return true;
+		}
+		if ("LIKE".equals(normalizedType)) {
 			notifyContentInteraction(userId, contentId, "LIKE");
 		}
 		return true;
 	}
 
 	public CommentResponse createComment(long userId, long contentId, CommentRequest request) {
+		requireViewableContent(userId, contentId);
 		KeyHolder kh = new GeneratedKeyHolder();
 		jdbcTemplate.update(con -> {
 			PreparedStatement ps = con.prepareStatement("INSERT INTO community_interactions (user_id, content_id, interaction_type, comment_text) VALUES (?, ?, 'COMMENT', ?)", Statement.RETURN_GENERATED_KEYS);
@@ -460,8 +473,13 @@ public class CommunityRepository {
 
 	public List<FeedUploadResponse> searchFeeds(String keyword, int page, int size) { return searchFeeds(null, keyword, page, size); }
 	public List<FeedUploadResponse> searchFeeds(Long viewerUserId, String keyword, int page, int size) {
-		String predicate = "cc.content_type = 'POST' AND cc.feed_scope IN ('PUBLIC', 'FRIENDS')";
+		String predicate = viewerUserId == null ? PUBLIC_FEED_PREDICATE : VIEWER_FEED_PREDICATE;
 		java.util.List<Object> args = new java.util.ArrayList<>();
+		if (viewerUserId != null) {
+			args.add(viewerUserId);
+			args.add(viewerUserId);
+			args.add(viewerUserId);
+		}
 		if (!blank(keyword)) {
 			predicate += " AND LOWER(cc.content_text) LIKE ?";
 			args.add(like(keyword));
@@ -844,6 +862,23 @@ public class CommunityRepository {
 		String badge = rs.getString("badge");
 		long writerId = rs.getLong("user_id");
 		return new CommentResponse(rs.getLong("interaction_id"), writerId, rs.getString("nickname"), rs.getString("profile_image_url"), rs.getString("comment_text"), rs.getTimestamp("created_at").toLocalDateTime().format(ISO), badgeOwned(badge), badge, writerId == viewerUserId);
+	}
+
+	private void requireViewableContent(long viewerUserId, long contentId) {
+		Integer count = jdbcTemplate.queryForObject(
+				"SELECT COUNT(*) FROM community_contents cc WHERE cc.content_id=? AND (cc.content_type='TIP' OR (cc.content_type='POST' AND " + VIEWER_SCOPE_PREDICATE + ")) AND " + blockedByCurrentUserPredicate(),
+				Integer.class, contentId, viewerUserId, viewerUserId, viewerUserId, viewerUserId, viewerUserId);
+		if (count == null || count == 0) {
+			throw new IllegalArgumentException("접근할 수 없는 콘텐츠입니다.");
+		}
+	}
+
+	private static String normalizeInteractionType(String type) {
+		String normalized = type == null ? null : type.trim().toUpperCase(Locale.ROOT);
+		return switch (normalized) {
+			case "LIKE", "BOOKMARK" -> normalized;
+			default -> throw new IllegalArgumentException("지원하지 않는 상호작용 타입입니다.");
+		};
 	}
 
 	private void notifyFriendRequest(long requesterUserId, long targetUserId) {

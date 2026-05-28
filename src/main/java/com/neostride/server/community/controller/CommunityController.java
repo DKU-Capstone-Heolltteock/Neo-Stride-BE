@@ -549,6 +549,6 @@ public class CommunityController {
 		if (authorization != null && !authorization.isBlank()) {
 			return authenticatedUserId(authorization, headerUserId);
 		}
-		return headerUserId != null && headerUserId > 0 ? headerUserId : null;
+		return null;
 	}
 }

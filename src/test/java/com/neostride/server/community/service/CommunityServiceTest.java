@@ -19,6 +19,17 @@ class CommunityServiceTest {
 	private final CommunityRepository repository = mock(CommunityRepository.class);
 	private final CommunityService service = new CommunityService(repository);
 
+
+	@Test
+	void getUserFeeds_returnsOnlyPublicFeedsForPublicProfileEndpoint() {
+		when(repository.publicFeedsByUser(2L)).thenReturn(List.of());
+
+		assertThat(service.getUserFeeds(2L)).isEmpty();
+
+		verify(repository).publicFeedsByUser(2L);
+		verify(repository, never()).myFeeds(2L);
+	}
+
 	@Test
 	void getFeedPage_requestsOneExtraRowAndBuildsNextCursor() {
 		FeedUploadResponse first = new FeedUploadResponse(76L, null, "neo", "2026-05-26T22:14:32", "title", "body", 0, 0, 0, "1.00 km", null, null, false, null, List.of());
