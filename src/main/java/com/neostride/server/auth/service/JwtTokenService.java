@@ -8,6 +8,7 @@ import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
 import java.util.Base64;
 import java.util.Map;
+import java.util.UUID;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 import org.springframework.beans.factory.annotation.Value;
@@ -72,6 +73,7 @@ public class JwtTokenService {
 					String.valueOf(payload.get("email")),
 					String.valueOf(payload.get("name")),
 					String.valueOf(payload.get("type")),
+					payload.get("jti") == null ? null : String.valueOf(payload.get("jti")),
 					exp
 			);
 		} catch (Exception exception) {
@@ -87,6 +89,7 @@ public class JwtTokenService {
 				"email", email,
 				"name", name,
 				"type", type,
+				"jti", UUID.randomUUID().toString(),
 				"iat", now,
 				"exp", now + ttlSeconds
 		);
@@ -125,6 +128,9 @@ public class JwtTokenService {
 		return diff == 0;
 	}
 
-	public record TokenClaims(long userId, String email, String name, String type, long expiresAt) {
+	public record TokenClaims(long userId, String email, String name, String type, String tokenId, long expiresAt) {
+		public TokenClaims(long userId, String email, String name, String type, long expiresAt) {
+			this(userId, email, name, type, null, expiresAt);
+		}
 	}
 }

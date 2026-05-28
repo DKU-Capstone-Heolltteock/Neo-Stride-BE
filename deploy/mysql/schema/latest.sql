@@ -1,5 +1,5 @@
 -- Neo-Stride MySQL schema baseline.
--- Generated from the operational schema after migration 017 on 2026-05-28.
+-- Generated from the operational schema after migration 023 on 2026-05-28.
 -- Data rows are intentionally excluded; import into an empty database, then run apply-migrations.sh --baseline and --verify.
 
 /*!40101 SET @OLD_CHARACTER_SET_CLIENT=@@CHARACTER_SET_CLIENT */;
@@ -53,6 +53,13 @@ CREATE TABLE `community_contents` (
   `tip_type` enum('TRAINING','COURSE','GEAR','ETC') COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `feed_scope` enum('PUBLIC','FRIENDS','PRIVATE') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'PUBLIC',
   `content_text` text COLLATE utf8mb4_unicode_ci NOT NULL,
+  `title` varchar(255) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `body_text` text COLLATE utf8mb4_unicode_ci,
+  `route_map_image_url` varchar(1000) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `course_address` varchar(500) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `distance_km` decimal(8,2) DEFAULT NULL,
+  `running_time_text` varchar(32) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `pace_text` varchar(32) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `image` varchar(500) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -60,6 +67,8 @@ CREATE TABLE `community_contents` (
   KEY `fk_community_contents_running_record` (`running_record_id`),
   KEY `idx_cc_feed_list` (`content_type`,`feed_scope`,`created_at` DESC,`content_id` DESC),
   KEY `idx_cc_author_type_created` (`author_user_id`,`content_type`,`created_at` DESC,`content_id` DESC),
+  KEY `idx_cc_type_created` (`content_type`,`created_at` DESC,`content_id` DESC),
+  FULLTEXT KEY `ft_cc_content_search` (`title`,`body_text`,`content_text`),
   CONSTRAINT `fk_community_contents_author` FOREIGN KEY (`author_user_id`) REFERENCES `users` (`user_id`) ON DELETE CASCADE,
   CONSTRAINT `fk_community_contents_running_record` FOREIGN KEY (`running_record_id`) REFERENCES `running_records` (`run_record_id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -208,6 +217,7 @@ CREATE TABLE `community_users` (
   `badge` enum('NONE','BRONZE','SILVER','GOLD','PLATINUM','DIAMOND','MASTER','CHALLENGER') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'NONE',
   PRIMARY KEY (`user_id`),
   UNIQUE KEY `uq_community_users_community_profile_name` (`community_profile_name`),
+  FULLTEXT KEY `ft_cu_search` (`community_profile_name`,`status_message`),
   CONSTRAINT `fk_community_users_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`user_id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
@@ -258,8 +268,25 @@ CREATE TABLE `notifications` (
   `is_read` tinyint(1) NOT NULL DEFAULT '0',
   `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`notification_id`),
-  KEY `fk_notifications_user` (`user_id`),
+  KEY `idx_notifications_user_created` (`user_id`,`created_at` DESC,`notification_id` DESC),
+  KEY `idx_notifications_user_read` (`user_id`,`is_read`),
   CONSTRAINT `fk_notifications_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`user_id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `refresh_tokens`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `refresh_tokens` (
+  `refresh_token_id` bigint NOT NULL AUTO_INCREMENT,
+  `user_id` bigint NOT NULL,
+  `token_id_hash` char(64) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `expires_at` datetime NOT NULL,
+  `revoked_at` datetime DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`refresh_token_id`),
+  UNIQUE KEY `uq_refresh_tokens_token_id_hash` (`token_id_hash`),
+  KEY `idx_refresh_tokens_user_active` (`user_id`,`revoked_at`,`expires_at`),
+  CONSTRAINT `fk_refresh_tokens_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`user_id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `plans`;
@@ -350,7 +377,8 @@ CREATE TABLE `users` (
   PRIMARY KEY (`user_id`),
   UNIQUE KEY `uq_users_email` (`email`),
   UNIQUE KEY `uq_users_name` (`name`),
-  UNIQUE KEY `uq_users_community_profile_name` (`community_profile_name`)
+  UNIQUE KEY `uq_users_community_profile_name` (`community_profile_name`),
+  FULLTEXT KEY `ft_users_search` (`name`,`community_profile_name`,`email`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 /*!40103 SET TIME_ZONE=@OLD_TIME_ZONE */;

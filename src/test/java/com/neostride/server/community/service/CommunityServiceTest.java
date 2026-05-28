@@ -43,6 +43,30 @@ class CommunityServiceTest {
 
 
 	@Test
+	void getFeedListWithoutLimitUsesLegacyCap() {
+		FeedUploadResponse first = new FeedUploadResponse(76L, null, "neo", "2026-05-26T22:14:32", "title", "body", 0, 0, 0, "1.00 km", null, null, false, null, List.of());
+		when(repository.listFeedsPage(null, null, null, 100)).thenReturn(List.of(first));
+
+		List<FeedUploadResponse> result = service.getFeedList();
+
+		assertThat(result).containsExactly(first);
+		verify(repository).listFeedsPage(null, null, null, 100);
+		verify(repository, never()).listFeeds(null);
+	}
+
+	@Test
+	void getDetailsUseConfiguredEmbeddedCommentLimit() {
+		CommunityService capped = new CommunityService(repository, 100, 25);
+
+		capped.getFeedDetail(1L, 7L);
+		capped.getTipDetail(1L, 8L);
+
+		verify(repository).findFeedDetail(1L, 7L, 25);
+		verify(repository).findTipDetail(1L, 8L, 25);
+	}
+
+
+	@Test
 	void getFeedListWithLimitKeepsLegacyShapeWhileUsingCursorQuery() {
 		FeedUploadResponse first = new FeedUploadResponse(76L, null, "neo", "2026-05-26T22:14:32", "title", "body", 0, 0, 0, "1.00 km", null, null, false, null, List.of());
 		when(repository.listFeedsPage(null, null, null, 2)).thenReturn(List.of(first));

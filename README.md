@@ -53,6 +53,8 @@ Required:
 - `DB_PASSWORD`: MySQL password.
 - `JWT_SECRET`: HMAC signing secret for access and refresh tokens. Use at least 32 characters.
 
+The app also imports secret files from `SECRETS_DIR` as a Spring config tree. By default this is `/run/secrets/`, so files named `DB_PASSWORD`, `JWT_SECRET`, or `OPENAI_API_KEY` can replace environment variables in production deployments that support secret mounts.
+
 Optional:
 
 - `DB_HOST`: MySQL host, default `localhost`.
@@ -60,6 +62,15 @@ Optional:
 - `DB_NAME`: MySQL database name, default `neostride`.
 - `JWT_ACCESS_TOKEN_TTL_SECONDS`: access token TTL, default `3600`.
 - `JWT_REFRESH_TOKEN_TTL_SECONDS`: refresh token TTL, default `1209600`.
+- `SECRETS_DIR`: config tree directory for secret files, default `/run/secrets`.
+- `CORS_ALLOWED_ORIGINS`: comma-separated allowed browser origins. Blank disables explicit CORS mappings.
+- `CORS_ALLOWED_METHODS`: comma-separated allowed CORS methods, default `GET,POST,PUT,PATCH,DELETE,OPTIONS`.
+- `RATE_LIMIT_ENABLED`: enables in-process API rate limits, default `true`.
+- `RATE_LIMIT_AUTH_PER_MINUTE`: per-IP limit for auth endpoints, default `30`.
+- `RATE_LIMIT_WRITE_PER_MINUTE`: per-IP limit for write endpoints, default `120`.
+- `RATE_LIMIT_READ_PER_MINUTE`: per-IP limit for feed/search/tip reads, default `600`.
+- `COMMUNITY_LEGACY_FEED_LIMIT`: internal cap for legacy feed list responses, default `100`.
+- `COMMUNITY_DETAIL_COMMENT_LIMIT`: embedded comment cap for feed/tip detail responses, default `50`.
 - `OPENAI_API_KEY`: enables real AI coaching plan/feedback generation. If unset, deterministic fallback logic is used.
 - `OPENAI_BASE_URL`: OpenAI-compatible API base URL, default `https://api.openai.com/v1`.
 - `OPENAI_MODEL`: chat model for coaching, default `gpt-5.4-mini`.
@@ -77,7 +88,7 @@ The application uses:
 spring.datasource.url=jdbc:mysql://${DB_HOST:localhost}:${DB_PORT:3306}/${DB_NAME:neostride}?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Seoul
 ```
 
-Apply the team's baseline schema before starting the app. The latest schema-only baseline is `deploy/mysql/schema/latest.sql`; it contains no data rows and reflects schema migrations through `017` (`018` only reconciles derived stats rows).
+Apply the team's baseline schema before starting the app. The latest schema-only baseline is `deploy/mysql/schema/latest.sql`; it contains no data rows and reflects schema migrations through `023`.
 
 For a fresh empty database, import the baseline and mark the included migrations as applied:
 
@@ -112,7 +123,7 @@ export JWT_SECRET=replace-with-at-least-32-characters
 ./mvnw spring-boot:run
 ```
 
-The API starts on `http://localhost:8080` by default.
+The API starts on `http://localhost:8080` by default. To run with production defaults, set `SPRING_PROFILES_ACTIVE=prod`; this disables Swagger/OpenAPI unless explicitly re-enabled.
 
 ## Test
 
@@ -139,12 +150,14 @@ docker run --rm -u "$(id -u):$(id -g)" \
 - Swagger UI: `http://localhost:8080/swagger-ui.html`
 - OpenAPI JSON: `http://localhost:8080/v3/api-docs`
 - Health endpoint: `http://localhost:8080/actuator/health`
+- In `prod`, Swagger/OpenAPI defaults to disabled. Override `SPRINGDOC_API_DOCS_ENABLED=true` and `SPRINGDOC_SWAGGER_UI_ENABLED=true` only for controlled review environments.
 
 ## Deployment Notes
 
 - Build the container with `docker build -t neo-stride-backend .`.
-- Provide all required secrets through the runtime environment, not committed property files.
+- Provide required secrets through secret mounts or tightly controlled runtime environment variables, never committed property files.
+- Prefer Docker/Kubernetes secret files mounted at `/run/secrets` for `DB_PASSWORD`, `JWT_SECRET`, and `OPENAI_API_KEY`; set `SECRETS_DIR` if another path is used.
 - Run the backend with a least-privilege DB user such as `neostride_app`; keep MySQL root for database administration and migrations only.
-- Run database migrations before deploying a new image.
-- Keep Swagger/OpenAPI enabled for capstone review environments; disable it for production if the API should not be public.
-- Verify the deployed app with `/actuator/health` and the Swagger UI URL after startup.
+- Run database migrations before deploying a new image, then run `deploy/mysql/apply-migrations.sh --verify`.
+- Run production with `SPRING_PROFILES_ACTIVE=prod` unless Swagger/OpenAPI must be exposed for a controlled review.
+- Verify the deployed app with `/actuator/health` after startup.

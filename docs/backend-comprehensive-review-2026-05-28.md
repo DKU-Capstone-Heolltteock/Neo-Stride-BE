@@ -18,15 +18,15 @@ Target: Neo-Stride Spring Boot backend, Docker MySQL, self-hosted single-server 
 
 가장 큰 리스크:
 
-- 운영 backend가 DB root 계정을 사용하던 문제는 `neostride_app` 런타임 계정 전환으로 1차 완화했다. Docker inspect로 DB/OpenAI/JWT secret이 노출되는 구조와 이미 노출된 secret rotation은 여전히 남아 있다.
-- 기존 상세 API는 API contract 유지를 위해 댓글 전체를 계속 포함하므로, 인기 게시물에서 payload가 커질 수 있다. 신규 comments cursor endpoint로 client 전환이 필요하다.
-- `schema_migrations` 기반 apply script, `--verify`, 핵심 검증 SQL, 최신 schema-only baseline snapshot을 추가했다. 남은 리스크는 오래된 migration 검증 범위 확대다.
+- 운영 backend가 DB root 계정을 사용하던 문제는 `neostride_app` 런타임 계정 전환으로 완화했고, backend는 `SECRETS_DIR` configtree(`/run/secrets` 기본값)에서 DB/JWT/OpenAI secret 파일을 읽을 수 있다. 이미 노출된 외부 OpenAI key 자체의 rotation은 provider 콘솔에서 별도 수행해야 한다.
+- 기존 상세 API의 내장 댓글 payload는 기본 50개 cap을 적용했고, 전체 댓글 조회는 기존 comments cursor endpoint로 분리했다.
+- `schema_migrations` 기반 apply script, `--verify`, 002-023 검증 SQL, 최신 schema-only baseline snapshot을 추가했다. 운영 DB에서 019-023 적용 및 전체 verify를 통과했다.
 - thumbnail 생성은 `imageThumbnailExecutor`로 request thread에서 분리됐다. 남은 이미지 리스크는 기존 파일 backfill/metadata 운영과 실패 모니터링이다.
-- search API는 `%LIKE%`와 offset pagination 중심이라 데이터 증가 시 별도 index/fulltext 전략이 필요하다.
+- search API는 `MATCH ... AGAINST`와 MySQL FULLTEXT index로 전환했다. 기존 offset pagination은 API 호환을 위해 유지하되 full scan 위험은 줄였다.
 
 운영 가능성 평가:
 
-현재 데이터 규모에서는 운영 가능하다. 1차로 privacy predicate, reaction uniqueness, transaction 경계, running GPS N+1, feed/comment cursor 진입점, coaching feedback 호환성, upload thumbnail background processing을 개선했다. 다음 병목은 legacy detail payload, search indexing, baseline schema snapshot 갱신이다. 단일 홈서버에서는 Kubernetes/MSA보다 index, pagination, thumbnail, Caddy static serving, backup/migration 절차 정리가 우선이다.
+현재 데이터 규모에서는 운영 가능하다. 1차로 privacy predicate, reaction uniqueness, transaction 경계, running GPS N+1, feed/comment cursor 진입점, detail payload cap, refresh token rotation, search fulltext, coaching feedback 호환성, upload thumbnail background processing, migration verify/baseline을 개선했다. 다음 병목은 feature별 repository/controller 분리와 legacy `content_text` fallback 제거 시점 관리다. 단일 홈서버에서는 Kubernetes/MSA보다 index, pagination, thumbnail, Caddy static serving, backup/migration 절차 정리가 우선이다.
 
 ## 2. 현재까지 적용한 변경
 
@@ -56,7 +56,8 @@ Community API/성능:
   - 신규 `GET /api/community/feeds/{feedId}/comments`와 `GET /api/community/tips/{tipId}/comments` cursor endpoint를 추가했다.
   - `GET /api/friends/{userId}`를 추가해 남의 친구 목록을 볼 때 status가 요청자(JWT) 기준으로 계산되도록 했다.
 - [src/main/java/com/neostride/server/community/service/CommunityService.java](../src/main/java/com/neostride/server/community/service/CommunityService.java)
-  - legacy feed list는 파라미터가 없으면 기존 전체 목록 흐름을 유지하고, cursor 파라미터가 있으면 내부적으로 page query를 사용한다.
+  - legacy feed list는 파라미터가 없으면 내부 cap(`COMMUNITY_LEGACY_FEED_LIMIT`, 기본 100)을 적용하고, cursor 파라미터가 있으면 page query를 사용한다.
+  - detail 응답의 embedded comments는 `COMMUNITY_DETAIL_COMMENT_LIMIT` 기본 50개까지만 포함한다.
   - 댓글 cursor 응답은 `limit + 1` 조회로 `hasMore`와 `nextCursor`를 계산한다.
 - [src/main/java/com/neostride/server/community/repository/CommunityRepository.java](../src/main/java/com/neostride/server/community/repository/CommunityRepository.java)
   - feed/tip query에서 전체 `community_content_images`를 매번 `GROUP BY`하던 derived table을 제거했다.
@@ -82,6 +83,15 @@ Community API/성능:
 - `plan_id=2922`, `user_id=1000004`: `plans.feedback IS NULL`, `is_completed=0`, 연결된 `running_records` 없음. 즉 해당 plan_id에는 성공한 feedback 저장/record 연결이 없었다.
 - 최신 실기기 저장으로 보이는 `plan_id=3034`: `is_completed=1`, feedback 저장 완료, `run_record_id=116` 연결 확인.
 - 운영 로그: OpenAI plan generation timeout이 확인됐다. feedback generation은 기존 코드가 실패를 조용히 fallback 처리했으므로 이번 변경부터 warn log가 남는다.
+
+남은 이슈 후속 적용:
+
+- refresh token에 `jti`를 추가하고 `refresh_tokens` table에 hash 저장/회전/폐기 흐름을 추가했다. 재사용된 refresh token은 `revokeIfActive` update가 실패해 재발급되지 않는다.
+- `community_contents`에 `title`, `body_text`, `route_map_image_url`, `course_address`, `distance_km`, `running_time_text`, `pace_text` nullable columns를 추가하고 backfill/dual-write/read fallback을 적용했다.
+- community feed/tip/profile/friend 검색은 FULLTEXT index 기반 `MATCH ... AGAINST`로 전환했다.
+- CORS origin/method와 기본 auth/write/read rate limit을 env property로 명시했다.
+- `application-prod.properties`에서 Swagger/OpenAPI를 기본 비활성화했다.
+- 002-006, 009-012, 019-023 migration verify SQL을 추가했고 운영 DB에서 `apply-migrations.sh --verify` 통과를 확인했다.
 
 운영 DB 적용:
 
@@ -119,6 +129,8 @@ Community API/성능:
 
 #### C2. 운영 secret 노출 및 DB root 계정 사용
 
+- 상태: 1차 해결 완료. 외부 OpenAI key rotation은 provider 콘솔 작업이 필요하다.
+
 - 위치: 운영 Docker env, backend compose, MySQL 접속 설정.
 - 문제: backend container env에 DB password, JWT secret, OpenAI API key가 들어 있으며 `docker inspect`로 확인 가능하다. backend가 DB root로 접속하던 문제는 2026-05-28에 app user 전환으로 1차 완화했다.
 - 원인: root 계정 재사용, container env 기반 secret 주입, secret rotation 절차 부재.
@@ -128,24 +140,22 @@ Community API/성능:
   - DB app user 생성: `neostride_app`에 `neostride.*` 최소 권한 부여. 2026-05-28에 `SELECT/INSERT/UPDATE/DELETE` 권한의 runtime user로 전환했다.
   - backend `DB_USERNAME`을 root에서 app user로 변경. 2026-05-28에 운영 backend `DB_USERNAME=neostride_app` 적용.
   - `.env` 파일 권한 `600`, 배포 로그에서 env 출력 금지.
-  - Docker secret까지는 과할 수 있으나, 최소한 root 계정 제거는 필수.
+  - backend는 `SECRETS_DIR` configtree(`/run/secrets` 기본값)를 import하므로 Docker/Kubernetes secret file 주입을 사용할 수 있다.
 - API 호환성 영향: 없음.
 
 ### High
 
 #### H1. Legacy feed list는 전체 데이터 반환 경로가 남아 있음
 
-- 상태: 부분 해결.
+- 상태: 해결 완료.
 
 - 위치: `GET /api/community/feeds`, `CommunityRepository.listFeeds`.
 - 문제: 신규 page endpoint는 있지만 기존 feed endpoint는 limit 없이 전체 반환한다.
 - 원인: API contract 유지를 위해 legacy endpoint를 유지했다.
 - 영향도: 게시글 수 증가 시 JSON 크기, image URL 후처리, DB scan, client memory가 선형 증가.
-- 해결방안:
-  - 클라이언트는 `/api/community/feeds/page?limit=20&cursorCreatedAt=...&cursorId=...`로 전환.
-  - legacy endpoint는 deprecated 문서화 후 optional `limit`를 받도록 확장.
-  - 충분한 공지 후 default internal cap 적용을 검토.
-- API 호환성 영향: 신규 endpoint/optional param 추가는 호환. legacy cap은 rollout 필요.
+- 적용: legacy endpoint는 optional cursor/limit를 유지하고, 파라미터가 없을 때도 기본 100개 internal cap을 적용한다.
+- 적용: cap 값은 `COMMUNITY_LEGACY_FEED_LIMIT`로 조정 가능하다.
+- API 호환성 영향: URL/field/status는 유지된다. 무제한 반환만 제거된다.
 
 #### H2. interaction 중복 방지 constraint 부재
 
@@ -190,17 +200,15 @@ Community API/성능:
 
 #### H5. comments 전체 반환과 pagination 부재
 
-- 상태: 부분 해결.
+- 상태: 해결 완료.
 
 - 위치: `findFeedDetail`, `findTipDetail`, `commentsForContent`.
 - 문제: 상세 조회가 댓글 전체를 항상 반환한다.
 - 원인: comment list가 detail DTO에 직접 포함되어 있고 limit/cursor가 없다.
 - 영향도: 인기 게시물 상세 응답이 커지고 comment sort 비용 증가.
-- 해결방안:
-  - 기존 detail 응답은 유지하되 신규 `GET /api/community/feeds/{id}/comments?limit&cursor` 추가.
-  - detail에는 초기 N개만 optional로 내려주는 v2 endpoint를 별도 추가하거나 client 전환 후 deprecate.
-  - 이미 적용한 `idx_ci_content_type_created`가 comments 정렬을 지원한다.
-- API 호환성 영향: 신규 endpoint는 호환. 기존 detail 축소는 migration guide 필요.
+- 적용: 기존 detail response field는 유지하되 embedded comments를 기본 50개로 제한한다. 전체/추가 댓글은 기존 cursor comments endpoint에서 조회한다.
+- 적용: cap 값은 `COMMUNITY_DETAIL_COMMENT_LIMIT`로 조정 가능하다.
+- API 호환성 영향: URL/field/status는 유지된다. 내장 comments 배열만 bounded response가 된다.
 
 #### H6. migration 운영 체계가 수동이고 baseline과 운영 schema가 벌어짐 - 해결 완료
 
@@ -209,9 +217,9 @@ Community API/성능:
 - 원인: 기존에는 migration runner나 `schema_migrations` table이 없었다.
 - 영향도: 재설치/복구/테스트 DB에서 운영과 다른 schema가 만들어진다.
 - 적용: `schema_migrations` table을 생성하고, `*.up.sql` 파일을 version/checksum 기반으로 적용하는 runner를 추가했다. 운영 DB는 002-018 migration 적용/기록이 완료됐다.
-- 적용: `--verify` 모드와 007/008/013/014/015/016/017/018 검증 SQL을 추가했다. 016은 신규 content 생성 시 stats 0-row를 보장하는 trigger와 누락 row backfill을 포함하고, 018은 stats drift를 실제 interaction 기준으로 재조정한다.
-- 적용: [deploy/mysql/schema/latest.sql](../deploy/mysql/schema/latest.sql) schema-only baseline snapshot을 추가했고 임시 DB restore 후 `--baseline`/`--verify` 통과를 확인했다.
-- 남은 작업: 오래된 migration 검증 SQL 추가 확대.
+- 적용: `--verify` 모드와 002-023 검증 SQL을 추가했다. 016은 신규 content 생성 시 stats 0-row를 보장하는 trigger와 누락 row backfill을 포함하고, 018은 stats drift를 실제 interaction 기준으로 재조정한다. 023은 기존 운영 notifications table에 누락됐던 조회 인덱스를 보강한다.
+- 적용: [deploy/mysql/schema/latest.sql](../deploy/mysql/schema/latest.sql) schema-only baseline snapshot을 migration 023 기준으로 갱신했고 운영 DB에서 `--verify` 통과를 확인했다.
+- 남은 작업: 새 migration 추가 시 동일 verify SQL 유지.
 - API 호환성 영향: 없음.
 
 ### Medium
@@ -237,38 +245,47 @@ Community API/성능:
 
 #### M3. 검색 API가 `%LIKE%`와 offset pagination에 의존
 
+- 상태: 1차 해결 완료.
+
 - 위치: `searchFeeds`, `searchTips`, `searchProfiles`.
 - 문제: `LOWER(content_text) LIKE '%keyword%'`는 index 사용이 어렵다.
 - 원인: 검색용 normalized column/fulltext index가 없다.
 - 영향도: 콘텐츠 증가 시 full scan과 offset 비용 증가.
-- 해결방안: MySQL FULLTEXT index 또는 별도 normalized search column 도입. offset deep page는 cursor 전환.
-- API 호환성 영향: optional 신규 endpoint/param이면 호환.
+- 적용: `community_contents(title, body_text, content_text)`, `users(name, community_profile_name, email)`, `community_users(community_profile_name, status_message)` FULLTEXT index를 추가하고 검색 predicate를 `MATCH ... AGAINST`로 전환했다.
+- 남은 작업: deep offset cursor 전환은 API 확장으로 별도 가능하다.
+- API 호환성 영향: 기존 endpoint/query param 유지.
 
 #### M4. refresh token이 stateless라 폐기/탈취 대응이 약함
+
+- 상태: 해결 완료.
 
 - 위치: `JwtTokenService`, `AuthService.refresh`.
 - 문제: refresh token을 DB에 저장하지 않아 logout, device revocation, reuse detection이 어렵다.
 - 원인: 단순 JWT refresh 구조.
 - 영향도: token 탈취 시 TTL 동안 계속 재발급 가능.
-- 해결방안: `refresh_tokens` table에 hashed token id, user_id, expires_at, revoked_at 저장. refresh마다 rotation하고 이전 토큰 폐기.
-- API 호환성 영향: request/response 유지 가능.
+- 적용: refresh JWT에 `jti`를 추가하고, `refresh_tokens` table에 hash 저장한다. refresh 시 이전 token id는 단일 conditional update로 폐기되어 재사용/동시 재발급을 막는다.
+- API 호환성 영향: request/response 유지. 배포 후 기존 미저장 refresh token은 재로그인이 필요하다.
 
 #### M5. CORS/rate limit 정책이 명시적이지 않음
+
+- 상태: 해결 완료.
 
 - 위치: Spring config/Caddy config.
 - 문제: Web client 운영 시 CORS가 환경별로 불명확하고, login/upload/feed에 rate limit이 없다.
 - 원인: Spring Security/filter 기반 공통 정책 부재.
 - 영향도: 브라우저 연동 문제, brute force/upload abuse 가능.
-- 해결방안: 허용 origin을 env로 관리하는 CORS config 추가. Caddy 또는 Spring interceptor에서 login/upload 기본 rate limit 추가.
+- 적용: `CORS_ALLOWED_ORIGINS`, `CORS_ALLOWED_METHODS` 기반 CORS config와 auth/write/read bucket rate limit filter를 추가했다.
 - API 호환성 영향: 정상 client origin을 등록하면 없음.
 
 #### M6. feed 목록 SQL에 `Using filesort`가 남음
+
+- 상태: 1차 해결 완료.
 
 - 위치: feed list/page EXPLAIN.
 - 문제: `feed_scope IN ('PUBLIC','FRIENDS')` 때문에 `idx_cc_feed_list`를 쓰면서도 filesort가 남는다.
 - 원인: IN 조건과 order by 조합.
 - 영향도: 현재는 작지만 대량 feed에서 page query가 느려질 수 있다.
-- 해결방안: privacy fix와 함께 `PUBLIC`/`FRIENDS` 조건을 분리해 union/merge하거나, visibility 모델을 재설계한다.
+- 적용: visibility predicate는 친구 검증 기반으로 이미 정리했고, `idx_cc_type_created(content_type, created_at, content_id)`를 추가해 feed order scan을 지원한다.
 - API 호환성 영향: 없음.
 
 ### Low
@@ -284,20 +301,24 @@ Community API/성능:
 
 #### L2. delimiter 기반 `content_text`가 남아 있음
 
+- 상태: 1차 해결 완료.
+
 - 위치: `content_text`, `encodeFeedContent`, `decodeFeedContent`, tip content encode/decode.
 - 문제: title/content/route/metrics/course address가 delimiter 문자열에 의존한다.
 - 원인: schema 변경 없이 필드를 확장한 이력.
 - 영향도: delimiter 충돌, 검색/정렬/검증 어려움.
-- 해결방안: nullable columns 추가 후 backfill, dual-write, read fallback, legacy column deprecate.
-- API 호환성 영향: 없음. DB migration 필요.
+- 적용: nullable columns 추가, 기존 row backfill, new write dual-write, read fallback을 적용했다. `content_text`는 legacy fallback으로 유지한다.
+- API 호환성 영향: 없음.
 
 #### L3. Swagger/OpenAPI가 production에서도 켜져 있음
+
+- 상태: 해결 완료.
 
 - 위치: `application.properties`, SpringDoc startup warning.
 - 문제: public API schema가 외부에 노출될 수 있다.
 - 원인: capstone/review 편의 설정 유지.
 - 영향도: 보안상 직접 취약점은 아니지만 공격 표면 정보를 제공한다.
-- 해결방안: prod profile에서 `springdoc.api-docs.enabled=false`, `springdoc.swagger-ui.enabled=false` 또는 Caddy basic auth/IP 제한.
+- 적용: `application-prod.properties`에서 `springdoc.api-docs.enabled=false`, `springdoc.swagger-ui.enabled=false`를 기본값으로 둔다.
 - API 호환성 영향: 없음.
 
 ## 4. 도메인별 리뷰
@@ -306,8 +327,8 @@ Auth:
 
 - 자체 JWT HS256 구현은 secret 길이 검증과 constant-time compare가 있다.
 - access/refresh `type` claim 분리는 좋다.
-- refresh token 저장/폐기/회전 DB가 없어 보안 운영성은 부족하다.
-- DB root 사용은 app user 전환으로 완화했지만 secret rotation 부재가 가장 큰 남은 문제다.
+- refresh token 저장/폐기/회전 DB를 추가했다.
+- DB root 사용은 app user 전환으로 완화했고 configtree secret import를 추가했다. 외부 OpenAI key rotation은 provider 콘솔 작업으로 남는다.
 
 Community:
 
@@ -442,25 +463,22 @@ Downtime 최소화:
 
 지금 바로:
 
-1. secret rotation 수행. DB app user 전환은 2026-05-28 적용 완료.
-2. Android/iOS/Web에서 feed cursor query 또는 `/api/community/feeds/page` 사용 시작.
-3. Android/iOS/Web에서 comments cursor endpoint 사용 시작.
-4. 남은 오래된 migration 검증 SQL/rollback rehearsal 확대.
+1. 외부 OpenAI key는 provider 콘솔에서 rotation 후 새 값을 secret mount 또는 배포 환경에 반영한다. DB app user 전환과 backend configtree import는 2026-05-28 적용 완료.
+2. Android/iOS/Web에서 feed cursor query 또는 `/api/community/feeds/page` 사용을 우선한다. legacy no-param path는 기본 100개 cap이 적용된다.
+3. Android/iOS/Web에서 comments cursor endpoint 사용을 우선한다. detail embedded comments는 기본 50개 cap이 적용된다.
+4. 새 migration 추가 시 `*.verify.sql`을 함께 추가하고 운영 적용 후 `--verify`를 실행한다.
 
 다음 스프린트:
 
-1. client 전환율 확인 후 legacy no-param feed cap 정책 결정.
-2. detail comments 축소/v2 endpoint migration guide 작성.
-3. feed/tip image 조회 batch 분리 추가 검토.
-4. refresh token persistence/rotation.
-5. search fulltext/index 전략 도입.
+1. client 전환율 확인 후 legacy feed/detail cap 값을 조정한다.
+2. feed/tip image 조회 batch 분리 추가 검토.
+3. community repository/controller를 feature 단위로 분리한다.
 
 장기:
 
-1. delimiter 기반 `content_text` 제거.
-2. community repository 분리.
-3. optional Redis first-page cache.
-4. notification outbox 검토.
+1. legacy `content_text` fallback 제거 시점 결정.
+2. optional Redis first-page cache.
+3. notification outbox 검토.
 
 ## 9. 최종 산출물 요약
 
@@ -470,7 +488,7 @@ Downtime 최소화:
 
 적용 가능한 개선안:
 
-- 적용 완료: cursor pagination 진입점, additional composite indexes, stats table, Caddy static serving, batch GPS trace loading, date range monthly query, comments pagination endpoint, transaction/uniqueness fixes, coaching feedback request 호환, background thumbnail executor, migration apply script/schema_migrations, 운영 baseline 기록, schema-only baseline snapshot, DB runtime app user 전환. 다음 적용: search index/fulltext.
+- 적용 완료: cursor pagination 진입점, additional composite indexes, stats table, Caddy static serving, batch GPS trace loading, date range monthly query, comments pagination endpoint, detail embedded comment cap, transaction/uniqueness fixes, coaching feedback request 호환, background thumbnail executor, migration apply script/schema_migrations, 운영 baseline 기록, schema-only baseline snapshot, DB runtime app user 전환, configtree secret import, refresh token rotation, search FULLTEXT.
 
 API 호환성 영향:
 
@@ -480,8 +498,7 @@ API 호환성 영향:
 
 필요 migration:
 
-- 이미 적용: 006-018 인덱스/stats/images/notifications/pace normalization, interaction dedupe/unique, user identity uniqueness, stats reconciliation.
-- 다음 필요: content_text column normalization, refresh_tokens.
+- 이미 적용: 002-023 watch metrics/pace normalization, community indexes/stats/images/notifications, interaction dedupe/unique, user identity uniqueness, stats reconciliation, refresh tokens, content normalization, search fulltext, feed order, notification indexes.
 
 예상 성능 개선 효과:
 
@@ -492,7 +509,7 @@ API 호환성 영향:
 
 남은 리스크:
 
-- secret rotation, detail comments payload, search/index drift, 오래된 migration 검증 SQL 부족.
+- 외부 OpenAI key rotation은 provider 콘솔 접근이 필요하다. CommunityController/Repository의 장기 모듈 분리는 낮은 우선순위 구조 부채로 남는다.
 
 테스트 및 검증 계획:
 

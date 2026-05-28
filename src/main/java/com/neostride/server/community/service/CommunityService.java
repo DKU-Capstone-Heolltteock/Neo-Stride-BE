@@ -9,6 +9,8 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.regex.Pattern;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -18,7 +20,23 @@ public class CommunityService {
 	private static final Pattern SQL_INJECTION_META_PATTERN = Pattern.compile("('|\"|;|--|/\\*|\\*/|#|`)");
 	private static final Pattern SQL_INJECTION_KEYWORD_PATTERN = Pattern.compile("\\b(select|insert|update|delete|drop|alter|truncate|union|or|and|exec|execute)\\b", Pattern.CASE_INSENSITIVE);
 	private final CommunityRepository repository;
-	public CommunityService(CommunityRepository repository) { this.repository = repository; }
+	private final int legacyFeedLimit;
+	private final int detailCommentLimit;
+
+	@Autowired
+	public CommunityService(
+			CommunityRepository repository,
+			@Value("${neostride.community.legacy-feed-limit:100}") int legacyFeedLimit,
+			@Value("${neostride.community.detail-comment-limit:50}") int detailCommentLimit
+	) {
+		this.repository = repository;
+		this.legacyFeedLimit = clampLimit(legacyFeedLimit);
+		this.detailCommentLimit = clampLimit(detailCommentLimit);
+	}
+
+	CommunityService(CommunityRepository repository) {
+		this(repository, 100, 50);
+	}
 	public UserProfileResponse getUserProfile(long userId) { validatePositive(userId, "user_id"); return repository.getUserProfile(userId); }
 	public UserProfileResponse getUserProfile(Long viewerUserId, long targetUserId) { validatePositive(targetUserId, "user_id"); if (viewerUserId != null) validatePositive(viewerUserId, "viewer_user_id"); return repository.getUserProfile(viewerUserId, targetUserId); }
 	public AccountInfoResponse getAccountInfo(long userId) { validatePositive(userId, "user_id"); return repository.getAccountInfo(userId); }
@@ -57,7 +75,7 @@ public class CommunityService {
 	public Map<String, String> updateRelationship(long userId, FriendRequest request) { validatePositive(userId, "user_id"); requireBody(request); repository.updateRelationship(userId, request); return Map.of("status", "success", "message", "관계 상태가 변경되었습니다."); }
 	@Transactional
 	public FeedUploadResponse uploadFeed(long userId, FeedUploadRequest request) { validatePositive(userId, "user_id"); requireBody(request); long id = repository.insertFeed(userId, request); return repository.findFeed(id); }
-	public FeedDetailResponse getFeedDetail(long userId, long feedId) { validatePositive(userId, "user_id"); validatePositive(feedId, "feed_id"); return repository.findFeedDetail(userId, feedId); }
+	public FeedDetailResponse getFeedDetail(long userId, long feedId) { validatePositive(userId, "user_id"); validatePositive(feedId, "feed_id"); return repository.findFeedDetail(userId, feedId, detailCommentLimit); }
 	@Transactional
 	public Map<String, String> toggleFeedLike(long userId, long feedId) { validatePositive(userId, "user_id"); validatePositive(feedId, "feed_id"); return interactionResult("liked", repository.toggleInteraction(userId, feedId, "LIKE")); }
 	@Transactional
@@ -74,7 +92,10 @@ public class CommunityService {
 	public void deleteFeedComment(long userId, long feedId, long commentId) { validatePositive(userId, "user_id"); validatePositive(feedId, "feed_id"); validatePositive(commentId, "comment_id"); repository.deleteComment(userId, feedId, commentId); }
 	public List<FriendResponse> getTaggedUsers(long feedId) { validatePositive(feedId, "feed_id"); return repository.getTaggedUsers(feedId); }
 	public List<FeedUploadResponse> getFeedList() { return getFeedList(null); }
-	public List<FeedUploadResponse> getFeedList(Long viewerUserId) { return repository.listFeeds(viewerUserId); }
+	public List<FeedUploadResponse> getFeedList(Long viewerUserId) {
+		if (viewerUserId != null) validatePositive(viewerUserId, "viewer_user_id");
+		return repository.listFeedsPage(viewerUserId, null, null, legacyFeedLimit);
+	}
 	public List<FeedUploadResponse> getFeedList(Long viewerUserId, String cursorCreatedAt, Long cursorId, Integer limit) {
 		if (limit == null && isBlank(cursorCreatedAt) && cursorId == null) {
 			return getFeedList(viewerUserId);
@@ -117,7 +138,7 @@ public class CommunityService {
 	public List<TipUploadResponse> getLikedTips(long userId) { validatePositive(userId, "user_id"); return repository.listTipsLikedByUser(userId); }
 	public List<TipUploadResponse> getBookmarkedTips(long userId) { validatePositive(userId, "user_id"); return repository.listTipsBookmarkedByUser(userId); }
 	public List<TipUploadResponse> getCommentedTips(long userId) { validatePositive(userId, "user_id"); return repository.listTipsCommentedByUser(userId); }
-	public TipDetailResponse getTipDetail(long userId, long tipId) { validatePositive(userId, "user_id"); validatePositive(tipId, "tip_id"); return repository.findTipDetail(userId, tipId); }
+	public TipDetailResponse getTipDetail(long userId, long tipId) { validatePositive(userId, "user_id"); validatePositive(tipId, "tip_id"); return repository.findTipDetail(userId, tipId, detailCommentLimit); }
 	@Transactional
 	public Map<String, String> toggleTipLike(long userId, long tipId) { validatePositive(userId, "user_id"); validatePositive(tipId, "tip_id"); return interactionResult("liked", repository.toggleInteraction(userId, tipId, "LIKE")); }
 	@Transactional
@@ -217,6 +238,10 @@ public class CommunityService {
 		if (value <= 0) {
 			throw new IllegalArgumentException(fieldName + "는 1 이상의 값이어야 합니다.");
 		}
+	}
+
+	private static int clampLimit(int limit) {
+		return Math.max(1, Math.min(100, limit));
 	}
 
 	private void validateLimit(int limit) {

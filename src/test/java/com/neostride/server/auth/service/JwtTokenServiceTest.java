@@ -23,6 +23,7 @@ class JwtTokenServiceTest {
 		assertThat(claims.email()).isEqualTo("runner@example.com");
 		assertThat(claims.name()).isEqualTo("홍길동");
 		assertThat(claims.type()).isEqualTo("access");
+		assertThat(claims.tokenId()).isNotBlank();
 	}
 
 	@Test
@@ -32,5 +33,6 @@ class JwtTokenServiceTest {
 		JwtTokenService.TokenClaims claims = jwtTokenService.verify(token);
 
 		assertThat(claims.type()).isEqualTo("refresh");
+		assertThat(claims.tokenId()).isNotBlank();
 	}
 }

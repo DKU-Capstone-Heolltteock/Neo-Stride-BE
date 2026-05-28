@@ -525,9 +525,47 @@ class CommunityRepositoryTest {
 		ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
 		ArgumentCaptor<Object[]> args = ArgumentCaptor.forClass(Object[].class);
 		verify(jdbcTemplate).query(sql.capture(), any(RowMapper.class), args.capture());
-		assertThat(sql.getValue()).contains("AS relationship_status", "THEN 'sent'", "THEN 'received'", "r.status='REQUESTED' AND r.user1_id=?");
-		assertThat(args.getValue()).containsExactly(1L, 1L, 1L, 1L, 1L, "%neo%", 1L, 1L, 10, 0);
+		assertThat(sql.getValue()).contains("AS relationship_status", "MATCH(u.name, u.community_profile_name, u.email)", "THEN 'sent'", "THEN 'received'", "r.status='REQUESTED' AND r.user1_id=?");
+		assertThat(args.getValue()).containsExactly(1L, 1L, 1L, 1L, 1L, "neo", "neo", 1L, 1L, 10, 0);
 	}
+
+	@Test
+	void searchFeedsUsesFulltextPredicateInsteadOfLikeScan() {
+		when(jdbcTemplate.query(anyString(), any(RowMapper.class), any(Object[].class))).thenReturn(List.of());
+
+		repository.searchFeeds("tempo", 0, 10);
+
+		ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
+		ArgumentCaptor<Object[]> args = ArgumentCaptor.forClass(Object[].class);
+		verify(jdbcTemplate).query(sql.capture(), any(RowMapper.class), args.capture());
+		assertThat(sql.getValue()).contains("MATCH(cc.title, cc.body_text, cc.content_text) AGAINST");
+		assertThat(sql.getValue()).doesNotContain("LOWER(cc.content_text) LIKE");
+		assertThat(args.getValue()).containsExactly("tempo", 10, 0);
+	}
+
+	@Test
+	void findTipDetailWithCommentLimitCapsEmbeddedComments() throws Exception {
+		List<String> commentQueries = new java.util.ArrayList<>();
+		List<Object[]> commentArgs = new java.util.ArrayList<>();
+		when(jdbcTemplate.query(anyString(), any(RowMapper.class), any(Object[].class))).thenAnswer(invocation -> {
+			String sql = invocation.getArgument(0);
+			if (sql.contains("WHERE cc.content_type='TIP'")) {
+				RowMapper<com.neostride.server.community.dto.TipDetailResponse> mapper = invocation.getArgument(1);
+				return List.of(mapper.mapRow(tipRow("COURSE"), 0));
+			}
+			if (sql.contains("ci.interaction_type='COMMENT'")) {
+				commentQueries.add(sql);
+				commentArgs.add(java.util.Arrays.copyOfRange(invocation.getArguments(), 2, invocation.getArguments().length));
+			}
+			return List.of();
+		});
+
+		repository.findTipDetail(1L, 7L, 25);
+
+		assertThat(commentQueries).singleElement().satisfies(sql -> assertThat(sql).contains("LIMIT ?"));
+		assertThat(commentArgs).singleElement().satisfies(args -> assertThat(args).containsExactly(7L, 1L, 25));
+	}
+
 
 	@Test
 	void getUserFriendListProjectsRelationshipStatusFromViewerPerspective() {

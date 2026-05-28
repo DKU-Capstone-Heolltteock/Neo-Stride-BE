@@ -6,9 +6,11 @@ import com.neostride.server.auth.dto.SignupRequest;
 import com.neostride.server.auth.dto.SignupResponse;
 import com.neostride.server.auth.exception.DuplicateUserFieldException;
 import com.neostride.server.auth.exception.InvalidCredentialsException;
+import com.neostride.server.auth.repository.RefreshTokenRepository;
 import com.neostride.server.auth.repository.UserRepository;
 import com.neostride.server.auth.repository.UserRow;
 import java.util.regex.Pattern;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -21,11 +23,18 @@ public class AuthService {
 	private final UserRepository userRepository;
 	private final PasswordHashService passwordHashService;
 	private final JwtTokenService jwtTokenService;
+	private final RefreshTokenRepository refreshTokenRepository;
 
-	public AuthService(UserRepository userRepository, PasswordHashService passwordHashService, JwtTokenService jwtTokenService) {
+	@Autowired
+	public AuthService(UserRepository userRepository, PasswordHashService passwordHashService, JwtTokenService jwtTokenService, RefreshTokenRepository refreshTokenRepository) {
 		this.userRepository = userRepository;
 		this.passwordHashService = passwordHashService;
 		this.jwtTokenService = jwtTokenService;
+		this.refreshTokenRepository = refreshTokenRepository;
+	}
+
+	AuthService(UserRepository userRepository, PasswordHashService passwordHashService, JwtTokenService jwtTokenService) {
+		this(userRepository, passwordHashService, jwtTokenService, null);
 	}
 
 	@Transactional
@@ -52,7 +61,7 @@ public class AuthService {
 		return SignupResponse.success(userId, email, name);
 	}
 
-	@Transactional(readOnly = true)
+	@Transactional
 	public LoginResponse login(LoginRequest request) {
 		validateLogin(request);
 		String email = normalizeEmail(request.email());
@@ -63,6 +72,7 @@ public class AuthService {
 		}
 		String accessToken = jwtTokenService.generateAccessToken(user.userId(), user.email(), user.name());
 		String refreshToken = jwtTokenService.generateRefreshToken(user.userId(), user.email(), user.name());
+		persistRefreshToken(user.userId(), refreshToken);
 		return LoginResponse.success(user.userId(), user.email(), user.name(), accessToken, refreshToken);
 	}
 
@@ -80,11 +90,25 @@ public class AuthService {
 		if (!"refresh".equals(claims.type())) {
 			throw new InvalidCredentialsException("유효하지 않은 리프레시 토큰입니다.");
 		}
+		if (refreshTokenRepository != null && !refreshTokenRepository.revokeIfActive(claims.userId(), claims.tokenId())) {
+			throw new InvalidCredentialsException("유효하지 않은 리프레시 토큰입니다.");
+		}
 		String accessToken = jwtTokenService.generateAccessToken(claims.userId(), claims.email(), claims.name());
 		String nextRefreshToken = jwtTokenService.generateRefreshToken(claims.userId(), claims.email(), claims.name());
+		persistRefreshToken(claims.userId(), nextRefreshToken);
 		return LoginResponse.success(claims.userId(), claims.email(), claims.name(), accessToken, nextRefreshToken);
 	}
 
+	private void persistRefreshToken(long userId, String refreshToken) {
+		if (refreshTokenRepository == null) {
+			return;
+		}
+		JwtTokenService.TokenClaims claims = jwtTokenService.verify(refreshToken);
+		if (!"refresh".equals(claims.type()) || claims.tokenId() == null || claims.tokenId().isBlank()) {
+			throw new InvalidCredentialsException("유효하지 않은 리프레시 토큰입니다.");
+		}
+		refreshTokenRepository.save(userId, claims.tokenId(), claims.expiresAt());
+	}
 
 	private void validateSignup(SignupRequest request) {
 		if (request == null) {
