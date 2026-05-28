@@ -279,14 +279,14 @@ class CommunityControllerTest {
 		authenticate();
 		when(service.getUserProfile(1L, 2L)).thenReturn(profile);
 		when(service.getBadgeDetail(2L)).thenReturn(badge);
-		when(service.getUserFeeds(2L)).thenReturn(feeds);
+		when(service.getUserFeeds(1L, 2L)).thenReturn(feeds);
 		when(service.getUserFriendList(2L)).thenReturn(friends);
 		when(service.getUserFriendList(1L, 2L)).thenReturn(friends);
 
 		assertThat(controller.getRunnerProfile(AUTHORIZATION, 1L, 2L).getBody()).isSameAs(profile);
 		assertThat(controller.getUserBadgeDetail(2L).getBody()).isSameAs(badge);
-		assertThat(controller.getRunnerFeeds(2L).getBody()).isSameAs(feeds);
-		assertThat(controller.getUserFriendList(2L).getBody()).isSameAs(friends);
+		assertThat(controller.getRunnerFeeds(AUTHORIZATION, 1L, 2L).getBody()).isSameAs(feeds);
+		assertThat(controller.getUserFriendList(AUTHORIZATION, 1L, 2L).getBody()).isSameAs(friends);
 		assertThat(controller.getApiUserFriendList(AUTHORIZATION, 1L, 2L).getBody()).isSameAs(friends);
 	}
 
@@ -420,7 +420,7 @@ class CommunityControllerTest {
 		var comment = new com.neostride.server.community.dto.CommentResponse(8L, 1L, "neo", "photo.png", "hello", "2026-05-11T00:00:00", true, "GOLD", true);
 		authenticate();
 		when(service.getMyTips(1L)).thenReturn(List.of(tip));
-		when(service.getUserTips(2L)).thenReturn(List.of(tip));
+		when(service.getUserTips(1L, 2L)).thenReturn(List.of(tip));
 		when(service.getTipDetail(1L, 7L)).thenReturn(detail);
 		when(service.toggleTipLike(1L, 7L)).thenReturn(Map.of("liked", "true"));
 		when(service.toggleTipBookmark(1L, 7L)).thenReturn(Map.of("bookmarked", "true"));
@@ -429,7 +429,7 @@ class CommunityControllerTest {
 		when(service.updateTipComment(1L, 7L, 8L, commentRequest)).thenReturn(comment);
 
 		assertThat(controller.getMyTips(AUTHORIZATION, 1L).getBody()).containsExactly(tip);
-		assertThat(controller.getRunnerTips(2L).getBody()).containsExactly(tip);
+		assertThat(controller.getRunnerTips(AUTHORIZATION, 1L, 2L).getBody()).containsExactly(tip);
 		assertThat(controller.getTipDetail(AUTHORIZATION, 1L, 7L).getBody()).isSameAs(detail);
 		assertThat(controller.toggleTipLike(AUTHORIZATION, 1L, 7L).getBody()).containsEntry("liked", "true");
 		assertThat(controller.toggleTipBookmark(AUTHORIZATION, 1L, 7L).getBody()).containsEntry("bookmarked", "true");

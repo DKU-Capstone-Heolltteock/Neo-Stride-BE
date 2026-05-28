@@ -102,6 +102,10 @@ public class CommunityRepository {
 
 	public List<CommunityContentResponse> myFeeds(long userId) { return contentQuery("cc.author_user_id = ?", userId, userId); }
 	public List<CommunityContentResponse> publicFeedsByUser(long userId) { return contentQuery("cc.author_user_id = ? AND cc.feed_scope = 'PUBLIC'", 0L, userId); }
+	public List<CommunityContentResponse> feedsByUserForViewer(Long viewerUserId, long userId) {
+		if (viewerUserId == null) return publicFeedsByUser(userId);
+		return contentQuery("cc.author_user_id = ? AND " + VIEWER_SCOPE_PREDICATE, viewerUserId, userId, viewerUserId, viewerUserId, viewerUserId);
+	}
 	public List<CommunityContentResponse> taggedFeeds(long userId) { return contentQuery("EXISTS (SELECT 1 FROM community_interactions ci WHERE ci.content_id = cc.content_id AND ci.interaction_type='TAG' AND ci.tagged_user_id = ?)", userId, userId); }
 	public List<CommunityContentResponse> interactedFeeds(long userId, String type) { return contentQuery("EXISTS (SELECT 1 FROM community_interactions ci WHERE ci.content_id = cc.content_id AND ci.interaction_type='" + type + "' AND ci.user_id = ?)", userId, userId); }
 
@@ -458,7 +462,11 @@ public class CommunityRepository {
 		if (viewerUserId <= 0) return listTips();
 		return tipQueryForViewer(predicate + " AND " + blockedByCurrentUserPredicate(), viewerUserId, viewerUserId, viewerUserId, viewerUserId, viewerUserId, viewerUserId);
 	}
-	public List<TipUploadResponse> listTipsByUser(long userId) { return tipQueryForViewer("cc.content_type = 'TIP' AND cc.author_user_id = ? AND " + blockedByCurrentUserPredicate(), userId, userId, userId, userId, userId, userId, userId); }
+	public List<TipUploadResponse> listTipsByUser(long userId) { return listTipsByUser(null, userId); }
+	public List<TipUploadResponse> listTipsByUser(Long viewerUserId, long userId) {
+		long effectiveViewerUserId = viewerUserId == null ? userId : viewerUserId;
+		return tipQueryForViewer("cc.content_type = 'TIP' AND cc.author_user_id = ? AND " + blockedByCurrentUserPredicate(), effectiveViewerUserId, effectiveViewerUserId, effectiveViewerUserId, effectiveViewerUserId, userId, effectiveViewerUserId, effectiveViewerUserId);
+	}
 	public List<TipUploadResponse> listTipsLikedByUser(long userId) { return listTipsInteractedByType(userId, "LIKE"); }
 	public List<TipUploadResponse> listTipsBookmarkedByUser(long userId) { return listTipsInteractedByType(userId, "BOOKMARK"); }
 	public List<TipUploadResponse> listTipsCommentedByUser(long userId) { return listTipsInteractedByType(userId, "COMMENT"); }

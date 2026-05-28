@@ -22,12 +22,21 @@ class CommunityServiceTest {
 
 	@Test
 	void getUserFeeds_returnsOnlyPublicFeedsForPublicProfileEndpoint() {
-		when(repository.publicFeedsByUser(2L)).thenReturn(List.of());
+		when(repository.feedsByUserForViewer(null, 2L)).thenReturn(List.of());
 
 		assertThat(service.getUserFeeds(2L)).isEmpty();
 
-		verify(repository).publicFeedsByUser(2L);
+		verify(repository).feedsByUserForViewer(null, 2L);
 		verify(repository, never()).myFeeds(2L);
+	}
+
+	@Test
+	void getUserFeedsWithViewerUsesViewerAwareRunnerPageQuery() {
+		when(repository.feedsByUserForViewer(1L, 2L)).thenReturn(List.of());
+
+		assertThat(service.getUserFeeds(1L, 2L)).isEmpty();
+
+		verify(repository).feedsByUserForViewer(1L, 2L);
 	}
 
 

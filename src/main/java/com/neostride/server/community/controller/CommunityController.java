@@ -132,7 +132,11 @@ public class CommunityController {
 			@RequestHeader(value = "X-User-Id", required = false) Long headerUserId
 	) { return ResponseEntity.ok(service.getBookmarkedFeeds(authenticatedUserId(authorization, headerUserId))); }
 	@GetMapping("/community/contents/user/{userId}")
-	public ResponseEntity<List<CommunityContentResponse>> getRunnerFeeds(@org.springframework.web.bind.annotation.PathVariable long userId) { return ResponseEntity.ok(service.getUserFeeds(userId)); }
+	public ResponseEntity<List<CommunityContentResponse>> getRunnerFeeds(
+			@RequestHeader(value = "Authorization", required = false) String authorization,
+			@RequestHeader(value = "X-User-Id", required = false) Long headerUserId,
+			@org.springframework.web.bind.annotation.PathVariable long userId
+	) { return ResponseEntity.ok(service.getUserFeeds(optionalUserId(authorization, headerUserId), userId)); }
 	@PostMapping("/community/bookmark/{contentId}")
 	public ResponseEntity<Map<String, String>> toggleBookmark(
 			@RequestHeader(value = "Authorization", required = false) String authorization,
@@ -155,7 +159,11 @@ public class CommunityController {
 			@RequestParam String status
 	) { return ResponseEntity.ok(service.getFriendList(authenticatedUserId(authorization, headerUserId), status)); }
 	@GetMapping("/community/friends/user/{userId}")
-	public ResponseEntity<List<FriendResponse>> getUserFriendList(@org.springframework.web.bind.annotation.PathVariable long userId) { return ResponseEntity.ok(service.getUserFriendList(userId)); }
+	public ResponseEntity<List<FriendResponse>> getUserFriendList(
+			@RequestHeader(value = "Authorization", required = false) String authorization,
+			@RequestHeader(value = "X-User-Id", required = false) Long headerUserId,
+			@org.springframework.web.bind.annotation.PathVariable long userId
+	) { return ResponseEntity.ok(service.getUserFriendList(optionalUserId(authorization, headerUserId), userId)); }
 	@GetMapping("/api/friends/{userId}")
 	public ResponseEntity<List<FriendResponse>> getApiUserFriendList(
 			@RequestHeader(value = "Authorization", required = false) String authorization,
@@ -364,7 +372,11 @@ public class CommunityController {
 			@RequestHeader(value = "X-User-Id", required = false) Long headerUserId
 	) { return ResponseEntity.ok(service.getMyTips(authenticatedUserId(authorization, headerUserId))); }
 	@GetMapping("/community/tips/user/{userId}")
-	public ResponseEntity<List<TipUploadResponse>> getRunnerTips(@org.springframework.web.bind.annotation.PathVariable long userId) { return ResponseEntity.ok(service.getUserTips(userId)); }
+	public ResponseEntity<List<TipUploadResponse>> getRunnerTips(
+			@RequestHeader(value = "Authorization", required = false) String authorization,
+			@RequestHeader(value = "X-User-Id", required = false) Long headerUserId,
+			@org.springframework.web.bind.annotation.PathVariable long userId
+	) { return ResponseEntity.ok(service.getUserTips(optionalUserId(authorization, headerUserId), userId)); }
 	@GetMapping("/api/community/tips/{tipId}")
 	public ResponseEntity<TipDetailResponse> getTipDetail(
 			@RequestHeader(value = "Authorization", required = false) String authorization,

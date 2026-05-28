@@ -36,13 +36,14 @@ public class CommunityService {
 	public List<CommunityContentResponse> getCommentedFeeds(long userId) { validatePositive(userId, "user_id"); return repository.interactedFeeds(userId, "COMMENT"); }
 	public List<CommunityContentResponse> getLikedFeeds(long userId) { validatePositive(userId, "user_id"); return repository.interactedFeeds(userId, "LIKE"); }
 	public List<CommunityContentResponse> getBookmarkedFeeds(long userId) { validatePositive(userId, "user_id"); return repository.interactedFeeds(userId, "BOOKMARK"); }
-	public List<CommunityContentResponse> getUserFeeds(long userId) { validatePositive(userId, "user_id"); return repository.publicFeedsByUser(userId); }
+	public List<CommunityContentResponse> getUserFeeds(long userId) { return getUserFeeds(null, userId); }
+	public List<CommunityContentResponse> getUserFeeds(Long viewerUserId, long userId) { validatePositive(userId, "user_id"); if (viewerUserId != null) validatePositive(viewerUserId, "viewer_user_id"); return repository.feedsByUserForViewer(viewerUserId, userId); }
 	@Transactional
 	public Map<String, String> toggleBookmark(long userId, long contentId) { validatePositive(userId, "user_id"); validatePositive(contentId, "content_id"); boolean bookmarked = repository.toggleBookmark(userId, contentId); return Map.of("status", "success", "bookmarked", String.valueOf(bookmarked)); }
 	public BadgeDetailResponse getBadgeDetail(long userId) { validatePositive(userId, "user_id"); return repository.getBadgeDetail(userId); }
 	public List<FriendResponse> getFriendList(long userId, String status) { validatePositive(userId, "user_id"); return repository.getFriendList(userId, status); }
-	public List<FriendResponse> getUserFriendList(long userId) { validatePositive(userId, "user_id"); return repository.getFriendList(userId, "friends"); }
-	public List<FriendResponse> getUserFriendList(long viewerUserId, long userId) { validatePositive(viewerUserId, "viewer_user_id"); validatePositive(userId, "user_id"); return repository.getUserFriendList(viewerUserId, userId); }
+	public List<FriendResponse> getUserFriendList(long userId) { return getUserFriendList(null, userId); }
+	public List<FriendResponse> getUserFriendList(Long viewerUserId, long userId) { validatePositive(userId, "user_id"); if (viewerUserId == null) return repository.getFriendList(userId, "friends"); validatePositive(viewerUserId, "viewer_user_id"); return repository.getUserFriendList(viewerUserId, userId); }
 	@Transactional
 	public Map<String, String> updateRelationship(long userId, FriendRequest request) { validatePositive(userId, "user_id"); requireBody(request); repository.updateRelationship(userId, request); return Map.of("status", "success", "message", "관계 상태가 변경되었습니다."); }
 	@Transactional
@@ -102,7 +103,8 @@ public class CommunityService {
 	public TipUploadResponse uploadTip(long userId, TipUploadRequest request) { validatePositive(userId, "user_id"); requireBody(request); long id = repository.insertTip(userId, request); return repository.findTip(id); }
 	public TipListResponse getTips(Long viewerUserId) { return new TipListResponse(viewerUserId == null ? repository.listTips() : repository.listTips(viewerUserId)); }
 	public List<TipUploadResponse> getMyTips(long userId) { validatePositive(userId, "user_id"); return repository.listTipsByUser(userId); }
-	public List<TipUploadResponse> getUserTips(long userId) { validatePositive(userId, "user_id"); return repository.listTipsByUser(userId); }
+	public List<TipUploadResponse> getUserTips(long userId) { return getUserTips(null, userId); }
+	public List<TipUploadResponse> getUserTips(Long viewerUserId, long userId) { validatePositive(userId, "user_id"); if (viewerUserId != null) validatePositive(viewerUserId, "viewer_user_id"); return repository.listTipsByUser(viewerUserId, userId); }
 	public List<TipUploadResponse> getLikedTips(long userId) { validatePositive(userId, "user_id"); return repository.listTipsLikedByUser(userId); }
 	public List<TipUploadResponse> getBookmarkedTips(long userId) { validatePositive(userId, "user_id"); return repository.listTipsBookmarkedByUser(userId); }
 	public List<TipUploadResponse> getCommentedTips(long userId) { validatePositive(userId, "user_id"); return repository.listTipsCommentedByUser(userId); }

@@ -61,6 +61,19 @@ class CommunityRepositoryTest {
 	}
 
 	@Test
+	void feedsByUserForViewerFiltersAuthorRowsWithViewerScope() {
+		when(jdbcTemplate.query(anyString(), any(RowMapper.class), any(Object[].class))).thenReturn(List.of());
+
+		repository.feedsByUserForViewer(1L, 2L);
+
+		ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
+		ArgumentCaptor<Object[]> args = ArgumentCaptor.forClass(Object[].class);
+		verify(jdbcTemplate).query(sql.capture(), any(RowMapper.class), args.capture());
+		assertThat(sql.getValue()).contains("cc.author_user_id = ?", "cc.feed_scope = 'FRIENDS'", "relationships r", "r.status = 'ACCEPTED'");
+		assertThat(args.getValue()).containsExactly(1L, 1L, 1L, 1L, 2L, 1L, 1L, 1L, 1L, 1L);
+	}
+
+	@Test
 	void listFeeds_usesContentStatsTableForCounts() {
 		when(jdbcTemplate.query(anyString(), any(RowMapper.class), any(Object[].class))).thenReturn(List.of());
 
@@ -519,6 +532,19 @@ class CommunityRepositoryTest {
 				.contains("ELSE 'none'")
 				.contains("WHERE (r.user1_id = ? OR r.user2_id = ?) AND r.status = 'ACCEPTED'");
 		assertThat(args.getValue()).containsExactly(1L, 1L, 1L, 1L, 1L, 2L, 2L, 2L);
+	}
+
+	@Test
+	void listTipsByUserUsesViewerForInteractionAndBlockedStatus() {
+		when(jdbcTemplate.query(anyString(), any(RowMapper.class), any(Object[].class))).thenReturn(List.of());
+
+		repository.listTipsByUser(1L, 2L);
+
+		ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
+		ArgumentCaptor<Object[]> args = ArgumentCaptor.forClass(Object[].class);
+		verify(jdbcTemplate).query(sql.capture(), any(RowMapper.class), args.capture());
+		assertThat(sql.getValue()).contains("cc.content_type = 'TIP'", "cc.author_user_id = ?", "r.status = 'BLOCKED'");
+		assertThat(args.getValue()).containsExactly(1L, 1L, 1L, 1L, 2L, 1L, 1L);
 	}
 
 	@Test
