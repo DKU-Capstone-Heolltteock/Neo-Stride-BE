@@ -9,6 +9,11 @@ import com.neostride.server.auth.repository.UserRow;
 import org.junit.jupiter.api.Test;
 
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -16,6 +21,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.times;
 
 class AuthServiceLoginTest {
 
@@ -91,20 +97,40 @@ class AuthServiceLoginTest {
 	}
 
 	@Test
-	void refresh_withPersistedRefreshToken_rotatesStoredToken() {
+	void refresh_withPersistedRefreshToken_concurrentRequests_shareSingleRefreshResult() throws Exception {
 		RefreshTokenRepository refreshTokenRepository = mock(RefreshTokenRepository.class);
 		AuthService service = new AuthService(userRepository, passwordHashService, jwtTokenService, refreshTokenRepository);
+		CountDownLatch revokeStarted = new CountDownLatch(1);
+		CountDownLatch allowComplete = new CountDownLatch(1);
+
 		when(jwtTokenService.verify("refresh-token")).thenReturn(new JwtTokenService.TokenClaims(1L, "runner@example.com", "홍길동", "refresh", "old-id", 123L));
-		when(refreshTokenRepository.revokeIfActive(1L, "old-id")).thenReturn(true);
+		when(refreshTokenRepository.revokeIfActive(1L, "old-id")).thenAnswer(invocation -> {
+			revokeStarted.countDown();
+			assertThat(allowComplete.await(2, TimeUnit.SECONDS)).isTrue();
+			return true;
+		});
 		when(jwtTokenService.generateAccessToken(1L, "runner@example.com", "홍길동")).thenReturn("new-access-token");
 		when(jwtTokenService.generateRefreshToken(1L, "runner@example.com", "홍길동")).thenReturn("new-refresh-token");
 		when(jwtTokenService.verify("new-refresh-token")).thenReturn(new JwtTokenService.TokenClaims(1L, "runner@example.com", "홍길동", "refresh", "new-id", 456L));
 
-		LoginResponse response = service.refresh("refresh-token");
+		ExecutorService executor = Executors.newFixedThreadPool(2);
+		CompletableFuture<LoginResponse> first = CompletableFuture.supplyAsync(() -> service.refresh("refresh-token"), executor);
+		assertThat(revokeStarted.await(2, TimeUnit.SECONDS)).isTrue();
+		CompletableFuture<LoginResponse> second = CompletableFuture.supplyAsync(() -> service.refresh("refresh-token"), executor);
+		allowComplete.countDown();
+		LoginResponse firstResponse = first.join();
+		LoginResponse secondResponse = second.join();
 
-		assertThat(response.refreshToken()).isEqualTo("new-refresh-token");
-		verify(refreshTokenRepository).revokeIfActive(1L, "old-id");
-		verify(refreshTokenRepository).save(1L, "new-id", 456L);
+		executor.shutdown();
+		assertThat(firstResponse.accessToken()).isEqualTo("new-access-token");
+		assertThat(secondResponse.accessToken()).isEqualTo("new-access-token");
+		assertThat(firstResponse.refreshToken()).isEqualTo("new-refresh-token");
+		assertThat(secondResponse.refreshToken()).isEqualTo("new-refresh-token");
+
+		verify(refreshTokenRepository, times(1)).revokeIfActive(1L, "old-id");
+		verify(refreshTokenRepository, times(1)).save(1L, "new-id", 456L);
+		verify(jwtTokenService, times(1)).generateAccessToken(1L, "runner@example.com", "홍길동");
+		verify(jwtTokenService, times(1)).generateRefreshToken(1L, "runner@example.com", "홍길동");
 	}
 
 	@Test

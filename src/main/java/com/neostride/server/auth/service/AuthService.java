@@ -9,6 +9,10 @@ import com.neostride.server.auth.exception.InvalidCredentialsException;
 import com.neostride.server.auth.repository.RefreshTokenRepository;
 import com.neostride.server.auth.repository.UserRepository;
 import com.neostride.server.auth.repository.UserRow;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 import java.util.regex.Pattern;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -19,11 +23,13 @@ public class AuthService {
 
 	private static final Pattern EMAIL_PATTERN = Pattern.compile("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$");
 	private static final String INVALID_CREDENTIALS_MESSAGE = "이메일 또는 비밀번호가 올바르지 않습니다.";
+	private static final String INVALID_REFRESH_TOKEN_MESSAGE = "유효하지 않은 리프레시 토큰입니다.";
 
 	private final UserRepository userRepository;
 	private final PasswordHashService passwordHashService;
 	private final JwtTokenService jwtTokenService;
 	private final RefreshTokenRepository refreshTokenRepository;
+	private final ConcurrentMap<String, CompletableFuture<LoginResponse>> refreshInProgress;
 
 	@Autowired
 	public AuthService(UserRepository userRepository, PasswordHashService passwordHashService, JwtTokenService jwtTokenService, RefreshTokenRepository refreshTokenRepository) {
@@ -31,6 +37,7 @@ public class AuthService {
 		this.passwordHashService = passwordHashService;
 		this.jwtTokenService = jwtTokenService;
 		this.refreshTokenRepository = refreshTokenRepository;
+		this.refreshInProgress = new ConcurrentHashMap<>();
 	}
 
 	AuthService(UserRepository userRepository, PasswordHashService passwordHashService, JwtTokenService jwtTokenService) {
@@ -79,19 +86,67 @@ public class AuthService {
 	@Transactional
 	public LoginResponse refresh(String refreshToken) {
 		if (refreshToken == null || refreshToken.isBlank()) {
-			throw new InvalidCredentialsException("유효하지 않은 리프레시 토큰입니다.");
+			throw new InvalidCredentialsException(INVALID_REFRESH_TOKEN_MESSAGE);
 		}
 		JwtTokenService.TokenClaims claims;
 		try {
 			claims = jwtTokenService.verify(refreshToken);
 		} catch (IllegalArgumentException exception) {
-			throw new InvalidCredentialsException("유효하지 않은 리프레시 토큰입니다.");
+			throw new InvalidCredentialsException(INVALID_REFRESH_TOKEN_MESSAGE);
 		}
 		if (!"refresh".equals(claims.type())) {
-			throw new InvalidCredentialsException("유효하지 않은 리프레시 토큰입니다.");
+			throw new InvalidCredentialsException(INVALID_REFRESH_TOKEN_MESSAGE);
 		}
-		if (refreshTokenRepository != null && !refreshTokenRepository.revokeIfActive(claims.userId(), claims.tokenId())) {
-			throw new InvalidCredentialsException("유효하지 않은 리프레시 토큰입니다.");
+		if (refreshTokenRepository == null) {
+			String accessToken = jwtTokenService.generateAccessToken(claims.userId(), claims.email(), claims.name());
+			String nextRefreshToken = jwtTokenService.generateRefreshToken(claims.userId(), claims.email(), claims.name());
+			return LoginResponse.success(claims.userId(), claims.email(), claims.name(), accessToken, nextRefreshToken);
+		}
+		if (claims.tokenId() == null || claims.tokenId().isBlank()) {
+			throw new InvalidCredentialsException(INVALID_REFRESH_TOKEN_MESSAGE);
+		}
+		return refreshWithSingleFlight(claims);
+	}
+
+	private LoginResponse refreshWithSingleFlight(JwtTokenService.TokenClaims claims) {
+		String tokenId = claims.tokenId();
+		CompletableFuture<LoginResponse> inFlight = refreshInProgress.get(tokenId);
+		if (inFlight != null) {
+			return awaitInFlightRefresh(inFlight);
+		}
+
+		CompletableFuture<LoginResponse> newFlight = new CompletableFuture<>();
+		CompletableFuture<LoginResponse> winner = refreshInProgress.putIfAbsent(tokenId, newFlight);
+		if (winner != null) {
+			return awaitInFlightRefresh(winner);
+		}
+
+		try {
+			LoginResponse response = rotateRefreshToken(claims);
+			newFlight.complete(response);
+			return response;
+		} catch (RuntimeException exception) {
+			newFlight.completeExceptionally(exception);
+			throw exception;
+		} finally {
+			refreshInProgress.remove(tokenId, newFlight);
+		}
+	}
+
+	private LoginResponse awaitInFlightRefresh(CompletableFuture<LoginResponse> flight) {
+		try {
+			return flight.join();
+		} catch (CompletionException exception) {
+			if (exception.getCause() instanceof RuntimeException runtimeException) {
+				throw runtimeException;
+			}
+			throw new InvalidCredentialsException(INVALID_REFRESH_TOKEN_MESSAGE);
+		}
+	}
+
+	private LoginResponse rotateRefreshToken(JwtTokenService.TokenClaims claims) {
+		if (!refreshTokenRepository.revokeIfActive(claims.userId(), claims.tokenId())) {
+			throw new InvalidCredentialsException(INVALID_REFRESH_TOKEN_MESSAGE);
 		}
 		String accessToken = jwtTokenService.generateAccessToken(claims.userId(), claims.email(), claims.name());
 		String nextRefreshToken = jwtTokenService.generateRefreshToken(claims.userId(), claims.email(), claims.name());
@@ -105,7 +160,7 @@ public class AuthService {
 		}
 		JwtTokenService.TokenClaims claims = jwtTokenService.verify(refreshToken);
 		if (!"refresh".equals(claims.type()) || claims.tokenId() == null || claims.tokenId().isBlank()) {
-			throw new InvalidCredentialsException("유효하지 않은 리프레시 토큰입니다.");
+			throw new InvalidCredentialsException(INVALID_REFRESH_TOKEN_MESSAGE);
 		}
 		refreshTokenRepository.save(userId, claims.tokenId(), claims.expiresAt());
 	}
