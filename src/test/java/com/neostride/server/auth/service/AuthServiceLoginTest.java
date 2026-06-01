@@ -134,6 +134,30 @@ class AuthServiceLoginTest {
 	}
 
 	@Test
+	void refresh_withPersistedRefreshToken_afterRefreshCompletion_rejectsReusedToken() {
+		RefreshTokenRepository refreshTokenRepository = mock(RefreshTokenRepository.class);
+		AuthService service = new AuthService(userRepository, passwordHashService, jwtTokenService, refreshTokenRepository);
+
+		when(jwtTokenService.verify("refresh-token")).thenReturn(new JwtTokenService.TokenClaims(1L, "runner@example.com", "홍길동", "refresh", "old-id", 123L));
+		when(refreshTokenRepository.revokeIfActive(1L, "old-id")).thenReturn(true, false);
+		when(jwtTokenService.generateAccessToken(1L, "runner@example.com", "홍길동")).thenReturn("new-access-token");
+		when(jwtTokenService.generateRefreshToken(1L, "runner@example.com", "홍길동")).thenReturn("new-refresh-token");
+		when(jwtTokenService.verify("new-refresh-token")).thenReturn(new JwtTokenService.TokenClaims(1L, "runner@example.com", "홍길동", "refresh", "new-id", 456L));
+
+		LoginResponse firstResponse = service.refresh("refresh-token");
+
+		assertThat(firstResponse.accessToken()).isEqualTo("new-access-token");
+		assertThat(firstResponse.refreshToken()).isEqualTo("new-refresh-token");
+		assertThatThrownBy(() -> service.refresh("refresh-token"))
+				.isInstanceOf(InvalidCredentialsException.class);
+
+		verify(refreshTokenRepository, times(2)).revokeIfActive(1L, "old-id");
+		verify(refreshTokenRepository, times(1)).save(1L, "new-id", 456L);
+		verify(jwtTokenService, times(1)).generateAccessToken(1L, "runner@example.com", "홍길동");
+		verify(jwtTokenService, times(1)).generateRefreshToken(1L, "runner@example.com", "홍길동");
+	}
+
+	@Test
 	void refresh_withReusedPersistedRefreshToken_throwsInvalidCredentials() {
 		RefreshTokenRepository refreshTokenRepository = mock(RefreshTokenRepository.class);
 		AuthService service = new AuthService(userRepository, passwordHashService, jwtTokenService, refreshTokenRepository);
