@@ -7,6 +7,7 @@ import com.neostride.server.community.dto.FeedDetailResponse;
 import com.neostride.server.community.dto.FeedPageResponse;
 import com.neostride.server.community.dto.FeedUploadResponse;
 import com.neostride.server.community.dto.FriendResponse;
+import com.neostride.server.community.dto.MyCommentActivityResponse;
 import com.neostride.server.community.dto.SearchUserResponse;
 import com.neostride.server.community.dto.TipDetailResponse;
 import com.neostride.server.community.dto.TipListResponse;
@@ -64,6 +65,9 @@ public class ImageUrlResponseAdvice implements ResponseBodyAdvice<Object> {
 		if (body instanceof CommunityContentResponse response) {
 			return communityContent(response, thumbnails, webpThumbnails);
 		}
+		if (body instanceof MyCommentActivityResponse response) {
+			return myCommentActivity(response, thumbnails, webpThumbnails);
+		}
 		if (body instanceof FeedDetailResponse response) {
 			return feedDetail(response);
 		}
@@ -106,6 +110,7 @@ public class ImageUrlResponseAdvice implements ResponseBodyAdvice<Object> {
 		return path.equals("/feeds")
 				|| path.equals("/api/community/feeds")
 				|| path.equals("/api/community/feeds/page")
+				|| path.equals("/api/community/comments/me")
 				|| path.equals("/api/community/search/feeds")
 				|| path.startsWith("/community/contents/");
 	}
@@ -138,6 +143,18 @@ public class ImageUrlResponseAdvice implements ResponseBodyAdvice<Object> {
 				publicImage(response.profileImageUrl(), thumbnails, webpThumbnails), publicImages(response.imageUrls(), thumbnails, webpThumbnails),
 				response.likeCount(), response.commentCount(), response.tagCount(), response.liked(), response.bookmarked(),
 				response.commented(), response.tagged(), response.badgeTier(), publicImage(response.routeMapUrl(), thumbnails, webpThumbnails));
+	}
+
+	private MyCommentActivityResponse myCommentActivity(MyCommentActivityResponse response, boolean thumbnails, boolean webpThumbnails) {
+		return new MyCommentActivityResponse(response.contentType(), response.contentId(), response.writerId(),
+				response.nickname(), publicImage(response.profileImageUrl(), thumbnails, webpThumbnails),
+				response.badgeOwned(), response.badgeType(), response.category(), response.contentTitle(),
+				response.contentText(), response.contentCreatedAt(), response.totalDistance(), response.duration(),
+				response.pace(), response.gpsVisible(), publicImage(response.routeMapUrl(), thumbnails, webpThumbnails),
+				publicImages(response.imageUrls(), thumbnails, webpThumbnails), response.likeCount(), response.commentCount(),
+				response.tagCount(), response.liked(), response.bookmarked(), response.commented(), response.tagged(),
+				response.contentMine(), response.commentId(), response.commentText(), response.commentCreatedAt(),
+				response.commentMine());
 	}
 
 	private FeedDetailResponse feedDetail(FeedDetailResponse response) {

@@ -13,6 +13,7 @@ public class CommunityRepository {
 	private final CommunityProfileRepository profileRepository;
 	private final CommunityRelationshipRepository relationshipRepository;
 	private final CommunityInteractionRepository interactionRepository;
+	private final CommunityCommentActivityRepository commentActivityRepository;
 	private final CommunityFeedRepository feedRepository;
 	private final CommunityTipRepository tipRepository;
 	private final CommunitySearchRepository searchRepository;
@@ -22,6 +23,7 @@ public class CommunityRepository {
 		this.profileRepository = new CommunityProfileRepository(jdbcTemplate);
 		this.relationshipRepository = new CommunityRelationshipRepository(jdbcTemplate, notificationRepository);
 		this.interactionRepository = new CommunityInteractionRepository(jdbcTemplate, notificationRepository);
+		this.commentActivityRepository = new CommunityCommentActivityRepository(jdbcTemplate);
 		this.feedRepository = new CommunityFeedRepository(jdbcTemplate, notificationRepository, interactionRepository);
 		this.tipRepository = new CommunityTipRepository(jdbcTemplate, interactionRepository);
 		this.searchRepository = new CommunitySearchRepository(jdbcTemplate);
@@ -42,6 +44,7 @@ public class CommunityRepository {
 	public List<CommunityContentResponse> feedsByUserForViewer(Long viewerUserId, long userId) { return feedRepository.feedsByUserForViewer(viewerUserId, userId); }
 	public List<CommunityContentResponse> taggedFeeds(long userId) { return feedRepository.taggedFeeds(userId); }
 	public List<CommunityContentResponse> interactedFeeds(long userId, String type) { return feedRepository.interactedFeeds(userId, type); }
+	public List<MyCommentActivityResponse> myCommentActivities(long userId) { return commentActivityRepository.myCommentActivities(userId); }
 
 	public boolean toggleBookmark(long userId, long contentId) {
 		return toggleInteraction(userId, contentId, "BOOKMARK");
