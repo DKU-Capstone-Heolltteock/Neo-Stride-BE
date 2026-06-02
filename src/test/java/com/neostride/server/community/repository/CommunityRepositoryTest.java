@@ -543,6 +543,20 @@ class CommunityRepositoryTest {
 	}
 
 	@Test
+	void searchProfilesOrdersSameBadgeByDistanceAdjustedPerformanceBeforeFriendCount() {
+		when(jdbcTemplate.query(anyString(), any(RowMapper.class), any(Object[].class))).thenReturn(List.of());
+
+		repository.searchProfiles("neo", 0, 10);
+
+		ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
+		verify(jdbcTemplate).query(sql.capture(), any(RowMapper.class), any(Object[].class));
+		assertThat(sql.getValue())
+				.contains("AS performance_score", "FROM running_records rr", "rr.total_distance >= 1")
+				.contains("WHEN rr.total_distance < 10.0", "WHEN 'GOLD'", "WHEN 'CHALLENGER'")
+				.contains("ORDER BY badge_rank DESC, performance_score DESC, friend_count DESC, u.user_id ASC");
+	}
+
+	@Test
 	void searchFeedsUsesFulltextPredicateInsteadOfLikeScan() {
 		when(jdbcTemplate.query(anyString(), any(RowMapper.class), any(Object[].class))).thenReturn(List.of());
 

@@ -14,6 +14,13 @@ final class CommunitySearchRepository {
 	private static final String PUBLIC_FEED_PREDICATE = "cc.content_type = 'POST' AND cc.feed_scope = 'PUBLIC'";
 	private static final String VIEWER_SCOPE_PREDICATE = "(cc.feed_scope = 'PUBLIC' OR cc.author_user_id = ? OR (cc.feed_scope = 'FRIENDS' AND EXISTS (SELECT 1 FROM relationships r WHERE r.status = 'ACCEPTED' AND ((r.user1_id = ? AND r.user2_id = cc.author_user_id) OR (r.user2_id = ? AND r.user1_id = cc.author_user_id)))))";
 	private static final String VIEWER_FEED_PREDICATE = "cc.content_type = 'POST' AND " + VIEWER_SCOPE_PREDICATE;
+	private static final String PROFILE_ORDER = "badge_rank DESC, performance_score DESC, friend_count DESC, u.user_id ASC";
+	private static final String BADGE_RANK_SQL = """
+		CASE UPPER(COALESCE(cu.badge, 'NONE'))
+		    WHEN 'CHALLENGER' THEN 7 WHEN 'MASTER' THEN 6 WHEN 'DIAMOND' THEN 5
+		    WHEN 'PLATINUM' THEN 4 WHEN 'GOLD' THEN 3 WHEN 'SILVER' THEN 2 WHEN 'BRONZE' THEN 1 ELSE 0 END
+		""";
+	private static final String PERFORMANCE_SCORE_SQL = performanceScoreSql();
 
 	private final JdbcTemplate jdbcTemplate;
 
@@ -101,7 +108,7 @@ final class CommunitySearchRepository {
 		}
 		args.add(size);
 		args.add(offset(page, size));
-		return viewerUserId == null ? userSearchQuery(filteredPredicate, "badge_rank DESC, friend_count DESC, u.user_id ASC", args.toArray()) : userSearchQueryForViewer(filteredPredicate, "badge_rank DESC, friend_count DESC, u.user_id ASC", args.toArray(), viewerUserId);
+		return viewerUserId == null ? userSearchQuery(filteredPredicate, PROFILE_ORDER, args.toArray()) : userSearchQueryForViewer(filteredPredicate, PROFILE_ORDER, args.toArray(), viewerUserId);
 	}
 
 	List<SearchUserResponse> searchFriends(long userId, String keyword) {
@@ -123,9 +130,9 @@ final class CommunitySearchRepository {
 
 	List<SearchUserResponse> getTopProfiles(Long viewerUserId, int page, int size) {
 		if (viewerUserId == null) {
-			return userSearchQuery("1=1", "badge_rank DESC, friend_count DESC, u.user_id ASC", pageArgs(page, size));
+			return userSearchQuery("1=1", PROFILE_ORDER, pageArgs(page, size));
 		}
-		return userSearchQueryForViewer("1=1 AND " + blockedUserPredicate(), "badge_rank DESC, friend_count DESC, u.user_id ASC", new Object[]{viewerUserId, viewerUserId, size, offset(page, size)}, viewerUserId);
+		return userSearchQueryForViewer("1=1 AND " + blockedUserPredicate(), PROFILE_ORDER, new Object[]{viewerUserId, viewerUserId, size, offset(page, size)}, viewerUserId);
 	}
 
 	List<SearchUserResponse> getMyFriends(long userId) {
@@ -232,9 +239,8 @@ final class CommunitySearchRepository {
 			       COALESCE(cu.profile_photo, u.profile_photo) AS profile_image_url,
 			       cu.status_message,
 			       COALESCE(cu.badge, 'NONE') AS badge_tier,
-			       CASE UPPER(COALESCE(cu.badge, 'NONE'))
-			           WHEN 'CHALLENGER' THEN 7 WHEN 'MASTER' THEN 6 WHEN 'DIAMOND' THEN 5
-			           WHEN 'PLATINUM' THEN 4 WHEN 'GOLD' THEN 3 WHEN 'SILVER' THEN 2 WHEN 'BRONZE' THEN 1 ELSE 0 END AS badge_rank,
+			       %s AS badge_rank,
+			       %s AS performance_score,
 			       (SELECT COUNT(*) FROM relationships rf WHERE (rf.user1_id = u.user_id OR rf.user2_id = u.user_id) AND rf.status='ACCEPTED') AS friend_count,
 			       CASE
 			           WHEN EXISTS (SELECT 1 FROM relationships r WHERE r.status='BLOCKED' AND r.user1_id=? AND r.user2_id=u.user_id) THEN 'blocked'
@@ -245,7 +251,7 @@ final class CommunitySearchRepository {
 			       END AS relationship_status
 			FROM users u LEFT JOIN community_users cu ON cu.user_id = u.user_id
 			WHERE
-			""" + predicate + " ORDER BY " + orderBy + " LIMIT ? OFFSET ?", (rs, n) -> new SearchUserResponse(rs.getLong("user_id"), rs.getString("nickname"), rs.getString("profile_image_url"), rs.getString("status_message"), rs.getInt("friend_count"), rs.getString("badge_tier"), rs.getString("relationship_status")), queryArgs);
+			""".formatted(BADGE_RANK_SQL, PERFORMANCE_SCORE_SQL) + predicate + " ORDER BY " + orderBy + " LIMIT ? OFFSET ?", (rs, n) -> new SearchUserResponse(rs.getLong("user_id"), rs.getString("nickname"), rs.getString("profile_image_url"), rs.getString("status_message"), rs.getInt("friend_count"), rs.getString("badge_tier"), rs.getString("relationship_status")), queryArgs);
 	}
 
 	private List<SearchUserResponse> userSearchQuery(String predicate, String orderBy, Object[] args, String status) {
@@ -254,13 +260,62 @@ final class CommunitySearchRepository {
 			       COALESCE(cu.profile_photo, u.profile_photo) AS profile_image_url,
 			       cu.status_message,
 			       COALESCE(cu.badge, 'NONE') AS badge_tier,
-			       CASE UPPER(COALESCE(cu.badge, 'NONE'))
-			           WHEN 'CHALLENGER' THEN 7 WHEN 'MASTER' THEN 6 WHEN 'DIAMOND' THEN 5
-			           WHEN 'PLATINUM' THEN 4 WHEN 'GOLD' THEN 3 WHEN 'SILVER' THEN 2 WHEN 'BRONZE' THEN 1 ELSE 0 END AS badge_rank,
+			       %s AS badge_rank,
+			       %s AS performance_score,
 			       (SELECT COUNT(*) FROM relationships rf WHERE (rf.user1_id = u.user_id OR rf.user2_id = u.user_id) AND rf.status='ACCEPTED') AS friend_count
 			FROM users u LEFT JOIN community_users cu ON cu.user_id = u.user_id
 			WHERE
-			""" + predicate + " ORDER BY " + orderBy + " LIMIT ? OFFSET ?", (rs, n) -> new SearchUserResponse(rs.getLong("user_id"), rs.getString("nickname"), rs.getString("profile_image_url"), rs.getString("status_message"), rs.getInt("friend_count"), rs.getString("badge_tier"), status), args);
+			""".formatted(BADGE_RANK_SQL, PERFORMANCE_SCORE_SQL) + predicate + " ORDER BY " + orderBy + " LIMIT ? OFFSET ?", (rs, n) -> new SearchUserResponse(rs.getLong("user_id"), rs.getString("nickname"), rs.getString("profile_image_url"), rs.getString("status_message"), rs.getInt("friend_count"), rs.getString("badge_tier"), status), args);
+	}
+
+
+	private static String performanceScoreSql() {
+		String none = scoreExpression(threshold(340, 360, 380, 410, 450, 510), null);
+		String bronze = scoreExpression(threshold(340, 360, 380, 410, 450, 510), threshold(315, 335, 355, 385, 425, 485));
+		String silver = scoreExpression(threshold(315, 335, 355, 385, 425, 485), threshold(290, 310, 330, 360, 400, 460));
+		String gold = scoreExpression(threshold(290, 310, 330, 360, 400, 460), threshold(270, 290, 310, 340, 380, 440));
+		String platinum = scoreExpression(threshold(270, 290, 310, 340, 380, 440), threshold(250, 270, 290, 320, 360, 420));
+		String diamond = scoreExpression(threshold(250, 270, 290, 320, 360, 420), threshold(230, 250, 270, 300, 340, 400));
+		String master = scoreExpression(threshold(230, 250, 270, 300, 340, 400), threshold(210, 230, 250, 280, 320, 380));
+		String challenger = scoreExpression(threshold(210, 230, 250, 280, 320, 380), null);
+		return """
+			COALESCE((
+			    SELECT MAX(CASE UPPER(COALESCE(cu.badge, 'NONE'))
+			        WHEN 'CHALLENGER' THEN %s
+			        WHEN 'MASTER' THEN %s
+			        WHEN 'DIAMOND' THEN %s
+			        WHEN 'PLATINUM' THEN %s
+			        WHEN 'GOLD' THEN %s
+			        WHEN 'SILVER' THEN %s
+			        WHEN 'BRONZE' THEN %s
+			        ELSE %s END)
+			    FROM running_records rr
+			    WHERE rr.user_id = u.user_id
+			      AND rr.total_distance >= 1
+			      AND rr.pace IS NOT NULL
+			      AND rr.pace > 0
+			), 0)
+			""".formatted(challenger, master, diamond, platinum, gold, silver, bronze, none);
+	}
+
+	private static String scoreExpression(String currentThreshold, String nextThreshold) {
+		if (nextThreshold == null) {
+			return "FLOOR(LEAST(9999, GREATEST(0, ((%1$s - rr.pace) / %1$s) * 10000)))".formatted(currentThreshold);
+		}
+		return "FLOOR(LEAST(9999, GREATEST(0, ((%s - rr.pace) / (%s - %s)) * 10000)))".formatted(currentThreshold, currentThreshold, nextThreshold);
+	}
+
+	private static String threshold(int at1Km, int at3Km, int at5Km, int at10Km, int at20Km, int at40Km) {
+		return """
+			(CASE
+			    WHEN rr.total_distance <= 1.0 THEN %d
+			    WHEN rr.total_distance < 3.0 THEN %d + ((rr.total_distance - 1.0) * (%d - %d) / 2.0)
+			    WHEN rr.total_distance < 5.0 THEN %d + ((rr.total_distance - 3.0) * (%d - %d) / 2.0)
+			    WHEN rr.total_distance < 10.0 THEN %d + ((rr.total_distance - 5.0) * (%d - %d) / 5.0)
+			    WHEN rr.total_distance < 20.0 THEN %d + ((rr.total_distance - 10.0) * (%d - %d) / 10.0)
+			    WHEN rr.total_distance < 40.0 THEN %d + ((rr.total_distance - 20.0) * (%d - %d) / 20.0)
+			    ELSE %d END)
+			""".formatted(at1Km, at1Km, at3Km, at1Km, at3Km, at5Km, at3Km, at5Km, at10Km, at5Km, at10Km, at20Km, at10Km, at20Km, at40Km, at20Km, at40Km);
 	}
 
 	private static Object[] prependArgs(Object[] args, Object... prefix) {
