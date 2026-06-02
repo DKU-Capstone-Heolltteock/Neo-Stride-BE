@@ -3,6 +3,7 @@ package com.neostride.server.community.repository;
 import com.neostride.server.community.dto.FeedUploadRequest;
 import com.neostride.server.community.dto.FeedUploadResponse;
 import com.neostride.server.community.dto.CommunityContentResponse;
+import com.neostride.server.notification.repository.NotificationRepository;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -32,7 +33,8 @@ import static org.mockito.Mockito.when;
 class CommunityRepositoryTest {
 
 	private final JdbcTemplate jdbcTemplate = mock(JdbcTemplate.class);
-	private final CommunityRepository repository = new CommunityRepository(jdbcTemplate);
+	private final NotificationRepository notificationRepository = mock(NotificationRepository.class);
+	private final CommunityRepository repository = new CommunityRepository(jdbcTemplate, notificationRepository);
 
 	@Test
 	void existsByCommunityProfileNameExcludingUserIdChecksUsersAndCommunityUsers() {
@@ -467,6 +469,17 @@ class CommunityRepositoryTest {
 
 		verify(jdbcTemplate).update("UPDATE community_users SET profile_photo = NULL WHERE user_id = ?", 1L);
 		verify(jdbcTemplate).update("UPDATE users SET profile_photo = NULL WHERE user_id = ?", 1L);
+	}
+
+	@Test
+	void updateRelationshipRequestDelegatesNotificationCreation() {
+		repository.updateRelationship(1L, new com.neostride.server.community.dto.FriendRequest(2L, "request"));
+
+		verify(jdbcTemplate).update(
+				"INSERT INTO relationships (user1_id, user2_id, status) VALUES (?, ?, 'REQUESTED') ON DUPLICATE KEY UPDATE status = 'REQUESTED'",
+				1L, 2L
+		);
+		verify(notificationRepository).createNotification(eq(2L), eq("FRIEND_REQUEST"), anyString(), eq("/community/friends"));
 	}
 
 	@Test

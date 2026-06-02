@@ -36,8 +36,14 @@ class CommunityControllerTest {
 
 	private final CommunityService service = mock(CommunityService.class);
 	private final AuthenticatedUserService authenticatedUserService = mock(AuthenticatedUserService.class);
+	private final CommunityUserContext userContext = new CommunityUserContext(authenticatedUserService);
 	private final StorageService storageService = mock(StorageService.class);
-	private final CommunityController controller = new CommunityController(service, authenticatedUserService, storageService);
+	private final CommunityMultipartSupport uploadSupport = new CommunityMultipartSupport(storageService);
+	private final CommunityProfileController profileController = new CommunityProfileController(service, userContext, uploadSupport);
+	private final CommunityRelationshipController relationshipController = new CommunityRelationshipController(service, userContext);
+	private final CommunityFeedController feedController = new CommunityFeedController(service, userContext, uploadSupport);
+	private final CommunityTipController tipController = new CommunityTipController(service, userContext, uploadSupport);
+	private final CommunitySearchController searchController = new CommunitySearchController(service, userContext);
 
 	@Test
 	void getUserProfile_returnsAuthenticatedUserProfile() {
@@ -45,7 +51,7 @@ class CommunityControllerTest {
 		authenticate();
 		when(service.getUserProfile(1L)).thenReturn(body);
 
-		var response = controller.getUserProfile(AUTHORIZATION, 1L);
+		var response = profileController.getUserProfile(AUTHORIZATION, 1L);
 
 		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
 		assertThat(response.getBody()).isSameAs(body);
@@ -55,7 +61,7 @@ class CommunityControllerTest {
 	void updateStatusMessage_returnsNoContent() {
 		authenticate();
 
-		var response = controller.updateStatusMessage(AUTHORIZATION, 1L, Map.of("status_message", "ready"));
+		var response = profileController.updateStatusMessage(AUTHORIZATION, 1L, Map.of("status_message", "ready"));
 
 		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
 	}
@@ -70,11 +76,11 @@ class CommunityControllerTest {
 		when(service.getBookmarkedFeeds(1L)).thenReturn(body);
 		authenticate();
 
-		assertThat(controller.getMyFeeds(AUTHORIZATION, 1L).getBody()).isSameAs(body);
-		assertThat(controller.getTaggedFeeds(AUTHORIZATION, 1L).getBody()).isSameAs(body);
-		assertThat(controller.getCommentedFeeds(AUTHORIZATION, 1L).getBody()).isSameAs(body);
-		assertThat(controller.getLikedFeeds(AUTHORIZATION, 1L).getBody()).isSameAs(body);
-		assertThat(controller.getBookmarkedFeeds(AUTHORIZATION, 1L).getBody()).isSameAs(body);
+		assertThat(feedController.getMyFeeds(AUTHORIZATION, 1L).getBody()).isSameAs(body);
+		assertThat(feedController.getTaggedFeeds(AUTHORIZATION, 1L).getBody()).isSameAs(body);
+		assertThat(feedController.getCommentedFeeds(AUTHORIZATION, 1L).getBody()).isSameAs(body);
+		assertThat(feedController.getLikedFeeds(AUTHORIZATION, 1L).getBody()).isSameAs(body);
+		assertThat(feedController.getBookmarkedFeeds(AUTHORIZATION, 1L).getBody()).isSameAs(body);
 	}
 
 	@Test
@@ -83,7 +89,7 @@ class CommunityControllerTest {
 		authenticate();
 		when(service.getBadgeDetail(1L)).thenReturn(body);
 
-		var response = controller.getBadgeDetail(AUTHORIZATION, 1L);
+		var response = profileController.getBadgeDetail(AUTHORIZATION, 1L);
 
 		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
 		assertThat(response.getBody()).isSameAs(body);
@@ -97,10 +103,10 @@ class CommunityControllerTest {
 		when(service.updateRelationship(1L, request)).thenReturn(Map.of("status", "success"));
 		authenticate();
 
-		assertThat(controller.getCommunityFriends(AUTHORIZATION, 1L, "friends").getBody()).isSameAs(friends);
-		assertThat(controller.getLegacyRelationships(AUTHORIZATION, 1L, "friends").getBody()).isSameAs(friends);
-		assertThat(controller.updateCommunityRelationship(AUTHORIZATION, 1L, request).getBody()).containsEntry("status", "success");
-		assertThat(controller.updateLegacyRelationship(AUTHORIZATION, 1L, request).getBody()).containsEntry("status", "success");
+		assertThat(relationshipController.getCommunityFriends(AUTHORIZATION, 1L, "friends").getBody()).isSameAs(friends);
+		assertThat(relationshipController.getLegacyRelationships(AUTHORIZATION, 1L, "friends").getBody()).isSameAs(friends);
+		assertThat(relationshipController.updateCommunityRelationship(AUTHORIZATION, 1L, request).getBody()).containsEntry("status", "success");
+		assertThat(relationshipController.updateLegacyRelationship(AUTHORIZATION, 1L, request).getBody()).containsEntry("status", "success");
 	}
 
 	@Test
@@ -111,8 +117,8 @@ class CommunityControllerTest {
 		when(service.getFeedList()).thenReturn(List.of(uploaded));
 		authenticate();
 
-		assertThat(controller.uploadFeed(AUTHORIZATION, 1L, request).getStatusCode()).isEqualTo(HttpStatus.CREATED);
-		assertThat(controller.getFeedList().getBody()).containsExactly(uploaded);
+		assertThat(feedController.uploadFeed(AUTHORIZATION, 1L, request).getStatusCode()).isEqualTo(HttpStatus.CREATED);
+		assertThat(feedController.getFeedList().getBody()).containsExactly(uploaded);
 	}
 
 	@Test
@@ -121,16 +127,16 @@ class CommunityControllerTest {
 		authenticate();
 		when(service.getAccountInfo(1L)).thenReturn(account);
 
-		assertThat(controller.getAccountInfo(AUTHORIZATION, 1L).getBody()).isSameAs(account);
-		assertThat(controller.updateNickname(AUTHORIZATION, 1L, Map.of("nickname", "neo2")).getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
-		assertThat(controller.deleteAccount(AUTHORIZATION, 1L).getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
+		assertThat(profileController.getAccountInfo(AUTHORIZATION, 1L).getBody()).isSameAs(account);
+		assertThat(profileController.updateNickname(AUTHORIZATION, 1L, Map.of("nickname", "neo2")).getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
+		assertThat(profileController.deleteAccount(AUTHORIZATION, 1L).getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
 	}
 
 	@Test
 	void updateProfileImage_rejectsEmptyRequestWithoutOverwritingExistingPhoto() {
 		authenticate();
 
-		assertThatThrownBy(() -> controller.updateProfileImage(AUTHORIZATION, 1L, " ", null, null))
+		assertThatThrownBy(() -> profileController.updateProfileImage(AUTHORIZATION, 1L, " ", null, null))
 				.isInstanceOf(IllegalArgumentException.class)
 				.hasMessageContaining("profile_image_url, image 또는 profile_photo");
 
@@ -143,7 +149,7 @@ class CommunityControllerTest {
 		authenticate();
 		when(storageService.storeImage(image, "profile")).thenReturn("/uploads/profile/profile-id.png");
 
-		var response = controller.updateProfileImage(AUTHORIZATION, 1L, null, image, null);
+		var response = profileController.updateProfileImage(AUTHORIZATION, 1L, null, image, null);
 
 		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
 		verify(service).updateProfileImage(1L, "/uploads/profile/profile-id.png");
@@ -155,7 +161,7 @@ class CommunityControllerTest {
 		authenticate();
 		when(storageService.storeImage(image, "profile")).thenReturn("/uploads/profile/profile-id.png");
 
-		var response = controller.updateProfileImage(AUTHORIZATION, 1L, null, null, image);
+		var response = profileController.updateProfileImage(AUTHORIZATION, 1L, null, null, image);
 
 		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
 		verify(storageService).storeImage(image, "profile");
@@ -166,7 +172,7 @@ class CommunityControllerTest {
 	void deleteProfileImage_resetsStoredProfilePhoto() {
 		authenticate();
 
-		var response = controller.deleteProfileImage(AUTHORIZATION, 1L);
+		var response = profileController.deleteProfileImage(AUTHORIZATION, 1L);
 
 		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
 		verify(service).deleteProfileImage(1L);
@@ -183,7 +189,7 @@ class CommunityControllerTest {
 		when(storageService.storeImage(route, "routes")).thenReturn("/uploads/routes/route-id.webp");
 		when(service.uploadFeed(1L, expected)).thenReturn(uploaded);
 
-		var response = controller.uploadFeedMultipart(AUTHORIZATION, 1L, Map.of("title", "title", "content", "content", "privacy", "PUBLIC", "mapVisible", "true", "taggedUserIds", "2", "distance", "3.2", "runningTime", "20:00", "pace", "6'15\"", "tagCount", "1"), List.of(image), route, null, null);
+		var response = feedController.uploadFeedMultipart(AUTHORIZATION, 1L, Map.of("title", "title", "content", "content", "privacy", "PUBLIC", "mapVisible", "true", "taggedUserIds", "2", "distance", "3.2", "runningTime", "20:00", "pace", "6'15\"", "tagCount", "1"), List.of(image), route, null, null);
 
 		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CREATED);
 		assertThat(response.getBody()).isSameAs(uploaded);
@@ -199,7 +205,7 @@ class CommunityControllerTest {
 		when(storageService.storeImage(route, "routes")).thenReturn("/uploads/routes/route-id.png");
 		when(service.uploadFeed(1L, expected)).thenReturn(uploaded);
 
-		var response = controller.uploadFeedMultipart(AUTHORIZATION, 1L, Map.of("title", "title", "content", "content", "privacy", "PUBLIC", "mapVisible", "true", "taggedUserIds", "[2,3]", "runningTime", "20:00", "pace", "6'15\"", "tagCount", "2"), null, null, route, null);
+		var response = feedController.uploadFeedMultipart(AUTHORIZATION, 1L, Map.of("title", "title", "content", "content", "privacy", "PUBLIC", "mapVisible", "true", "taggedUserIds", "[2,3]", "runningTime", "20:00", "pace", "6'15\"", "tagCount", "2"), null, null, route, null);
 
 		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CREATED);
 		verify(service).uploadFeed(1L, expected);
@@ -216,7 +222,7 @@ class CommunityControllerTest {
 		when(storageService.storeImage(route, "routes")).thenReturn("/uploads/routes/route-id.png");
 		when(service.uploadFeed(1L, expected)).thenReturn(uploaded);
 
-		var response = controller.uploadFeedMultipart(
+		var response = feedController.uploadFeedMultipart(
 				AUTHORIZATION, 1L,
 				Map.of("title", "title", "content", "content", "privacy", "PUBLIC", "map_visible", "true", "tagged_user_ids", "[2,3]", "total_distance", "3.2", "duration", "20:00", "running_pace", "6'15\"", "tag_count", "1"),
 				List.of(image),
@@ -237,7 +243,7 @@ class CommunityControllerTest {
 		authenticate();
 		when(service.uploadFeed(1L, expected)).thenReturn(uploaded);
 
-		var response = controller.uploadFeedMultipart(
+		var response = feedController.uploadFeedMultipart(
 				AUTHORIZATION,
 				1L,
 				Map.of("title", "title", "content", "content", "privacy", "PUBLIC", "mapVisible", "true", "duration", "30:00", "run_record_id", "555"),
@@ -263,7 +269,7 @@ class CommunityControllerTest {
 		when(storageService.storeImage(second, "community")).thenReturn("/uploads/community/second.jpg");
 		when(service.uploadFeed(1L, expected)).thenReturn(uploaded);
 
-		var response = controller.uploadFeedMultipart(AUTHORIZATION, 1L, Map.of("title", "title"), List.of(first, second), null, null, null);
+		var response = feedController.uploadFeedMultipart(AUTHORIZATION, 1L, Map.of("title", "title"), List.of(first, second), null, null, null);
 
 		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CREATED);
 		assertThat(response.getBody()).isSameAs(uploaded);
@@ -283,11 +289,11 @@ class CommunityControllerTest {
 		when(service.getUserFriendList(2L)).thenReturn(friends);
 		when(service.getUserFriendList(1L, 2L)).thenReturn(friends);
 
-		assertThat(controller.getRunnerProfile(AUTHORIZATION, 1L, 2L).getBody()).isSameAs(profile);
-		assertThat(controller.getUserBadgeDetail(2L).getBody()).isSameAs(badge);
-		assertThat(controller.getRunnerFeeds(AUTHORIZATION, 1L, 2L).getBody()).isSameAs(feeds);
-		assertThat(controller.getUserFriendList(AUTHORIZATION, 1L, 2L).getBody()).isSameAs(friends);
-		assertThat(controller.getApiUserFriendList(AUTHORIZATION, 1L, 2L).getBody()).isSameAs(friends);
+		assertThat(profileController.getRunnerProfile(AUTHORIZATION, 1L, 2L).getBody()).isSameAs(profile);
+		assertThat(profileController.getUserBadgeDetail(2L).getBody()).isSameAs(badge);
+		assertThat(feedController.getRunnerFeeds(AUTHORIZATION, 1L, 2L).getBody()).isSameAs(feeds);
+		assertThat(relationshipController.getUserFriendList(AUTHORIZATION, 1L, 2L).getBody()).isSameAs(friends);
+		assertThat(relationshipController.getApiUserFriendList(AUTHORIZATION, 1L, 2L).getBody()).isSameAs(friends);
 	}
 
 	@Test
@@ -301,10 +307,10 @@ class CommunityControllerTest {
 		when(service.getTips(1L)).thenReturn(tipList);
 		authenticate();
 
-		assertThat(controller.toggleBookmark(AUTHORIZATION, 1L, 10L).getBody()).isSameAs(bookmark);
-		assertThat(controller.uploadTip(AUTHORIZATION, 1L, tipRequest).getStatusCode()).isEqualTo(HttpStatus.CREATED);
-		assertThat(controller.uploadTip(AUTHORIZATION, 1L, tipRequest).getBody()).isSameAs(tip);
-		assertThat(controller.getTips(AUTHORIZATION, 1L).getBody()).isSameAs(tipList);
+		assertThat(feedController.toggleBookmark(AUTHORIZATION, 1L, 10L).getBody()).isSameAs(bookmark);
+		assertThat(tipController.uploadTip(AUTHORIZATION, 1L, tipRequest).getStatusCode()).isEqualTo(HttpStatus.CREATED);
+		assertThat(tipController.uploadTip(AUTHORIZATION, 1L, tipRequest).getBody()).isSameAs(tip);
+		assertThat(tipController.getTips(AUTHORIZATION, 1L).getBody()).isSameAs(tipList);
 	}
 
 
@@ -313,7 +319,7 @@ class CommunityControllerTest {
 		FeedUploadResponse feed = new FeedUploadResponse(99L, null, "neo", "2026-05-11T00:00:00", "title", "content", 1, 0, 0, "3.20 km", "20:00", "6'15\"", true, "route.png", List.of("image.png"));
 		when(service.getFeedList((Long) null, null, null, null)).thenReturn(List.of(feed));
 
-		var response = controller.getCommunityFeedList(null, 1L, null, null, null, null, null);
+		var response = feedController.getCommunityFeedList(null, 1L, null, null, null, null, null);
 
 		assertThat(response.getBody()).containsExactly(feed);
 		verify(service).getFeedList((Long) null, null, null, null);
@@ -327,7 +333,7 @@ class CommunityControllerTest {
 		authenticate();
 		when(service.getFeedPage(1L, "2026-05-26T22:14:32", 76L, 10)).thenReturn(page);
 
-		var response = controller.getCommunityFeedPage(AUTHORIZATION, 1L, 10, null, "2026-05-26T22:14:32", null, 76L);
+		var response = feedController.getCommunityFeedPage(AUTHORIZATION, 1L, 10, null, "2026-05-26T22:14:32", null, 76L);
 
 		assertThat(response.getBody()).isSameAs(page);
 		verify(service).getFeedPage(1L, "2026-05-26T22:14:32", 76L, 10);
@@ -346,8 +352,8 @@ class CommunityControllerTest {
 		when(service.getFeedComments(1L, 99L, "2026-05-28T09:00:00", 4L, 10)).thenReturn(page);
 		when(service.getTipComments(1L, 7L, "2026-05-28T09:00:00", 4L, 10)).thenReturn(page);
 
-		assertThat(controller.getFeedComments(AUTHORIZATION, 1L, 99L, 10, null, "2026-05-28T09:00:00", null, 4L).getBody()).isSameAs(page);
-		assertThat(controller.getTipComments(AUTHORIZATION, 1L, 7L, 10, null, "2026-05-28T09:00:00", null, 4L).getBody()).isSameAs(page);
+		assertThat(feedController.getFeedComments(AUTHORIZATION, 1L, 99L, 10, null, "2026-05-28T09:00:00", null, 4L).getBody()).isSameAs(page);
+		assertThat(tipController.getTipComments(AUTHORIZATION, 1L, 7L, 10, null, "2026-05-28T09:00:00", null, 4L).getBody()).isSameAs(page);
 	}
 
 	@Test
@@ -362,12 +368,12 @@ class CommunityControllerTest {
 		when(service.getMyFriends(1L)).thenReturn(List.of(user));
 		authenticate();
 
-		assertThat(controller.searchFeeds("run", 0, 10).getBody()).containsExactly(feed);
-		assertThat(controller.searchTips("pace", "ALL", 0, 10).getBody()).containsExactly(tip);
-		assertThat(controller.searchProfiles("neo", 0, 10).getBody()).containsExactly(user);
-		assertThat(controller.searchFriends(AUTHORIZATION, 1L, "neo").getBody()).containsExactly(user);
-		assertThat(controller.getTopProfiles(0, 10).getBody()).isEmpty();
-		assertThat(controller.getMyFriends(AUTHORIZATION, 1L).getBody()).containsExactly(user);
+		assertThat(searchController.searchFeeds("run", 0, 10).getBody()).containsExactly(feed);
+		assertThat(searchController.searchTips("pace", "ALL", 0, 10).getBody()).containsExactly(tip);
+		assertThat(searchController.searchProfiles("neo", 0, 10).getBody()).containsExactly(user);
+		assertThat(searchController.searchFriends(AUTHORIZATION, 1L, "neo").getBody()).containsExactly(user);
+		assertThat(searchController.getTopProfiles(0, 10).getBody()).isEmpty();
+		assertThat(searchController.getMyFriends(AUTHORIZATION, 1L).getBody()).containsExactly(user);
 	}
 
 	@Test
@@ -387,15 +393,15 @@ class CommunityControllerTest {
 		when(service.updateFeedComment(1L, 99L, 5L, commentRequest)).thenReturn(comment);
 		when(service.getTaggedUsers(99L)).thenReturn(tagged);
 
-		assertThat(controller.getFeedDetail(AUTHORIZATION, 1L, 99L).getBody()).isSameAs(detail);
-		assertThat(controller.toggleFeedLike(AUTHORIZATION, 1L, 99L).getBody()).containsEntry("liked", "true");
-		assertThat(controller.toggleFeedBookmark(AUTHORIZATION, 1L, 99L).getBody()).containsEntry("bookmarked", "true");
-		assertThat(controller.createFeedComment(AUTHORIZATION, 1L, 99L, commentRequest).getStatusCode()).isEqualTo(HttpStatus.CREATED);
-		assertThat(controller.updateFeed(AUTHORIZATION, 1L, 99L, update).getBody()).isSameAs(feed);
-		assertThat(controller.updateFeedComment(AUTHORIZATION, 1L, 99L, 5L, commentRequest).getBody()).isSameAs(comment);
-		assertThat(controller.deleteFeedComment(AUTHORIZATION, 1L, 99L, 5L).getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
-		assertThat(controller.deleteFeed(AUTHORIZATION, 1L, 99L).getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
-		assertThat(controller.getTaggedUsers(99L).getBody()).containsExactlyElementsOf(tagged);
+		assertThat(feedController.getFeedDetail(AUTHORIZATION, 1L, 99L).getBody()).isSameAs(detail);
+		assertThat(feedController.toggleFeedLike(AUTHORIZATION, 1L, 99L).getBody()).containsEntry("liked", "true");
+		assertThat(feedController.toggleFeedBookmark(AUTHORIZATION, 1L, 99L).getBody()).containsEntry("bookmarked", "true");
+		assertThat(feedController.createFeedComment(AUTHORIZATION, 1L, 99L, commentRequest).getStatusCode()).isEqualTo(HttpStatus.CREATED);
+		assertThat(feedController.updateFeed(AUTHORIZATION, 1L, 99L, update).getBody()).isSameAs(feed);
+		assertThat(feedController.updateFeedComment(AUTHORIZATION, 1L, 99L, 5L, commentRequest).getBody()).isSameAs(comment);
+		assertThat(feedController.deleteFeedComment(AUTHORIZATION, 1L, 99L, 5L).getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
+		assertThat(feedController.deleteFeed(AUTHORIZATION, 1L, 99L).getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
+		assertThat(feedController.getTaggedUsers(99L).getBody()).containsExactlyElementsOf(tagged);
 	}
 
 	@Test
@@ -405,7 +411,7 @@ class CommunityControllerTest {
 		when(service.uploadTip(1L, expected)).thenReturn(uploaded);
 		authenticate();
 
-		var response = controller.uploadTipMultipart(AUTHORIZATION, 1L, Map.of("category", "COURSE", "title", "title", "content", "content", "gpsVisible", "true", "courseAddress", "Seoul Forest"), null, null, null);
+		var response = tipController.uploadTipMultipart(AUTHORIZATION, 1L, Map.of("category", "COURSE", "title", "title", "content", "content", "gpsVisible", "true", "courseAddress", "Seoul Forest"), null, null, null);
 
 		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CREATED);
 		assertThat(response.getBody()).isSameAs(uploaded);
@@ -428,16 +434,16 @@ class CommunityControllerTest {
 		when(service.updateTip(1L, 7L, update)).thenReturn(tip);
 		when(service.updateTipComment(1L, 7L, 8L, commentRequest)).thenReturn(comment);
 
-		assertThat(controller.getMyTips(AUTHORIZATION, 1L).getBody()).containsExactly(tip);
-		assertThat(controller.getRunnerTips(AUTHORIZATION, 1L, 2L).getBody()).containsExactly(tip);
-		assertThat(controller.getTipDetail(AUTHORIZATION, 1L, 7L).getBody()).isSameAs(detail);
-		assertThat(controller.toggleTipLike(AUTHORIZATION, 1L, 7L).getBody()).containsEntry("liked", "true");
-		assertThat(controller.toggleTipBookmark(AUTHORIZATION, 1L, 7L).getBody()).containsEntry("bookmarked", "true");
-		assertThat(controller.createTipComment(AUTHORIZATION, 1L, 7L, commentRequest).getStatusCode()).isEqualTo(HttpStatus.CREATED);
-		assertThat(controller.updateTip(AUTHORIZATION, 1L, 7L, update).getBody()).isSameAs(tip);
-		assertThat(controller.updateTipComment(AUTHORIZATION, 1L, 7L, 8L, commentRequest).getBody()).isSameAs(comment);
-		assertThat(controller.deleteTipComment(AUTHORIZATION, 1L, 7L, 8L).getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
-		assertThat(controller.deleteTip(AUTHORIZATION, 1L, 7L).getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
+		assertThat(tipController.getMyTips(AUTHORIZATION, 1L).getBody()).containsExactly(tip);
+		assertThat(tipController.getRunnerTips(AUTHORIZATION, 1L, 2L).getBody()).containsExactly(tip);
+		assertThat(tipController.getTipDetail(AUTHORIZATION, 1L, 7L).getBody()).isSameAs(detail);
+		assertThat(tipController.toggleTipLike(AUTHORIZATION, 1L, 7L).getBody()).containsEntry("liked", "true");
+		assertThat(tipController.toggleTipBookmark(AUTHORIZATION, 1L, 7L).getBody()).containsEntry("bookmarked", "true");
+		assertThat(tipController.createTipComment(AUTHORIZATION, 1L, 7L, commentRequest).getStatusCode()).isEqualTo(HttpStatus.CREATED);
+		assertThat(tipController.updateTip(AUTHORIZATION, 1L, 7L, update).getBody()).isSameAs(tip);
+		assertThat(tipController.updateTipComment(AUTHORIZATION, 1L, 7L, 8L, commentRequest).getBody()).isSameAs(comment);
+		assertThat(tipController.deleteTipComment(AUTHORIZATION, 1L, 7L, 8L).getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
+		assertThat(tipController.deleteTip(AUTHORIZATION, 1L, 7L).getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
 	}
 
 	private void authenticate() {

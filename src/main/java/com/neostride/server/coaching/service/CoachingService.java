@@ -1,7 +1,6 @@
 package com.neostride.server.coaching.service;
 
 import com.neostride.server.coaching.ai.AiCoachingClient;
-import com.neostride.server.coaching.ai.AiCoachingFeedbackRequest;
 import com.neostride.server.coaching.dto.FeedbackRequest;
 import com.neostride.server.coaching.dto.FeedbackResponse;
 import com.neostride.server.coaching.dto.GoalRequest;
@@ -43,6 +42,9 @@ public class CoachingService {
 	private final CoachingRepository coachingRepository;
 	private final AiCoachingClient aiCoachingClient;
 	private final ApplicationEventPublisher eventPublisher;
+	private final CoachingPlanPolicy planPolicy = new CoachingPlanPolicy();
+	private final CoachingFeedbackPolicy feedbackPolicy = new CoachingFeedbackPolicy();
+	private final CoachingPlanAdjustmentPolicy planAdjustmentPolicy = new CoachingPlanAdjustmentPolicy();
 
 	@Autowired
 	public CoachingService(CoachingRepository coachingRepository, AiCoachingClient aiCoachingClient,
@@ -252,48 +254,11 @@ public class CoachingService {
 	}
 
 	private List<PlanDayInsertCommand> generatePlanDays(List<LocalDate> planDates, BigDecimal targetDistance, Integer targetPace) {
-		List<PlanDayInsertCommand> planDays = new ArrayList<>();
-		for (int index = 0; index < planDates.size(); index++) {
-			planDays.add(new PlanDayInsertCommand(
-					planDates.get(index),
-					progressiveDistance(targetDistance, index, planDates.size()),
-					progressivePace(targetPace, index, planDates.size())
-			));
-		}
-		return planDays;
+		return planPolicy.generatePlanDays(planDates, targetDistance, targetPace);
 	}
 
 	private List<LocalDate> scheduledPlanDates(LocalDate startDate, int durationWeeks, Set<DayOfWeek> runningDays) {
-		List<LocalDate> dates = new ArrayList<>();
-		LocalDate endExclusive = startDate.plusWeeks(durationWeeks);
-		for (LocalDate date = startDate; date.isBefore(endExclusive); date = date.plusDays(1)) {
-			if (runningDays.contains(date.getDayOfWeek())) {
-				dates.add(date);
-			}
-		}
-		return dates;
-	}
-
-	private BigDecimal progressiveDistance(BigDecimal targetDistance, int index, int totalDays) {
-		if (totalDays <= 1) {
-			return targetDistance.setScale(DISTANCE_SCALE, RoundingMode.HALF_UP);
-		}
-		BigDecimal progress = BigDecimal.valueOf(index).divide(BigDecimal.valueOf(totalDays - 1L), 4, RoundingMode.HALF_UP);
-		BigDecimal factor = new BigDecimal("0.60").add(new BigDecimal("0.40").multiply(progress));
-		return targetDistance.multiply(factor).max(new BigDecimal("0.10")).setScale(DISTANCE_SCALE, RoundingMode.HALF_UP);
-	}
-
-	private Integer progressivePace(Integer targetPace, int index, int totalDays) {
-		if (totalDays <= 1) {
-			return targetPace;
-		}
-		BigDecimal progress = BigDecimal.valueOf(index).divide(BigDecimal.valueOf(totalDays - 1L), 4, RoundingMode.HALF_UP);
-		BigDecimal factor = new BigDecimal("1.12").subtract(new BigDecimal("0.12").multiply(progress));
-		return BigDecimal.valueOf(targetPace)
-				.multiply(factor)
-				.max(BigDecimal.valueOf(MIN_PACE_SEC_PER_KM))
-				.setScale(0, RoundingMode.HALF_UP)
-				.intValueExact();
+		return planPolicy.scheduledPlanDates(startDate, durationWeeks, runningDays);
 	}
 
 	private List<PlanDayRow> ensureProgressivePlanDays(GoalRow goal, List<PlanDayRow> planDays) {
@@ -313,17 +278,7 @@ public class CoachingService {
 	}
 
 	private boolean isFlatFinalGoalPlan(GoalRow goal, List<PlanDayRow> planDays) {
-		if (goal == null || planDays == null || planDays.size() <= 1 || goal.targetDistance() == null || goal.targetPace() == null) {
-			return false;
-		}
-		for (PlanDayRow planDay : planDays) {
-			if (planDay == null || planDay.targetDistance() == null || planDay.targetPace() == null
-					|| planDay.targetDistance().compareTo(goal.targetDistance()) != 0
-					|| !planDay.targetPace().equals(goal.targetPace())) {
-				return false;
-			}
-		}
-		return true;
+		return planPolicy.isFlatFinalGoalPlan(goal, planDays);
 	}
 
 	private GoalResponse toGoalResponse(GoalRow goal, String periodType, Integer customWeeks, List<String> runningDays, List<PlanDayRow> planDays) {
@@ -361,69 +316,13 @@ public class CoachingService {
 
 	private String buildFeedbackWithAiFallback(long planDayId, FeedbackRequest request, PlanDayRow planDay) {
 		if (planDay == null) {
-			return buildFeedback(request);
+			return feedbackPolicy.fallbackFeedback(request);
 		}
-		String aiFeedback = aiCoachingClient.generateFeedback(new AiCoachingFeedbackRequest(
-				planDayId,
-				planDay.planDate(),
-				planDay.targetDistance(),
-				planDay.targetPace(),
-				delta(request.actualDistanceKm(), planDay.targetDistance()),
-				paceDelta(request.actualPaceSecPerKm(), planDay.targetPace()),
-				request
-		));
+		String aiFeedback = aiCoachingClient.generateFeedback(feedbackPolicy.aiRequest(planDayId, request, planDay));
 		if (aiFeedback != null && !aiFeedback.isBlank()) {
 			return aiFeedback.trim();
 		}
-		return buildFeedback(request, planDay);
-	}
-
-	private BigDecimal delta(BigDecimal actual, BigDecimal target) {
-		if (actual == null || target == null) {
-			return null;
-		}
-		return actual.subtract(target).setScale(2, RoundingMode.HALF_UP);
-	}
-
-	private Integer paceDelta(Integer actual, Integer target) {
-		if (actual == null || target == null) {
-			return null;
-		}
-		return actual - target;
-	}
-
-	private String buildFeedback(FeedbackRequest request, PlanDayRow planDay) {
-		BigDecimal distanceDelta = delta(request.actualDistanceKm(), planDay.targetDistance());
-		Integer paceDelta = paceDelta(request.actualPaceSecPerKm(), planDay.targetPace());
-		return "평균 페이스 " + formatPace(request.actualPaceSecPerKm())
-				+ "/km로 마무리했습니다. " + distanceDeltaText(distanceDelta) + ", " + paceDeltaText(paceDelta)
-				+ " 다음 훈련 전에는 가벼운 스트레칭과 수분 보충으로 회복을 챙기세요.";
-	}
-
-	private String buildFeedback(FeedbackRequest request) {
-		return "러닝을 완료했습니다. " + request.actualDistanceKm().setScale(2, RoundingMode.HALF_UP)
-				+ "km를 평균 페이스 " + formatPace(request.actualPaceSecPerKm())
-				+ "/km로 마무리했으니, 다음 훈련 전에는 가벼운 스트레칭과 수분 보충으로 회복을 챙기세요.";
-	}
-
-	private String distanceDeltaText(BigDecimal distanceDelta) {
-		if (distanceDelta == null || distanceDelta.compareTo(BigDecimal.ZERO) == 0) {
-			return "목표 거리와 동일한 거리를 달렸고";
-		}
-		String amount = distanceDelta.abs().setScale(2, RoundingMode.HALF_UP).toPlainString();
-		return distanceDelta.compareTo(BigDecimal.ZERO) > 0
-				? "목표보다 " + amount + "km 더 달렸고"
-				: "목표보다 " + amount + "km 부족했고";
-	}
-
-	private String paceDeltaText(Integer paceDelta) {
-		if (paceDelta == null || Math.abs(paceDelta) <= 3) {
-			return "목표 페이스에 가깝게 마무리했습니다.";
-		}
-		String amount = formatDuration(Math.abs(paceDelta));
-		return paceDelta > 0
-				? "목표보다 " + amount + "/km 느렸습니다."
-				: "목표보다 " + amount + "/km 빨랐습니다.";
+		return feedbackPolicy.fallbackFeedback(request, planDay);
 	}
 
 	private void adjustFuturePlanWithFeedbackLoop(long userId, PlanDayRow planDay, FeedbackRequest request) {
@@ -438,56 +337,11 @@ public class CoachingService {
 			));
 		}
 		int duePlanDays = coachingRepository.countPlanDaysThrough(planDay.goalId(), planDay.planDate());
-		if (duePlanDays <= 0) {
-			return;
-		}
 		int completedPlanDays = coachingRepository.countCompletedPlanDaysThrough(planDay.goalId(), planDay.planDate());
-		BigDecimal completionRate = BigDecimal.valueOf(completedPlanDays)
-				.divide(BigDecimal.valueOf(duePlanDays), 4, RoundingMode.HALF_UP);
-		BigDecimal averageDistanceRatio = averageDistanceRatio(performances);
-		BigDecimal averagePaceRatio = averagePaceRatio(performances);
-
-		if (completionRate.compareTo(new BigDecimal("0.80")) >= 0
-				&& averageDistanceRatio.compareTo(new BigDecimal("1.00")) >= 0
-				&& averagePaceRatio.compareTo(new BigDecimal("1.00")) <= 0) {
-			coachingRepository.adjustFuturePlanTargets(userId, planDay.goalId(), planDay.planDate(), new BigDecimal("1.05"), new BigDecimal("0.97"));
-			return;
+		CoachingPlanAdjustment adjustment = planAdjustmentPolicy.adjustmentFor(completedPlanDays, duePlanDays, performances);
+		if (adjustment != null) {
+			coachingRepository.adjustFuturePlanTargets(userId, planDay.goalId(), planDay.planDate(), adjustment.distanceFactor(), adjustment.paceFactor());
 		}
-
-		if (completionRate.compareTo(new BigDecimal("0.60")) < 0
-				|| averageDistanceRatio.compareTo(new BigDecimal("0.85")) < 0
-				|| averagePaceRatio.compareTo(new BigDecimal("1.10")) > 0) {
-			coachingRepository.adjustFuturePlanTargets(userId, planDay.goalId(), planDay.planDate(), new BigDecimal("0.90"), new BigDecimal("1.05"));
-		}
-	}
-
-	private BigDecimal averageDistanceRatio(List<PlanPerformanceRow> performances) {
-		BigDecimal total = BigDecimal.ZERO;
-		int count = 0;
-		for (PlanPerformanceRow performance : performances) {
-			if (performance == null || performance.actualDistance() == null
-					|| performance.targetDistance() == null || performance.targetDistance().compareTo(BigDecimal.ZERO) <= 0) {
-				continue;
-			}
-			total = total.add(performance.actualDistance().divide(performance.targetDistance(), 4, RoundingMode.HALF_UP));
-			count++;
-		}
-		return count == 0 ? BigDecimal.ONE : total.divide(BigDecimal.valueOf(count), 4, RoundingMode.HALF_UP);
-	}
-
-	private BigDecimal averagePaceRatio(List<PlanPerformanceRow> performances) {
-		BigDecimal total = BigDecimal.ZERO;
-		int count = 0;
-		for (PlanPerformanceRow performance : performances) {
-			if (performance == null || performance.actualPace() == null
-					|| performance.targetPace() == null || performance.targetPace() <= 0) {
-				continue;
-			}
-			total = total.add(BigDecimal.valueOf(performance.actualPace())
-					.divide(BigDecimal.valueOf(performance.targetPace()), 4, RoundingMode.HALF_UP));
-			count++;
-		}
-		return count == 0 ? BigDecimal.ONE : total.divide(BigDecimal.valueOf(count), 4, RoundingMode.HALF_UP);
 	}
 
 	private BigDecimal normalizedFeedbackDecimal(BigDecimal value, String fieldName) {
@@ -506,40 +360,15 @@ public class CoachingService {
 	}
 
 	private int durationWeeks(String periodType, Integer customWeeks) {
-		if (periodType == null || periodType.isBlank()) {
-			throw new IllegalArgumentException("period_type은 필수입니다.");
-		}
-		return switch (periodType) {
-			case "1month" -> 4;
-			case "3month" -> 12;
-			case "6month" -> 24;
-			case "1year" -> 52;
-			case "custom" -> {
-				if (customWeeks == null || customWeeks <= 0) {
-					throw new IllegalArgumentException("custom_weeks는 1 이상의 값이어야 합니다.");
-				}
-				yield customWeeks;
-			}
-			default -> throw new IllegalArgumentException("period_type 값이 올바르지 않습니다.");
-		};
+		return planPolicy.durationWeeks(periodType, customWeeks);
 	}
 
 	private String periodType(Integer durationWeeks) {
-		if (durationWeeks == null) {
-			return "custom";
-		}
-		return switch (durationWeeks) {
-			case 4 -> "1month";
-			case 12 -> "3month";
-			case 24 -> "6month";
-			case 52 -> "1year";
-			default -> "custom";
-		};
+		return planPolicy.periodType(durationWeeks);
 	}
 
 	private Integer customWeeks(Integer durationWeeks) {
-		String periodType = periodType(durationWeeks);
-		return "custom".equals(periodType) ? durationWeeks : 0;
+		return planPolicy.customWeeks(durationWeeks);
 	}
 
 	private Set<DayOfWeek> parseRunningDays(List<String> values) {
@@ -605,14 +434,7 @@ public class CoachingService {
 	}
 
 	private String formatPace(Integer seconds) {
-		if (seconds == null) {
-			return "-";
-		}
-		return seconds / 60 + ":" + String.format("%02d", seconds % 60);
-	}
-
-	private String formatDuration(int seconds) {
-		return seconds / 60 + ":" + String.format("%02d", seconds % 60);
+		return feedbackPolicy.formatPace(seconds);
 	}
 
 	private void requirePositive(BigDecimal value, String fieldName) {

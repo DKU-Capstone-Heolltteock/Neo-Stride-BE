@@ -35,6 +35,7 @@ application-secret.yml
 *.jks
 *.keystore
 secrets/
+AGENTS.md
 
 ### Docker / local deploy artifacts ###
 docker-compose.override.yml
