@@ -61,7 +61,8 @@ Optional:
 - `DB_PORT`: MySQL port, default `3306`.
 - `DB_NAME`: MySQL database name, default `neostride`.
 - `JWT_ACCESS_TOKEN_TTL_SECONDS`: access token TTL, default `3600`.
-- `JWT_REFRESH_TOKEN_TTL_SECONDS`: refresh token TTL, default `1209600`.
+- `JWT_REFRESH_TOKEN_TTL_SECONDS`: refresh token TTL, default `1209600`; a successful `/api/auth/refresh` issues a new refresh token with a fresh TTL window.
+- `JWT_REFRESH_TOKEN_REPLAY_GRACE_SECONDS`: short grace window for duplicate refresh requests after token rotation, default `30`.
 - `SECRETS_DIR`: config tree directory for secret files, default `/run/secrets`.
 - `CORS_ALLOWED_ORIGINS`: comma-separated allowed browser origins. Blank disables explicit CORS mappings.
 - `CORS_ALLOWED_METHODS`: comma-separated allowed CORS methods, default `GET,POST,PUT,PATCH,DELETE,OPTIONS`.
