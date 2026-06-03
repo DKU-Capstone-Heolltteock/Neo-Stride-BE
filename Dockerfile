@@ -18,6 +18,10 @@ RUN mkdir -p /webp/bin /webp/lib \
 FROM eclipse-temurin:21-jre
 WORKDIR /app
 
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends curl \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY --from=webp-tools /webp/bin/cwebp /usr/bin/cwebp
 COPY --from=webp-tools /webp/lib/ /usr/local/lib/
 ENV LD_LIBRARY_PATH=/usr/local/lib
