@@ -81,15 +81,33 @@ public class RateLimitFilter extends OncePerRequestFilter {
 				|| ("POST".equals(method) && path.equals("/api/auth/signup"))) {
 			return new Bucket("auth", authLimit);
 		}
-		if (isWrite(method) && (path.startsWith("/api/community") || path.startsWith("/community")
-				|| path.startsWith("/api/running") || path.startsWith("/users/me/profile-image"))) {
+		if (isWrite(method) && isWriteLimitedPath(path)) {
 			return new Bucket("write", writeLimit);
 		}
-		if ("GET".equals(method) && (path.startsWith("/api/community/feeds") || path.startsWith("/api/community/search")
-				|| path.startsWith("/api/community/tips") || path.startsWith("/community/contents"))) {
+		if ("GET".equals(method) && isReadLimitedPath(path)) {
 			return new Bucket("read", readLimit);
 		}
 		return null;
+	}
+
+	private boolean isWriteLimitedPath(String path) {
+		return path.startsWith("/api/community")
+				|| path.startsWith("/community")
+				|| path.startsWith("/api/running")
+				|| path.startsWith("/api/coaching")
+				|| path.startsWith("/api/notifications")
+				|| path.startsWith("/api/tips")
+				|| path.startsWith("/feeds")
+				|| path.startsWith("/users/me");
+	}
+
+	private boolean isReadLimitedPath(String path) {
+		return path.startsWith("/api/community/feeds")
+				|| path.startsWith("/api/community/search")
+				|| path.startsWith("/api/community/tips")
+				|| path.startsWith("/api/tips")
+				|| path.startsWith("/community/contents")
+				|| path.startsWith("/feeds");
 	}
 
 	private boolean isWrite(String method) {

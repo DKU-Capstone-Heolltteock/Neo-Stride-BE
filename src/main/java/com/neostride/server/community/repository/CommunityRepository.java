@@ -73,7 +73,11 @@ public class CommunityRepository {
 	public void updateFeed(long userId, long feedId, FeedUploadRequest request) { feedRepository.updateFeed(userId, feedId, request); }
 
 	public void deleteContent(long userId, long contentId, String contentType) {
-		jdbcTemplate.update("DELETE FROM community_interactions WHERE content_id=?", contentId);
+		jdbcTemplate.update("""
+			DELETE ci FROM community_interactions ci
+			JOIN community_contents cc ON cc.content_id = ci.content_id
+			WHERE ci.content_id = ? AND cc.author_user_id = ? AND cc.content_type = ?
+			""", contentId, userId, contentType);
 		jdbcTemplate.update("DELETE FROM community_contents WHERE content_id=? AND author_user_id=? AND content_type=?", contentId, userId, contentType);
 	}
 

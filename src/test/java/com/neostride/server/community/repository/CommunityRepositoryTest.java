@@ -519,6 +519,21 @@ class CommunityRepositoryTest {
 	}
 
 	@Test
+	void deleteContentRemovesInteractionsOnlyForOwnedContent() {
+		repository.deleteContent(7L, 99L, "POST");
+
+		verify(jdbcTemplate).update("""
+			DELETE ci FROM community_interactions ci
+			JOIN community_contents cc ON cc.content_id = ci.content_id
+			WHERE ci.content_id = ? AND cc.author_user_id = ? AND cc.content_type = ?
+			""", 99L, 7L, "POST");
+		verify(jdbcTemplate).update(
+				"DELETE FROM community_contents WHERE content_id=? AND author_user_id=? AND content_type=?",
+				99L, 7L, "POST"
+		);
+	}
+
+	@Test
 	void getUserProfileProjectsViewerRelationshipFlags() {
 		when(jdbcTemplate.query(anyString(), any(RowMapper.class), any(Object[].class))).thenReturn(List.of());
 

@@ -59,16 +59,18 @@ public class NotificationRepository {
 			""", userId, type, message, endpoint, userId, type, endpoint);
 	}
 
-	public void markRead(long notificationId) {
-		jdbcTemplate.update("UPDATE notifications SET is_read = TRUE WHERE notification_id = ?", notificationId);
+	public void markRead(long userId, long notificationId) {
+		jdbcTemplate.update("UPDATE notifications SET is_read = TRUE WHERE user_id = ? AND notification_id = ?",
+				userId, notificationId);
 	}
 
 	public void markAllRead(long userId) {
 		jdbcTemplate.update("UPDATE notifications SET is_read = TRUE WHERE user_id = ?", userId);
 	}
 
-	public void deleteNotification(long notificationId) {
-		jdbcTemplate.update("DELETE FROM notifications WHERE notification_id = ?", notificationId);
+	public void deleteNotification(long userId, long notificationId) {
+		jdbcTemplate.update("DELETE FROM notifications WHERE user_id = ? AND notification_id = ?",
+				userId, notificationId);
 	}
 
 	public void deleteAllNotifications(long userId) {
