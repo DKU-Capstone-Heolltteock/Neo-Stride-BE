@@ -54,5 +54,10 @@ jobs:
           key: ${{ secrets.SERVER_SSH_KEY }}
           script: |
             set -euo pipefail
+            mkdir -p ~/neo-stride/uploads
+            docker run --rm \
+              -v "$HOME/neo-stride/uploads:/data/uploads" \
+              alpine:3.20 \
+              sh -c 'mkdir -p /data/uploads/community /data/uploads/routes /data/uploads/profile && chmod -R 0777 /data/uploads'
             cd ~/neo-stride/backend
             ./deploy.sh
