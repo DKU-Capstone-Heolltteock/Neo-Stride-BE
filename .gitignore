@@ -90,3 +90,6 @@ desktop.ini
 *~
 
 qodana.yaml
+
+docs/*.docx
+docs/backend-comprehensive-review-2026-05-28.md
