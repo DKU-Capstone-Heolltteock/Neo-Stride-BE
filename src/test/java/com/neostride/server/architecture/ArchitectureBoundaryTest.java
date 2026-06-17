@@ -13,11 +13,12 @@ class ArchitectureBoundaryTest {
 			.importPackages("com.neostride.server");
 
 	@Test
-	void communityAndRunningDoNotWriteNotificationsThroughRepository() {
+	void communityRunningAndCrewDoNotWriteNotificationsThroughRepository() {
 		noClasses()
 				.that().resideInAnyPackage(
 						"com.neostride.server.community..",
-						"com.neostride.server.running.."
+						"com.neostride.server.running..",
+						"com.neostride.server.crew.."
 				)
 				.should().dependOnClassesThat().resideInAnyPackage("com.neostride.server.notification.repository..")
 				.check(productionClasses);
@@ -42,4 +43,17 @@ class ArchitectureBoundaryTest {
 				)
 				.check(productionClasses);
 	}
+
+	@Test
+	void crewDomainUsesPortsInsteadOfForeignRepositories() {
+		noClasses()
+				.that().resideInAnyPackage("com.neostride.server.crew..")
+				.should().dependOnClassesThat().resideInAnyPackage(
+						"com.neostride.server.running.repository..",
+						"com.neostride.server.community.repository..",
+						"com.neostride.server.notification.repository.."
+				)
+				.check(productionClasses);
+	}
+
 }

@@ -1,6 +1,3 @@
--- Neo-Stride MySQL schema baseline.
--- Generated from the operational schema after migration 023 on 2026-05-28.
--- Data rows are intentionally excluded; import into an empty database, then run apply-migrations.sh --baseline and --verify.
 
 /*!40101 SET @OLD_CHARACTER_SET_CLIENT=@@CHARACTER_SET_CLIENT */;
 /*!40101 SET @OLD_CHARACTER_SET_RESULTS=@@CHARACTER_SET_RESULTS */;
@@ -221,6 +218,118 @@ CREATE TABLE `community_users` (
   CONSTRAINT `fk_community_users_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`user_id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `crew_chat_messages`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `crew_chat_messages` (
+  `message_id` bigint NOT NULL AUTO_INCREMENT,
+  `crew_id` bigint DEFAULT NULL,
+  `instant_crew_id` bigint DEFAULT NULL,
+  `sender_user_id` bigint NOT NULL,
+  `message_type` enum('TEXT') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'TEXT',
+  `message_text` varchar(1000) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`message_id`),
+  KEY `idx_crew_chat_messages_crew_cursor` (`crew_id`,`message_id` DESC),
+  KEY `idx_crew_chat_messages_instant_cursor` (`instant_crew_id`,`message_id` DESC),
+  KEY `idx_crew_chat_messages_sender_created` (`sender_user_id`,`created_at` DESC),
+  CONSTRAINT `fk_crew_chat_messages_crew` FOREIGN KEY (`crew_id`) REFERENCES `crews` (`crew_id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_crew_chat_messages_instant` FOREIGN KEY (`instant_crew_id`) REFERENCES `instant_crews` (`instant_crew_id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_crew_chat_messages_sender` FOREIGN KEY (`sender_user_id`) REFERENCES `users` (`user_id`) ON DELETE CASCADE,
+  CONSTRAINT `chk_crew_chat_messages_one_target` CHECK ((((`crew_id` is not null) and (`instant_crew_id` is null)) or ((`crew_id` is null) and (`instant_crew_id` is not null))))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `crew_event_participants`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `crew_event_participants` (
+  `crew_event_participant_id` bigint NOT NULL AUTO_INCREMENT,
+  `crew_event_id` bigint NOT NULL,
+  `user_id` bigint NOT NULL,
+  `status` enum('REQUESTED','ACCEPTED','DECLINED','CANCELLED','ATTENDED') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'ACCEPTED',
+  `running_record_id` bigint DEFAULT NULL,
+  `requested_at` timestamp NULL DEFAULT NULL,
+  `responded_at` timestamp NULL DEFAULT NULL,
+  `attended_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`crew_event_participant_id`),
+  UNIQUE KEY `uq_crew_event_participants_event_user` (`crew_event_id`,`user_id`),
+  KEY `idx_crew_event_participants_user_status` (`user_id`,`status`,`crew_event_id`),
+  KEY `idx_crew_event_participants_record` (`running_record_id`),
+  CONSTRAINT `fk_crew_event_participants_event` FOREIGN KEY (`crew_event_id`) REFERENCES `crew_events` (`crew_event_id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_crew_event_participants_record` FOREIGN KEY (`running_record_id`) REFERENCES `running_records` (`run_record_id`) ON DELETE SET NULL,
+  CONSTRAINT `fk_crew_event_participants_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`user_id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `crew_events`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `crew_events` (
+  `crew_event_id` bigint NOT NULL AUTO_INCREMENT,
+  `crew_id` bigint NOT NULL,
+  `host_user_id` bigint NOT NULL,
+  `title` varchar(120) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `description` varchar(1000) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `event_type` enum('OFFLINE','VIRTUAL') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'OFFLINE',
+  `status` enum('SCHEDULED','IN_PROGRESS','COMPLETED','CANCELLED') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'SCHEDULED',
+  `starts_at` datetime NOT NULL,
+  `ends_at` datetime DEFAULT NULL,
+  `location_label` varchar(200) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `meeting_place` varchar(500) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `capacity` int DEFAULT NULL,
+  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`crew_event_id`),
+  KEY `idx_crew_events_crew_time` (`crew_id`,`starts_at`,`crew_event_id`),
+  KEY `idx_crew_events_status_time` (`status`,`starts_at`),
+  KEY `fk_crew_events_host` (`host_user_id`),
+  CONSTRAINT `fk_crew_events_crew` FOREIGN KEY (`crew_id`) REFERENCES `crews` (`crew_id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_crew_events_host` FOREIGN KEY (`host_user_id`) REFERENCES `users` (`user_id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `crew_members`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `crew_members` (
+  `crew_member_id` bigint NOT NULL AUTO_INCREMENT,
+  `crew_id` bigint NOT NULL,
+  `user_id` bigint NOT NULL,
+  `role` enum('OWNER','ADMIN','MEMBER') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'MEMBER',
+  `status` enum('REQUESTED','ACCEPTED','REJECTED','INVITED','LEFT','REMOVED') COLLATE utf8mb4_unicode_ci NOT NULL,
+  `requested_at` timestamp NULL DEFAULT NULL,
+  `responded_at` timestamp NULL DEFAULT NULL,
+  `joined_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`crew_member_id`),
+  UNIQUE KEY `uq_crew_members_crew_user` (`crew_id`,`user_id`),
+  KEY `idx_crew_members_user_status` (`user_id`,`status`,`crew_id`),
+  KEY `idx_crew_members_crew_status_role` (`crew_id`,`status`,`role`),
+  CONSTRAINT `fk_crew_members_crew` FOREIGN KEY (`crew_id`) REFERENCES `crews` (`crew_id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_crew_members_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`user_id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `crews`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `crews` (
+  `crew_id` bigint NOT NULL AUTO_INCREMENT,
+  `owner_user_id` bigint NOT NULL,
+  `name` varchar(100) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `description` varchar(1000) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `visibility` enum('PUBLIC','PRIVATE') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'PUBLIC',
+  `join_policy` enum('OPEN','APPROVAL','INVITE') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'OPEN',
+  `region` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `profile_image_url` varchar(1000) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `member_count` int NOT NULL DEFAULT '1',
+  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`crew_id`),
+  UNIQUE KEY `uq_crews_name` (`name`),
+  KEY `idx_crews_visibility_created` (`visibility`,`created_at` DESC,`crew_id` DESC),
+  KEY `idx_crews_owner_created` (`owner_user_id`,`created_at` DESC),
+  CONSTRAINT `fk_crews_owner` FOREIGN KEY (`owner_user_id`) REFERENCES `users` (`user_id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `goals`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
@@ -256,6 +365,52 @@ CREATE TABLE `gps_traces` (
   CONSTRAINT `fk_gps_traces_running_record` FOREIGN KEY (`run_record_id`) REFERENCES `running_records` (`run_record_id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `instant_crew_participants`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `instant_crew_participants` (
+  `instant_crew_participant_id` bigint NOT NULL AUTO_INCREMENT,
+  `instant_crew_id` bigint NOT NULL,
+  `user_id` bigint NOT NULL,
+  `status` enum('REQUESTED','ACCEPTED','REJECTED','CANCELLED','ATTENDED') COLLATE utf8mb4_unicode_ci NOT NULL,
+  `requested_at` timestamp NULL DEFAULT NULL,
+  `responded_at` timestamp NULL DEFAULT NULL,
+  `joined_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`instant_crew_participant_id`),
+  UNIQUE KEY `uq_instant_crew_participants_crew_user` (`instant_crew_id`,`user_id`),
+  KEY `idx_instant_crew_participants_user_status` (`user_id`,`status`,`instant_crew_id`),
+  KEY `idx_instant_crew_participants_crew_status` (`instant_crew_id`,`status`),
+  CONSTRAINT `fk_instant_crew_participants_crew` FOREIGN KEY (`instant_crew_id`) REFERENCES `instant_crews` (`instant_crew_id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_instant_crew_participants_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`user_id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `instant_crews`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `instant_crews` (
+  `instant_crew_id` bigint NOT NULL AUTO_INCREMENT,
+  `crew_id` bigint DEFAULT NULL,
+  `host_user_id` bigint NOT NULL,
+  `title` varchar(120) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `description` varchar(1000) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `status` enum('OPEN','CLOSED','CANCELLED','COMPLETED','EXPIRED') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'OPEN',
+  `region` varchar(100) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `location_label` varchar(200) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `meeting_place_private` varchar(500) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `starts_at` datetime NOT NULL,
+  `recruit_until` datetime NOT NULL,
+  `capacity` int NOT NULL,
+  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`instant_crew_id`),
+  KEY `idx_instant_crews_status_region_time` (`status`,`region`,`starts_at`,`instant_crew_id`),
+  KEY `idx_instant_crews_host_created` (`host_user_id`,`created_at` DESC),
+  KEY `idx_instant_crews_crew_time` (`crew_id`,`starts_at`),
+  CONSTRAINT `fk_instant_crews_crew` FOREIGN KEY (`crew_id`) REFERENCES `crews` (`crew_id`) ON DELETE SET NULL,
+  CONSTRAINT `fk_instant_crews_host` FOREIGN KEY (`host_user_id`) REFERENCES `users` (`user_id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `notifications`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
@@ -271,22 +426,6 @@ CREATE TABLE `notifications` (
   KEY `idx_notifications_user_created` (`user_id`,`created_at` DESC,`notification_id` DESC),
   KEY `idx_notifications_user_read` (`user_id`,`is_read`),
   CONSTRAINT `fk_notifications_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`user_id`) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
-DROP TABLE IF EXISTS `refresh_tokens`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!50503 SET character_set_client = utf8mb4 */;
-CREATE TABLE `refresh_tokens` (
-  `refresh_token_id` bigint NOT NULL AUTO_INCREMENT,
-  `user_id` bigint NOT NULL,
-  `token_id_hash` char(64) COLLATE utf8mb4_unicode_ci NOT NULL,
-  `expires_at` datetime NOT NULL,
-  `revoked_at` datetime DEFAULT NULL,
-  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  PRIMARY KEY (`refresh_token_id`),
-  UNIQUE KEY `uq_refresh_tokens_token_id_hash` (`token_id_hash`),
-  KEY `idx_refresh_tokens_user_active` (`user_id`,`revoked_at`,`expires_at`),
-  CONSTRAINT `fk_refresh_tokens_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`user_id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `plans`;
@@ -309,6 +448,22 @@ CREATE TABLE `plans` (
   KEY `idx_plans_user_date` (`user_id`,`plan_date`,`plan_id`),
   CONSTRAINT `fk_plans_goal` FOREIGN KEY (`goal_id`) REFERENCES `goals` (`goal_id`) ON DELETE CASCADE,
   CONSTRAINT `fk_plans_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`user_id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `refresh_tokens`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `refresh_tokens` (
+  `refresh_token_id` bigint NOT NULL AUTO_INCREMENT,
+  `user_id` bigint NOT NULL,
+  `token_id_hash` char(64) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `expires_at` datetime NOT NULL,
+  `revoked_at` datetime DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`refresh_token_id`),
+  UNIQUE KEY `uq_refresh_tokens_token_id_hash` (`token_id_hash`),
+  KEY `idx_refresh_tokens_user_active` (`user_id`,`revoked_at`,`expires_at`),
+  CONSTRAINT `fk_refresh_tokens_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`user_id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `relationships`;
