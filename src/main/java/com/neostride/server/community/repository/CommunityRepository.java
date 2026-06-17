@@ -1,9 +1,9 @@
 package com.neostride.server.community.repository;
 
 import com.neostride.server.community.dto.*;
-import com.neostride.server.notification.repository.NotificationRepository;
 import java.time.LocalDateTime;
 import java.util.List;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 
@@ -18,13 +18,13 @@ public class CommunityRepository {
 	private final CommunityTipRepository tipRepository;
 	private final CommunitySearchRepository searchRepository;
 
-	public CommunityRepository(JdbcTemplate jdbcTemplate, NotificationRepository notificationRepository) {
+	public CommunityRepository(JdbcTemplate jdbcTemplate, ApplicationEventPublisher eventPublisher) {
 		this.jdbcTemplate = jdbcTemplate;
 		this.profileRepository = new CommunityProfileRepository(jdbcTemplate);
-		this.relationshipRepository = new CommunityRelationshipRepository(jdbcTemplate, notificationRepository);
-		this.interactionRepository = new CommunityInteractionRepository(jdbcTemplate, notificationRepository);
+		this.relationshipRepository = new CommunityRelationshipRepository(jdbcTemplate, eventPublisher);
+		this.interactionRepository = new CommunityInteractionRepository(jdbcTemplate, eventPublisher);
 		this.commentActivityRepository = new CommunityCommentActivityRepository(jdbcTemplate);
-		this.feedRepository = new CommunityFeedRepository(jdbcTemplate, notificationRepository, interactionRepository);
+		this.feedRepository = new CommunityFeedRepository(jdbcTemplate, eventPublisher, interactionRepository);
 		this.tipRepository = new CommunityTipRepository(jdbcTemplate, interactionRepository);
 		this.searchRepository = new CommunitySearchRepository(jdbcTemplate);
 	}

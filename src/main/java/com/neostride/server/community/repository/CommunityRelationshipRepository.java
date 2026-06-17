@@ -2,18 +2,19 @@ package com.neostride.server.community.repository;
 
 import com.neostride.server.community.dto.FriendRequest;
 import com.neostride.server.community.dto.FriendResponse;
-import com.neostride.server.notification.repository.NotificationRepository;
+import com.neostride.server.platform.event.NotificationRequestedEvent;
 import java.util.List;
 import java.util.Locale;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 final class CommunityRelationshipRepository {
 	private final JdbcTemplate jdbcTemplate;
-	private final NotificationRepository notificationRepository;
+	private final ApplicationEventPublisher eventPublisher;
 
-	CommunityRelationshipRepository(JdbcTemplate jdbcTemplate, NotificationRepository notificationRepository) {
+	CommunityRelationshipRepository(JdbcTemplate jdbcTemplate, ApplicationEventPublisher eventPublisher) {
 		this.jdbcTemplate = jdbcTemplate;
-		this.notificationRepository = notificationRepository;
+		this.eventPublisher = eventPublisher;
 	}
 
 	List<FriendResponse> getFriendList(long userId, String status) {
@@ -105,7 +106,7 @@ final class CommunityRelationshipRepository {
 
 	private void notifyFriendRequest(long requesterUserId, long targetUserId) {
 		if (requesterUserId == targetUserId) return;
-		notificationRepository.createNotification(targetUserId, "FRIEND_REQUEST", notificationActorName(requesterUserId) + "님이 친구 요청을 보냈습니다.", "/community/friends");
+		eventPublisher.publishEvent(new NotificationRequestedEvent(targetUserId, "FRIEND_REQUEST", notificationActorName(requesterUserId) + "님이 친구 요청을 보냈습니다.", "/community/friends"));
 	}
 
 	private String notificationActorName(long userId) {

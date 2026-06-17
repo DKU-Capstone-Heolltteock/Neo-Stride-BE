@@ -3,9 +3,10 @@ package com.neostride.server.community.repository;
 import com.neostride.server.community.dto.FeedUploadRequest;
 import com.neostride.server.community.dto.FeedUploadResponse;
 import com.neostride.server.community.dto.CommunityContentResponse;
-import com.neostride.server.notification.repository.NotificationRepository;
+import com.neostride.server.platform.event.NotificationRequestedEvent;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.PreparedStatementCreator;
 import org.springframework.jdbc.core.RowMapper;
@@ -33,8 +34,8 @@ import static org.mockito.Mockito.when;
 class CommunityRepositoryTest {
 
 	private final JdbcTemplate jdbcTemplate = mock(JdbcTemplate.class);
-	private final NotificationRepository notificationRepository = mock(NotificationRepository.class);
-	private final CommunityRepository repository = new CommunityRepository(jdbcTemplate, notificationRepository);
+	private final ApplicationEventPublisher eventPublisher = mock(ApplicationEventPublisher.class);
+	private final CommunityRepository repository = new CommunityRepository(jdbcTemplate, eventPublisher);
 
 	@Test
 	void existsByCommunityProfileNameExcludingUserIdChecksUsersAndCommunityUsers() {
@@ -479,7 +480,14 @@ class CommunityRepositoryTest {
 				"INSERT INTO relationships (user1_id, user2_id, status) VALUES (?, ?, 'REQUESTED') ON DUPLICATE KEY UPDATE status = 'REQUESTED'",
 				1L, 2L
 		);
-		verify(notificationRepository).createNotification(eq(2L), eq("FRIEND_REQUEST"), anyString(), eq("/community/friends"));
+		ArgumentCaptor<Object> eventCaptor = ArgumentCaptor.forClass(Object.class);
+		verify(eventPublisher).publishEvent(eventCaptor.capture());
+		assertThat(eventCaptor.getValue()).isInstanceOf(NotificationRequestedEvent.class);
+		NotificationRequestedEvent event = (NotificationRequestedEvent) eventCaptor.getValue();
+		assertThat(event.userId()).isEqualTo(2L);
+		assertThat(event.type()).isEqualTo("FRIEND_REQUEST");
+		assertThat(event.message()).contains("님이 친구 요청을 보냈습니다.");
+		assertThat(event.endpoint()).isEqualTo("/community/friends");
 	}
 
 	@Test

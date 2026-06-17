@@ -1,6 +1,7 @@
 package com.neostride.server.running.service;
 
-import com.neostride.server.coaching.service.CoachingService;
+import com.neostride.server.coaching.api.CoachingPlanProgressPort;
+import com.neostride.server.community.api.BadgeProgressPort;
 import com.neostride.server.running.dto.GpsTraceRequest;
 import com.neostride.server.running.dto.RunningRecordRequest;
 import com.neostride.server.running.dto.RunningRecordResponse;
@@ -27,16 +28,28 @@ public class RunningRecordService {
 	private static final DateTimeFormatter TRACE_TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
 	private final RunningRecordRepository runningRecordRepository;
-	private final CoachingService coachingService;
+	private final CoachingPlanProgressPort coachingPlanProgressPort;
+	private final BadgeProgressPort badgeProgressPort;
 
 	@Autowired
-	public RunningRecordService(RunningRecordRepository runningRecordRepository, CoachingService coachingService) {
+	public RunningRecordService(RunningRecordRepository runningRecordRepository,
+			CoachingPlanProgressPort coachingPlanProgressPort,
+			BadgeProgressPort badgeProgressPort) {
 		this.runningRecordRepository = runningRecordRepository;
-		this.coachingService = coachingService;
+		this.coachingPlanProgressPort = coachingPlanProgressPort;
+		this.badgeProgressPort = badgeProgressPort;
 	}
 
 	RunningRecordService(RunningRecordRepository runningRecordRepository) {
-		this(runningRecordRepository, null);
+		this(runningRecordRepository, null, null);
+	}
+
+	RunningRecordService(RunningRecordRepository runningRecordRepository, CoachingPlanProgressPort coachingPlanProgressPort) {
+		this(runningRecordRepository, coachingPlanProgressPort, null);
+	}
+
+	RunningRecordService(RunningRecordRepository runningRecordRepository, BadgeProgressPort badgeProgressPort) {
+		this(runningRecordRepository, null, badgeProgressPort);
 	}
 
 	@Transactional
@@ -45,8 +58,11 @@ public class RunningRecordService {
 
 		long runRecordId = runningRecordRepository.insertRunningRecord(request);
 		runningRecordRepository.insertGpsTraces(runRecordId, request.gpsTraces());
-		if (request.planId() != null && coachingService != null) {
-			coachingService.completePlanWithRunningRecord(
+		if (badgeProgressPort != null) {
+			badgeProgressPort.improveBadgeIfHigher(request.userId(), request.badge());
+		}
+		if (request.planId() != null && coachingPlanProgressPort != null) {
+			coachingPlanProgressPort.completePlanWithRunningRecord(
 					request.userId(),
 					request.planId(),
 					request.totalDistance(),
@@ -101,8 +117,8 @@ public class RunningRecordService {
 		if (runningRecordRepository.deleteByRecordIdForUser(userId, recordId) <= 0) {
 			return DeleteResult.NOT_FOUND;
 		}
-		if (planId != null && coachingService != null) {
-			coachingService.restorePlanToPendingAfterRunningRecordDeleted(userId, planId);
+		if (planId != null && coachingPlanProgressPort != null) {
+			coachingPlanProgressPort.restorePlanToPendingAfterRunningRecordDeleted(userId, planId);
 		}
 		return DeleteResult.DELETED;
 	}

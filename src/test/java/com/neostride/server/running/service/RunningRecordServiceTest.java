@@ -1,6 +1,7 @@
 package com.neostride.server.running.service;
 
-import com.neostride.server.coaching.service.CoachingService;
+import com.neostride.server.coaching.api.CoachingPlanProgressPort;
+import com.neostride.server.community.api.BadgeProgressPort;
 import com.neostride.server.running.dto.GpsTraceRequest;
 import com.neostride.server.running.dto.RunningRecordRequest;
 import com.neostride.server.running.repository.RunningRecordRepository;
@@ -49,8 +50,8 @@ class RunningRecordServiceTest {
 
 	@Test
 	void saveCompletesCoachingPlanWhenPlanIdIsPresent() {
-		CoachingService coachingService = mock(CoachingService.class);
-		RunningRecordService coachingAwareService = new RunningRecordService(repository, coachingService);
+		CoachingPlanProgressPort coachingPlanProgressPort = mock(CoachingPlanProgressPort.class);
+		RunningRecordService coachingAwareService = new RunningRecordService(repository, coachingPlanProgressPort);
 		GpsTraceRequest trace = new GpsTraceRequest(37.5665, 126.978, "2026-05-12 18:00:00", null, null);
 		RunningRecordRequest request = new RunningRecordRequest(
 				7L,
@@ -68,19 +69,44 @@ class RunningRecordServiceTest {
 
 		assertThat(recordId).isEqualTo(12L);
 		verify(repository).insertGpsTraces(12L, List.of(trace));
-		verify(coachingService).completePlanWithRunningRecord(7L, 20L, new BigDecimal("5.23"), 1800, 392);
+		verify(coachingPlanProgressPort).completePlanWithRunningRecord(7L, 20L, new BigDecimal("5.23"), 1800, 392);
 	}
 
 	@Test
 	void saveDoesNotTouchCoachingWhenPlanIdIsMissing() {
-		CoachingService coachingService = mock(CoachingService.class);
-		RunningRecordService coachingAwareService = new RunningRecordService(repository, coachingService);
+		CoachingPlanProgressPort coachingPlanProgressPort = mock(CoachingPlanProgressPort.class);
+		RunningRecordService coachingAwareService = new RunningRecordService(repository, coachingPlanProgressPort);
 		RunningRecordRequest request = requestWithTraces(List.of(new GpsTraceRequest(37.5665, 126.978, "2026-05-12 18:00:00", null, null)));
 		when(repository.insertRunningRecord(request)).thenReturn(13L);
 
 		coachingAwareService.save(request);
 
-		verifyNoInteractions(coachingService);
+		verifyNoInteractions(coachingPlanProgressPort);
+	}
+
+	@Test
+	void saveDelegatesBadgeProgressThroughCommunityPort() {
+		BadgeProgressPort badgeProgressPort = mock(BadgeProgressPort.class);
+		RunningRecordService badgeAwareService = new RunningRecordService(repository, badgeProgressPort);
+		GpsTraceRequest trace = new GpsTraceRequest(37.5665, 126.978, "2026-05-12 18:00:00", null, null);
+		RunningRecordRequest request = new RunningRecordRequest(
+				7L,
+				null,
+				new BigDecimal("5.23"),
+				1800,
+				392,
+				new BigDecimal("310.56"),
+				"",
+				List.of(trace),
+				"GOLD"
+		);
+		when(repository.insertRunningRecord(request)).thenReturn(14L);
+
+		long recordId = badgeAwareService.save(request);
+
+		assertThat(recordId).isEqualTo(14L);
+		verify(repository).insertGpsTraces(14L, List.of(trace));
+		verify(badgeProgressPort).improveBadgeIfHigher(7L, "GOLD");
 	}
 
 	@Test
@@ -96,8 +122,8 @@ class RunningRecordServiceTest {
 
 	@Test
 	void deleteByRecordIdForUserRestoresCoachingPlanToPendingWhenDeletedRecordHasPlanId() {
-		CoachingService coachingService = mock(CoachingService.class);
-		RunningRecordService coachingAwareService = new RunningRecordService(repository, coachingService);
+		CoachingPlanProgressPort coachingPlanProgressPort = mock(CoachingPlanProgressPort.class);
+		RunningRecordService coachingAwareService = new RunningRecordService(repository, coachingPlanProgressPort);
 		when(repository.findOwnerUserId(10L)).thenReturn(7L);
 		when(repository.findPlanIdByRecordIdForUser(7L, 10L)).thenReturn(20L);
 		when(repository.deleteByRecordIdForUser(7L, 10L)).thenReturn(1);
@@ -106,7 +132,7 @@ class RunningRecordServiceTest {
 
 		assertThat(result).isEqualTo(DeleteResult.DELETED);
 		verify(repository).deleteByRecordIdForUser(7L, 10L);
-		verify(coachingService).restorePlanToPendingAfterRunningRecordDeleted(7L, 20L);
+		verify(coachingPlanProgressPort).restorePlanToPendingAfterRunningRecordDeleted(7L, 20L);
 	}
 
 	@Test
