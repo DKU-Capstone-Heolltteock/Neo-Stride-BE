@@ -1,4 +1,4 @@
-package com.neostride.server.running.exception;
+package com.neostride.server.platform.web;
 
 import com.neostride.server.auth.dto.LoginResponse;
 import com.neostride.server.auth.dto.SignupResponse;

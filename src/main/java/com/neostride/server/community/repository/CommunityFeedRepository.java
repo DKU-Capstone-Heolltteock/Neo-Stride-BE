@@ -5,7 +5,7 @@ import com.neostride.server.community.dto.FeedDetailResponse;
 import com.neostride.server.community.dto.FeedUploadRequest;
 import com.neostride.server.community.dto.FeedUploadResponse;
 import com.neostride.server.community.dto.FriendResponse;
-import com.neostride.server.notification.repository.NotificationRepository;
+import com.neostride.server.platform.event.NotificationRequestedEvent;
 import java.math.BigDecimal;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -16,6 +16,7 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Locale;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.support.GeneratedKeyHolder;
 import org.springframework.jdbc.support.KeyHolder;
@@ -27,16 +28,16 @@ final class CommunityFeedRepository {
 	private static final String VIEWER_FEED_PREDICATE = "cc.content_type = 'POST' AND " + VIEWER_SCOPE_PREDICATE;
 
 	private final JdbcTemplate jdbcTemplate;
-	private final NotificationRepository notificationRepository;
+	private final ApplicationEventPublisher eventPublisher;
 	private final CommunityInteractionRepository interactionRepository;
 
 	CommunityFeedRepository(
 			JdbcTemplate jdbcTemplate,
-			NotificationRepository notificationRepository,
+			ApplicationEventPublisher eventPublisher,
 			CommunityInteractionRepository interactionRepository
 	) {
 		this.jdbcTemplate = jdbcTemplate;
-		this.notificationRepository = notificationRepository;
+		this.eventPublisher = eventPublisher;
 		this.interactionRepository = interactionRepository;
 	}
 
@@ -344,7 +345,7 @@ final class CommunityFeedRepository {
 
 	private void notifyTaggedUser(long senderUserId, long contentId, long taggedUserId) {
 		if (senderUserId == taggedUserId) return;
-		notificationRepository.createNotification(taggedUserId, "FEED_TAG", notificationActorName(senderUserId) + "님이 회원님을 피드에 태그했습니다.", "/api/community/feeds/" + contentId);
+		eventPublisher.publishEvent(new NotificationRequestedEvent(taggedUserId, "FEED_TAG", notificationActorName(senderUserId) + "님이 회원님을 피드에 태그했습니다.", "/api/community/feeds/" + contentId));
 	}
 
 	private String notificationActorName(long userId) {

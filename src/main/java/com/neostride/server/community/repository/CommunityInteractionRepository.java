@@ -2,7 +2,7 @@ package com.neostride.server.community.repository;
 
 import com.neostride.server.community.dto.CommentRequest;
 import com.neostride.server.community.dto.CommentResponse;
-import com.neostride.server.notification.repository.NotificationRepository;
+import com.neostride.server.platform.event.NotificationRequestedEvent;
 import java.sql.PreparedStatement;
 import java.sql.Statement;
 import java.sql.Timestamp;
@@ -10,6 +10,7 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Locale;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.support.GeneratedKeyHolder;
@@ -20,11 +21,11 @@ final class CommunityInteractionRepository {
 	private static final String VIEWER_SCOPE_PREDICATE = "(cc.feed_scope = 'PUBLIC' OR cc.author_user_id = ? OR (cc.feed_scope = 'FRIENDS' AND EXISTS (SELECT 1 FROM relationships r WHERE r.status = 'ACCEPTED' AND ((r.user1_id = ? AND r.user2_id = cc.author_user_id) OR (r.user2_id = ? AND r.user1_id = cc.author_user_id)))))";
 
 	private final JdbcTemplate jdbcTemplate;
-	private final NotificationRepository notificationRepository;
+	private final ApplicationEventPublisher eventPublisher;
 
-	CommunityInteractionRepository(JdbcTemplate jdbcTemplate, NotificationRepository notificationRepository) {
+	CommunityInteractionRepository(JdbcTemplate jdbcTemplate, ApplicationEventPublisher eventPublisher) {
 		this.jdbcTemplate = jdbcTemplate;
-		this.notificationRepository = notificationRepository;
+		this.eventPublisher = eventPublisher;
 	}
 
 	boolean toggleInteraction(long userId, long contentId, String type) {
@@ -139,10 +140,10 @@ final class CommunityInteractionRepository {
 		boolean tip = "TIP".equalsIgnoreCase(owner.contentType());
 		String endpoint = tip ? "/api/community/tips/" + contentId : "/api/community/feeds/" + contentId;
 		if ("LIKE".equalsIgnoreCase(interactionType)) {
-			notificationRepository.createNotification(owner.authorUserId(), tip ? "TIP_LIKE" : "FEED_LIKE", actorName + "님이 회원님의 " + (tip ? "팁" : "피드") + "을 좋아합니다.", endpoint);
+			eventPublisher.publishEvent(new NotificationRequestedEvent(owner.authorUserId(), tip ? "TIP_LIKE" : "FEED_LIKE", actorName + "님이 회원님의 " + (tip ? "팁" : "피드") + "을 좋아합니다.", endpoint));
 		}
 		if ("COMMENT".equalsIgnoreCase(interactionType)) {
-			notificationRepository.createNotification(owner.authorUserId(), tip ? "TIP_COMMENT" : "FEED_COMMENT", actorName + "님이 회원님의 " + (tip ? "팁" : "피드") + "에 댓글을 남겼습니다.", endpoint);
+			eventPublisher.publishEvent(new NotificationRequestedEvent(owner.authorUserId(), tip ? "TIP_COMMENT" : "FEED_COMMENT", actorName + "님이 회원님의 " + (tip ? "팁" : "피드") + "에 댓글을 남겼습니다.", endpoint));
 		}
 	}
 
