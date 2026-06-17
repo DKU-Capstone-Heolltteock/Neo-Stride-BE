@@ -1,5 +1,6 @@
 package com.neostride.server.running.repository;
 
+import com.neostride.server.running.api.RunningAggregate;
 import com.neostride.server.running.dto.GpsTraceRequest;
 import com.neostride.server.running.dto.RunningRecordRequest;
 import com.neostride.server.running.dto.RunningRecordResponse;
@@ -11,9 +12,11 @@ import java.sql.Statement;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.jdbc.support.GeneratedKeyHolder;
@@ -154,6 +157,50 @@ public class RunningRecordRepository {
 
 	public int deleteByRecordIdForUser(long userId, long recordId) {
 		return jdbcTemplate.update("DELETE FROM running_records WHERE user_id = ? AND run_record_id = ?", userId, recordId);
+	}
+
+	public Map<Long, RunningAggregate> summarizeByUsers(Collection<Long> userIds, LocalDate from, LocalDate to) {
+		if (userIds == null || userIds.isEmpty()) {
+			return Map.of();
+		}
+		List<Long> targetUserIds = userIds.stream()
+				.filter(Objects::nonNull)
+				.distinct()
+				.toList();
+		if (targetUserIds.isEmpty()) {
+			return Map.of();
+		}
+
+		String placeholders = String.join(",", java.util.Collections.nCopies(targetUserIds.size(), "?"));
+		StringBuilder sql = new StringBuilder("""
+				SELECT user_id, COALESCE(SUM(total_distance), 0) AS total_distance_km, COUNT(*) AS run_count
+				FROM running_records
+				WHERE user_id IN (%s)
+				""".formatted(placeholders));
+		List<Object> args = new ArrayList<>(targetUserIds);
+		if (from != null) {
+			sql.append(" AND created_at >= ?");
+			args.add(from.atStartOfDay());
+		}
+		if (to != null) {
+			sql.append(" AND created_at < ?");
+			args.add(to.plusDays(1).atStartOfDay());
+		}
+		sql.append(" GROUP BY user_id");
+
+		Map<Long, RunningAggregate> aggregates = new LinkedHashMap<>();
+		jdbcTemplate.query(sql.toString(), (org.springframework.jdbc.core.RowCallbackHandler) rs -> {
+			long userId = rs.getLong("user_id");
+			aggregates.put(userId, new RunningAggregate(
+					userId,
+					rs.getBigDecimal("total_distance_km"),
+					rs.getLong("run_count")
+			));
+		}, args.toArray());
+		for (Long userId : targetUserIds) {
+			aggregates.putIfAbsent(userId, new RunningAggregate(userId, BigDecimal.ZERO, 0));
+		}
+		return aggregates;
 	}
 
 	private List<RunningRecordResponse> attachGpsTraces(List<RunningRecordResponse> records) {

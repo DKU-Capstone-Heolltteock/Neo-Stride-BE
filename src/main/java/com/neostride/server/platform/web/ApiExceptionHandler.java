@@ -69,6 +69,10 @@ public class ApiExceptionHandler {
 			return ResponseEntity.status(HttpStatus.CONFLICT)
 					.body(Map.of("status", "error", "message", "사용자 또는 커뮤니티 정보를 확인할 수 없습니다."));
 		}
+		if (isCrewRequest(request)) {
+			return ResponseEntity.status(HttpStatus.CONFLICT)
+					.body(Map.of("status", "error", "message", "사용자 또는 크루 정보를 확인할 수 없습니다."));
+		}
 		return ResponseEntity.status(HttpStatus.CONFLICT)
 				.body(RunningRecordResponse.error("사용자 또는 플랜 정보를 확인할 수 없습니다."));
 	}
@@ -116,6 +120,11 @@ public class ApiExceptionHandler {
 
 	private boolean isRunningRequest(WebRequest request) {
 		return requestUri(request).startsWith("/api/running");
+	}
+
+	private boolean isCrewRequest(WebRequest request) {
+		String uri = requestUri(request);
+		return uri.startsWith("/api/crews") || uri.startsWith("/api/instant-crews") || uri.startsWith("/api/crew-chat");
 	}
 
 	private DuplicateUserFieldException duplicateUserField(DataIntegrityViolationException exception) {
