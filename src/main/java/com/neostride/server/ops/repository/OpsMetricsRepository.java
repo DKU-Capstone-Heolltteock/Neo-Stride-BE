@@ -31,7 +31,7 @@ public class OpsMetricsRepository {
 				       COUNT(*) AS request_count,
 				       SUM(CASE WHEN status_code >= 500 THEN 1 ELSE 0 END) AS error_count,
 				       AVG(duration_ms) AS average_duration_ms,
-				       MAX(duration_ms) AS p95_duration_ms
+				       MAX(duration_ms) AS max_duration_ms
 				FROM api_request_metrics
 				WHERE occurred_at >= TIMESTAMPADD(HOUR, -?, NOW())
 				GROUP BY method, path
@@ -43,7 +43,7 @@ public class OpsMetricsRepository {
 				rs.getLong("request_count"),
 				rs.getLong("error_count"),
 				rs.getDouble("average_duration_ms"),
-				rs.getLong("p95_duration_ms")
+				rs.getLong("max_duration_ms")
 		), Math.max(1, hours), Math.min(Math.max(limit, 1), 200));
 	}
 

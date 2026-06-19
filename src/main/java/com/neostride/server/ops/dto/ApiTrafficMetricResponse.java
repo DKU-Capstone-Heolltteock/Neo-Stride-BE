@@ -13,6 +13,6 @@ public record ApiTrafficMetricResponse(
 		long errorCount,
 		@JsonProperty("average_duration_ms")
 		double averageDurationMs,
-		@JsonProperty("p95_duration_ms")
-		long p95DurationMs
+		@JsonProperty("max_duration_ms")
+		long maxDurationMs
 ) {}
