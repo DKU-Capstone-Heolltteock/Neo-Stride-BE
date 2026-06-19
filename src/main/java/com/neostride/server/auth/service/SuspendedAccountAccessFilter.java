@@ -1,11 +1,14 @@
 package com.neostride.server.auth.service;
 
+import com.neostride.server.auth.api.AdminUserAccount;
 import com.neostride.server.auth.api.UserAdministrationPort;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
+import java.time.Clock;
+import java.time.LocalDateTime;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
@@ -17,11 +20,17 @@ public class SuspendedAccountAccessFilter extends OncePerRequestFilter {
 
 	private final JwtTokenService jwtTokenService;
 	private final UserAdministrationPort userAdministrationPort;
+	private final Clock clock;
 
-@Autowired
+	@Autowired
 	public SuspendedAccountAccessFilter(JwtTokenService jwtTokenService, UserAdministrationPort userAdministrationPort) {
+		this(jwtTokenService, userAdministrationPort, Clock.systemDefaultZone());
+	}
+
+	SuspendedAccountAccessFilter(JwtTokenService jwtTokenService, UserAdministrationPort userAdministrationPort, Clock clock) {
 		this.jwtTokenService = jwtTokenService;
 		this.userAdministrationPort = userAdministrationPort;
+		this.clock = clock;
 	}
 
 	@Override
@@ -40,7 +49,7 @@ public class SuspendedAccountAccessFilter extends OncePerRequestFilter {
 			JwtTokenService.TokenClaims claims = jwtTokenService.verify(authorization.substring(BEARER_PREFIX.length()).trim());
 			if ("access".equals(claims.type())) {
 				var account = userAdministrationPort.findAccount(claims.userId());
-				if (account.isPresent() && "SUSPENDED".equals(account.get().status())) {
+				if (account.isPresent() && isActiveSuspension(account.get())) {
 					response.setStatus(HttpStatus.FORBIDDEN.value());
 					response.setContentType("application/json;charset=UTF-8");
 					response.getWriter().write("{\"status\":\"error\",\"message\":\"정지된 계정입니다.\"}");
@@ -50,6 +59,14 @@ public class SuspendedAccountAccessFilter extends OncePerRequestFilter {
 		} catch (IllegalArgumentException ignored) {
 		}
 		filterChain.doFilter(request, response);
+	}
+
+	private boolean isActiveSuspension(AdminUserAccount account) {
+		if (!"SUSPENDED".equals(account.status())) {
+			return false;
+		}
+		LocalDateTime suspendedUntil = account.suspendedUntil();
+		return suspendedUntil == null || suspendedUntil.isAfter(LocalDateTime.now(clock));
 	}
 
 	private boolean shouldCheck(HttpServletRequest request) {

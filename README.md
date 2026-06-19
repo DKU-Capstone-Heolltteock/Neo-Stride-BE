@@ -89,7 +89,7 @@ The application uses:
 spring.datasource.url=jdbc:mysql://${DB_HOST:localhost}:${DB_PORT:3306}/${DB_NAME:neostride}?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Seoul
 ```
 
-Apply the team's baseline schema before starting the app. The latest schema-only baseline is `deploy/mysql/schema/latest.sql`; it contains no data rows and reflects schema migrations through `025`.
+Apply the team's baseline schema before starting the app. The latest schema-only baseline is `deploy/mysql/schema/latest.sql`; it contains no data rows and reflects schema migrations through `026`.
 
 For a fresh empty database, import the baseline and mark the included migrations as applied:
 

@@ -1,5 +1,6 @@
 package com.neostride.server.admin.security;
 
+import com.neostride.server.admin.repository.OperatorRepository;
 import com.neostride.server.auth.exception.AuthenticationRequiredException;
 import com.neostride.server.auth.exception.ForbiddenException;
 import org.springframework.stereotype.Component;
@@ -10,9 +11,11 @@ public class OperatorAuthorizationService {
 	private static final String ACCESS_TYPE = "operator_access";
 
 	private final OperatorTokenService tokenService;
+	private final OperatorRepository operatorRepository;
 
-	public OperatorAuthorizationService(OperatorTokenService tokenService) {
+	public OperatorAuthorizationService(OperatorTokenService tokenService, OperatorRepository operatorRepository) {
 		this.tokenService = tokenService;
+		this.operatorRepository = operatorRepository;
 	}
 
 	public OperatorPrincipal requireAuthenticated(String authorizationHeader) {
@@ -20,7 +23,8 @@ public class OperatorAuthorizationService {
 		if (!ACCESS_TYPE.equals(claims.type())) {
 			throw new AuthenticationRequiredException("관리자 access token이 필요합니다.");
 		}
-		return claims.principal();
+		return operatorRepository.findPrincipal(claims.operatorAccountId())
+				.orElseThrow(() -> new AuthenticationRequiredException("유효한 관리자 access token이 필요합니다."));
 	}
 
 	public OperatorPrincipal requirePermission(String authorizationHeader, String permission) {
