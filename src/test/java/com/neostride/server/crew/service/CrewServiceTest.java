@@ -10,18 +10,21 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.neostride.server.crew.dto.CrewEventAttendanceRequest;
+import com.neostride.server.crew.dto.CrewEventRequest;
 import com.neostride.server.crew.dto.CrewEventResponse;
 import com.neostride.server.crew.dto.CrewJoinResponse;
 import com.neostride.server.crew.dto.CrewMemberRequestResponse;
 import com.neostride.server.crew.dto.CrewMemberResponse;
 import com.neostride.server.crew.dto.CrewRankingResponse;
 import com.neostride.server.crew.dto.CrewResponse;
+import com.neostride.server.crew.dto.InstantCrewApplicationResponse;
 import com.neostride.server.crew.dto.InstantCrewParticipantRequestResponse;
 import com.neostride.server.crew.dto.InstantCrewParticipantResponse;
 import com.neostride.server.crew.dto.InstantCrewResponse;
 import com.neostride.server.crew.repository.CrewRepository;
 import com.neostride.server.crew.repository.CrewRepository.CrewEventRow;
 import com.neostride.server.crew.repository.CrewRepository.CrewMembership;
+import com.neostride.server.crew.repository.CrewRepository.InstantParticipant;
 import com.neostride.server.platform.event.NotificationRequestedEvent;
 import com.neostride.server.running.api.RunningAggregate;
 import com.neostride.server.running.api.RunningStatsReader;
@@ -29,6 +32,7 @@ import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Map;
@@ -106,6 +110,130 @@ class CrewServiceTest {
 		InstantCrewResponse response = crewService.getInstantCrew(2L, 30L);
 
 		assertThat(response.meetingPlace()).isNull();
+	}
+
+	@Test
+	void deleteCrewRequiresOwner() {
+		when(crewRepository.findCrew(10L, 1L)).thenReturn(Optional.of(crew("OPEN", "ACCEPTED")));
+		when(crewRepository.deleteCrew(10L)).thenReturn(1);
+
+		crewService.deleteCrew(1L, 10L);
+
+		verify(crewRepository).deleteCrew(10L);
+	}
+
+	@Test
+	void deleteCrewRejectsNonOwner() {
+		when(crewRepository.findCrew(10L, 2L)).thenReturn(Optional.of(crew("OPEN", "ACCEPTED")));
+
+		assertThatThrownBy(() -> crewService.deleteCrew(2L, 10L))
+				.isInstanceOf(com.neostride.server.auth.exception.ForbiddenException.class)
+				.hasMessageContaining("소유자");
+
+		verify(crewRepository, never()).deleteCrew(anyLong());
+	}
+
+	@Test
+	void updateEventRequiresAdminAndPersistsChanges() {
+		LocalDateTime startsAt = LocalDateTime.parse("2026-06-18T10:00:00");
+		LocalDateTime endsAt = LocalDateTime.parse("2026-06-18T11:00:00");
+		CrewEventResponse current = new CrewEventResponse(20L, 10L, 1L, "아침런", null, "OFFLINE", "SCHEDULED", "2026-06-18T09:00:00", null, "한강", "입구", 5, 1);
+		CrewEventResponse updated = new CrewEventResponse(20L, 10L, 1L, "저녁런", "변경", "VIRTUAL", "SCHEDULED", "2026-06-18T10:00:00", "2026-06-18T11:00:00", "서울숲", "입구", 12, 1);
+		CrewEventRequest request = new CrewEventRequest("저녁런", "변경", "VIRTUAL", startsAt, endsAt, "서울숲", "입구", 12);
+		when(crewRepository.findMembership(10L, 1L)).thenReturn(Optional.of(new CrewMembership(10L, 1L, "ADMIN", "ACCEPTED")));
+		when(crewRepository.findEventResponse(10L, 20L)).thenReturn(Optional.of(current), Optional.of(updated));
+
+		CrewEventResponse response = crewService.updateEvent(1L, 10L, 20L, request);
+
+		assertThat(response).isSameAs(updated);
+		verify(crewRepository).updateEvent(10L, 20L, "저녁런", "변경", "VIRTUAL", startsAt, endsAt, "서울숲", "입구", 12);
+	}
+
+	@Test
+	void updateEventRejectsInvalidSchedule() {
+		CrewEventResponse current = new CrewEventResponse(20L, 10L, 1L, "아침런", null, "OFFLINE", "SCHEDULED", "2026-06-18T09:00:00", null, "한강", "입구", 5, 1);
+		CrewEventRequest request = new CrewEventRequest(null, null, null, LocalDateTime.parse("2026-06-18T10:00:00"), LocalDateTime.parse("2026-06-18T09:30:00"), null, null, null);
+		when(crewRepository.findMembership(10L, 1L)).thenReturn(Optional.of(new CrewMembership(10L, 1L, "ADMIN", "ACCEPTED")));
+		when(crewRepository.findEventResponse(10L, 20L)).thenReturn(Optional.of(current));
+
+		assertThatThrownBy(() -> crewService.updateEvent(1L, 10L, 20L, request))
+				.isInstanceOf(IllegalArgumentException.class)
+				.hasMessageContaining("ends_at");
+
+		verify(crewRepository, never()).updateEvent(anyLong(), anyLong(), any(), any(), any(), any(), any(), any(), any(), any());
+	}
+
+	@Test
+	void cancelEventMarksScheduledEventCancelled() {
+		CrewEventResponse cancelled = new CrewEventResponse(20L, 10L, 1L, "아침런", null, "OFFLINE", "CANCELLED", "2026-06-18T09:00:00", null, "한강", "입구", 5, 1);
+		when(crewRepository.findMembership(10L, 1L)).thenReturn(Optional.of(new CrewMembership(10L, 1L, "OWNER", "ACCEPTED")));
+		when(crewRepository.findEvent(10L, 20L)).thenReturn(Optional.of(new CrewEventRow(20L, 10L, "SCHEDULED", 5)));
+		when(crewRepository.findEventResponse(10L, 20L)).thenReturn(Optional.of(cancelled));
+
+		CrewEventResponse response = crewService.cancelEvent(1L, 10L, 20L);
+
+		assertThat(response.status()).isEqualTo("CANCELLED");
+		verify(crewRepository).updateEventStatus(10L, 20L, "CANCELLED");
+	}
+
+	@Test
+	void cancelEventRejectsCompletedEvent() {
+		when(crewRepository.findMembership(10L, 1L)).thenReturn(Optional.of(new CrewMembership(10L, 1L, "OWNER", "ACCEPTED")));
+		when(crewRepository.findEvent(10L, 20L)).thenReturn(Optional.of(new CrewEventRow(20L, 10L, "COMPLETED", 5)));
+
+		assertThatThrownBy(() -> crewService.cancelEvent(1L, 10L, 20L))
+				.isInstanceOf(IllegalArgumentException.class)
+				.hasMessageContaining("완료된");
+
+		verify(crewRepository, never()).updateEventStatus(anyLong(), anyLong(), any());
+	}
+
+	@Test
+	void deleteEventRequiresAdminAndDeletesEvent() {
+		when(crewRepository.findMembership(10L, 1L)).thenReturn(Optional.of(new CrewMembership(10L, 1L, "ADMIN", "ACCEPTED")));
+		when(crewRepository.findEvent(10L, 20L)).thenReturn(Optional.of(new CrewEventRow(20L, 10L, "SCHEDULED", 5)));
+		when(crewRepository.deleteEvent(10L, 20L)).thenReturn(1);
+
+		crewService.deleteEvent(1L, 10L, 20L);
+
+		verify(crewRepository).deleteEvent(10L, 20L);
+	}
+
+	@Test
+	void cancelInstantParticipationCancelsAcceptedParticipantAndNotifiesHost() {
+		when(crewRepository.findInstantCrew(30L, 2L)).thenReturn(Optional.of(instantCrew(1L, "ACCEPTED")));
+		when(crewRepository.findInstantParticipant(30L, 2L)).thenReturn(Optional.of(new InstantParticipant(30L, 2L, "ACCEPTED")));
+		when(crewRepository.cancelInstantParticipant(30L, 2L)).thenReturn(1);
+
+		InstantCrewApplicationResponse response = crewService.cancelInstantParticipation(2L, 30L);
+
+		assertThat(response.status()).isEqualTo("CANCELLED");
+		verify(crewRepository).cancelInstantParticipant(30L, 2L);
+		verify(eventPublisher).publishEvent(any(NotificationRequestedEvent.class));
+	}
+
+	@Test
+	void cancelInstantParticipationRejectsHost() {
+		when(crewRepository.findInstantCrew(30L, 1L)).thenReturn(Optional.of(instantCrew(1L, "ACCEPTED")));
+
+		assertThatThrownBy(() -> crewService.cancelInstantParticipation(1L, 30L))
+				.isInstanceOf(com.neostride.server.auth.exception.ForbiddenException.class)
+				.hasMessageContaining("호스트");
+
+		verify(crewRepository, never()).findInstantParticipant(anyLong(), anyLong());
+		verify(crewRepository, never()).cancelInstantParticipant(anyLong(), anyLong());
+	}
+
+	@Test
+	void cancelInstantParticipationRejectsAlreadyCancelledParticipant() {
+		when(crewRepository.findInstantCrew(30L, 2L)).thenReturn(Optional.of(instantCrew(1L, "CANCELLED")));
+		when(crewRepository.findInstantParticipant(30L, 2L)).thenReturn(Optional.of(new InstantParticipant(30L, 2L, "CANCELLED")));
+
+		assertThatThrownBy(() -> crewService.cancelInstantParticipation(2L, 30L))
+				.isInstanceOf(IllegalArgumentException.class)
+				.hasMessageContaining("취소할 수 없는");
+
+		verify(crewRepository, never()).cancelInstantParticipant(anyLong(), anyLong());
 	}
 
 	@Test

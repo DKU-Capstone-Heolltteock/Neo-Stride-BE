@@ -9,6 +9,7 @@ import com.neostride.server.crew.dto.InstantCrewResponse;
 import com.neostride.server.crew.dto.InstantCrewStatusRequest;
 import com.neostride.server.crew.service.CrewService;
 import java.util.List;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -64,6 +65,15 @@ public class InstantCrewController {
 	) {
 		long userId = authenticatedUserService.requireUserId(authorization);
 		return crewService.applyInstantCrew(userId, instantCrewId);
+	}
+
+	@DeleteMapping("/{instantCrewId}/participants/me")
+	public InstantCrewApplicationResponse cancelParticipation(
+			@RequestHeader("Authorization") String authorization,
+			@PathVariable long instantCrewId
+	) {
+		long userId = authenticatedUserService.requireUserId(authorization);
+		return crewService.cancelInstantParticipation(userId, instantCrewId);
 	}
 
 	@PostMapping("/{instantCrewId}/participants/{userId}/approve")
