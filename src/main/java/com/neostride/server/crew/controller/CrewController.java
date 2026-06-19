@@ -13,11 +13,13 @@ import com.neostride.server.crew.dto.CrewResponse;
 import com.neostride.server.crew.dto.CrewUpdateRequest;
 import com.neostride.server.crew.service.CrewService;
 import java.util.List;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -73,6 +75,16 @@ public class CrewController {
 	) {
 		long userId = authenticatedUserService.requireUserId(authorization);
 		return crewService.updateCrew(userId, crewId, request);
+	}
+
+	@DeleteMapping("/{crewId}")
+	public ResponseEntity<Void> deleteCrew(
+			@RequestHeader("Authorization") String authorization,
+			@PathVariable long crewId
+	) {
+		long userId = authenticatedUserService.requireUserId(authorization);
+		crewService.deleteCrew(userId, crewId);
+		return ResponseEntity.noContent().build();
 	}
 
 	@PostMapping("/{crewId}/join")
@@ -139,6 +151,38 @@ public class CrewController {
 	) {
 		long userId = authenticatedUserService.requireUserId(authorization);
 		return crewService.createEvent(userId, crewId, request);
+	}
+
+	@PutMapping("/{crewId}/events/{eventId}")
+	public CrewEventResponse updateEvent(
+			@RequestHeader("Authorization") String authorization,
+			@PathVariable long crewId,
+			@PathVariable long eventId,
+			@RequestBody CrewEventRequest request
+	) {
+		long userId = authenticatedUserService.requireUserId(authorization);
+		return crewService.updateEvent(userId, crewId, eventId, request);
+	}
+
+	@PostMapping("/{crewId}/events/{eventId}/cancel")
+	public CrewEventResponse cancelEvent(
+			@RequestHeader("Authorization") String authorization,
+			@PathVariable long crewId,
+			@PathVariable long eventId
+	) {
+		long userId = authenticatedUserService.requireUserId(authorization);
+		return crewService.cancelEvent(userId, crewId, eventId);
+	}
+
+	@DeleteMapping("/{crewId}/events/{eventId}")
+	public ResponseEntity<Void> deleteEvent(
+			@RequestHeader("Authorization") String authorization,
+			@PathVariable long crewId,
+			@PathVariable long eventId
+	) {
+		long userId = authenticatedUserService.requireUserId(authorization);
+		crewService.deleteEvent(userId, crewId, eventId);
+		return ResponseEntity.noContent().build();
 	}
 
 	@GetMapping("/{crewId}/events")

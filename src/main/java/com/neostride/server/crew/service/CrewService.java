@@ -113,6 +113,14 @@ public class CrewService {
 	}
 
 	@Transactional
+	public void deleteCrew(long userId, long crewId) {
+		requireOwner(crewId, userId);
+		if (crewRepository.deleteCrew(crewId) == 0) {
+			throw new IllegalArgumentException("크루를 찾을 수 없습니다.");
+		}
+	}
+
+	@Transactional
 	public CrewJoinResponse joinCrew(long userId, long crewId) {
 		CrewResponse crew = findCrewOrThrow(userId, crewId);
 		CrewMembership previous = crewRepository.findMembership(crewId, userId).orElse(null);
@@ -187,9 +195,7 @@ public class CrewService {
 		requireAdmin(crewId, userId);
 		String title = required(request.title(), "일정 제목");
 		LocalDateTime startsAt = requireDateTime(request.startsAt(), "starts_at");
-		if (request.endsAt() != null && request.endsAt().isBefore(startsAt)) {
-			throw new IllegalArgumentException("ends_at은 starts_at 이후여야 합니다.");
-		}
+		validateEventSchedule(startsAt, request.endsAt());
 		Integer capacity = positiveOrNull(request.capacity(), "capacity");
 		String eventType = enumValue(request.eventType(), "OFFLINE", "OFFLINE", "VIRTUAL");
 		long eventId = crewRepository.createEvent(
@@ -207,6 +213,53 @@ public class CrewService {
 		crewRepository.upsertEventParticipation(eventId, userId, "ACCEPTED");
 		notifyEventCreated(crewId, userId, title);
 		return crewRepository.findEventResponse(crewId, eventId).orElseThrow();
+	}
+
+	@Transactional
+	public CrewEventResponse updateEvent(long userId, long crewId, long eventId, CrewEventRequest request) {
+		requireAdmin(crewId, userId);
+		if (request == null) {
+			throw new IllegalArgumentException("요청 본문은 필수입니다.");
+		}
+		CrewEventResponse current = crewRepository.findEventResponse(crewId, eventId)
+				.orElseThrow(() -> new IllegalArgumentException("크루 일정을 찾을 수 없습니다."));
+		LocalDateTime startsAt = request.startsAt() == null ? LocalDateTime.parse(current.startsAt()) : request.startsAt();
+		LocalDateTime endsAt = request.endsAt() == null && current.endsAt() != null ? LocalDateTime.parse(current.endsAt()) : request.endsAt();
+		validateEventSchedule(startsAt, endsAt);
+		crewRepository.updateEvent(
+				crewId,
+				eventId,
+				optional(request.title()),
+				optional(request.description()),
+				enumValueOrNull(request.eventType(), "OFFLINE", "VIRTUAL"),
+				request.startsAt(),
+				request.endsAt(),
+				optional(request.locationLabel()),
+				optional(request.meetingPlace()),
+				positiveOrNull(request.capacity(), "capacity")
+		);
+		return crewRepository.findEventResponse(crewId, eventId).orElseThrow();
+	}
+
+	@Transactional
+	public CrewEventResponse cancelEvent(long userId, long crewId, long eventId) {
+		requireAdmin(crewId, userId);
+		CrewEventRow event = crewRepository.findEvent(crewId, eventId)
+				.orElseThrow(() -> new IllegalArgumentException("크루 일정을 찾을 수 없습니다."));
+		if ("COMPLETED".equals(event.status())) {
+			throw new IllegalArgumentException("완료된 일정은 취소할 수 없습니다.");
+		}
+		crewRepository.updateEventStatus(crewId, eventId, "CANCELLED");
+		return crewRepository.findEventResponse(crewId, eventId).orElseThrow();
+	}
+
+	@Transactional
+	public void deleteEvent(long userId, long crewId, long eventId) {
+		requireAdmin(crewId, userId);
+		crewRepository.findEvent(crewId, eventId).orElseThrow(() -> new IllegalArgumentException("크루 일정을 찾을 수 없습니다."));
+		if (crewRepository.deleteEvent(crewId, eventId) == 0) {
+			throw new IllegalArgumentException("크루 일정을 찾을 수 없습니다.");
+		}
 	}
 
 	@Transactional(readOnly = true)
@@ -371,6 +424,25 @@ public class CrewService {
 		return new InstantCrewApplicationResponse(instantCrewId, targetUserId, "REJECTED", "참가 신청을 거절했습니다.");
 	}
 
+	@Transactional
+	public InstantCrewApplicationResponse cancelInstantParticipation(long userId, long instantCrewId) {
+		InstantCrewResponse instantCrew = crewRepository.findInstantCrew(instantCrewId, userId)
+				.orElseThrow(() -> new IllegalArgumentException("번개 크루를 찾을 수 없습니다."));
+		if (instantCrew.hostUserId() == userId) {
+			throw new ForbiddenException("번개 크루 호스트는 참가 취소 대신 상태를 변경해야 합니다.");
+		}
+		InstantParticipant participant = crewRepository.findInstantParticipant(instantCrewId, userId)
+				.orElseThrow(() -> new IllegalArgumentException("참가 신청을 찾을 수 없습니다."));
+		if (!List.of("REQUESTED", "ACCEPTED").contains(participant.status())) {
+			throw new IllegalArgumentException("취소할 수 없는 참가 상태입니다.");
+		}
+		if (crewRepository.cancelInstantParticipant(instantCrewId, userId) == 0) {
+			throw new IllegalArgumentException("참가 신청을 찾을 수 없습니다.");
+		}
+		notifyUser(instantCrew.hostUserId(), "INSTANT_CREW_CANCELLED", "번개 크루 참가가 취소되었습니다.", "/api/instant-crews/" + instantCrewId);
+		return new InstantCrewApplicationResponse(instantCrewId, userId, "CANCELLED", "참가를 취소했습니다.");
+	}
+
 	@Transactional(readOnly = true)
 	public List<InstantCrewParticipantRequestResponse> listInstantParticipantRequests(long actorUserId, long instantCrewId) {
 		requireInstantHost(actorUserId, instantCrewId);
@@ -437,6 +509,14 @@ public class CrewService {
 			throw new ForbiddenException("크루 관리자만 사용할 수 있습니다.");
 		}
 		return membership;
+	}
+
+	private CrewResponse requireOwner(long crewId, long userId) {
+		CrewResponse crew = findCrewOrThrow(userId, crewId);
+		if (crew.ownerUserId() != userId) {
+			throw new ForbiddenException("크루 소유자만 사용할 수 있습니다.");
+		}
+		return crew;
 	}
 
 	private InstantCrewResponse requireInstantHost(long userId, long instantCrewId) {
@@ -557,6 +637,12 @@ public class CrewService {
 			throw new IllegalArgumentException(field + "는 필수입니다.");
 		}
 		return value;
+	}
+
+	private static void validateEventSchedule(LocalDateTime startsAt, LocalDateTime endsAt) {
+		if (endsAt != null && endsAt.isBefore(startsAt)) {
+			throw new IllegalArgumentException("ends_at은 starts_at 이후여야 합니다.");
+		}
 	}
 
 	private static Integer positiveOrNull(Integer value, String field) {

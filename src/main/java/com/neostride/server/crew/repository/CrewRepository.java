@@ -80,6 +80,10 @@ public class CrewRepository {
 				""", name, description, visibility, joinPolicy, region, profileImageUrl, crewId);
 	}
 
+	public int deleteCrew(long crewId) {
+		return jdbcTemplate.update("DELETE FROM crews WHERE crew_id = ?", crewId);
+	}
+
 	public Optional<CrewResponse> findCrew(long crewId, long viewerUserId) {
 		List<CrewResponse> rows = jdbcTemplate.query("""
 				SELECT c.crew_id, c.owner_user_id, c.name, c.description, c.visibility, c.join_policy,
@@ -309,6 +313,33 @@ public class CrewRepository {
 		return rows.stream().findFirst();
 	}
 
+	public int updateEvent(long crewId, long eventId, String title, String description, String eventType,
+			LocalDateTime startsAt, LocalDateTime endsAt, String locationLabel, String meetingPlace, Integer capacity) {
+		return jdbcTemplate.update("""
+				UPDATE crew_events
+				SET title = COALESCE(?, title),
+					description = COALESCE(?, description),
+					event_type = COALESCE(?, event_type),
+					starts_at = COALESCE(?, starts_at),
+					ends_at = COALESCE(?, ends_at),
+					location_label = COALESCE(?, location_label),
+					meeting_place = COALESCE(?, meeting_place),
+					capacity = COALESCE(?, capacity)
+				WHERE crew_id = ? AND crew_event_id = ?
+				""", title, description, eventType, startsAt, endsAt, locationLabel, meetingPlace, capacity, crewId, eventId);
+	}
+
+	public int updateEventStatus(long crewId, long eventId, String status) {
+		return jdbcTemplate.update(
+				"UPDATE crew_events SET status = ? WHERE crew_id = ? AND crew_event_id = ?",
+				status, crewId, eventId
+		);
+	}
+
+	public int deleteEvent(long crewId, long eventId) {
+		return jdbcTemplate.update("DELETE FROM crew_events WHERE crew_id = ? AND crew_event_id = ?", crewId, eventId);
+	}
+
 	public List<CrewEventResponse> listEvents(long crewId) {
 		return listEventsBySql("", List.of(crewId));
 	}
@@ -528,6 +559,16 @@ public class CrewRepository {
 					joined_at = CASE WHEN ? = 'ACCEPTED' THEN COALESCE(joined_at, CURRENT_TIMESTAMP) ELSE joined_at END
 				WHERE instant_crew_id = ? AND user_id = ?
 				""", status, status, instantCrewId, userId);
+	}
+
+	public int cancelInstantParticipant(long instantCrewId, long userId) {
+		return jdbcTemplate.update("""
+				UPDATE instant_crew_participants
+				SET status = 'CANCELLED',
+					responded_at = CURRENT_TIMESTAMP,
+					joined_at = NULL
+				WHERE instant_crew_id = ? AND user_id = ?
+				""", instantCrewId, userId);
 	}
 
 	public int acceptedInstantParticipantCount(long instantCrewId) {
