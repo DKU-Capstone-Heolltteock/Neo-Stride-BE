@@ -8,12 +8,15 @@ import com.neostride.server.crew.dto.CrewEventAttendanceRequest;
 import com.neostride.server.crew.dto.CrewEventRequest;
 import com.neostride.server.crew.dto.CrewEventResponse;
 import com.neostride.server.crew.dto.CrewJoinResponse;
+import com.neostride.server.crew.dto.CrewMemberRequestResponse;
 import com.neostride.server.crew.dto.CrewMemberResponse;
 import com.neostride.server.crew.dto.CrewRankingEntry;
 import com.neostride.server.crew.dto.CrewRankingResponse;
 import com.neostride.server.crew.dto.CrewResponse;
 import com.neostride.server.crew.dto.CrewUpdateRequest;
 import com.neostride.server.crew.dto.InstantCrewApplicationResponse;
+import com.neostride.server.crew.dto.InstantCrewParticipantRequestResponse;
+import com.neostride.server.crew.dto.InstantCrewParticipantResponse;
 import com.neostride.server.crew.dto.InstantCrewRequest;
 import com.neostride.server.crew.dto.InstantCrewResponse;
 import com.neostride.server.crew.dto.InstantCrewStatusRequest;
@@ -122,7 +125,7 @@ public class CrewService {
 		String status = "OPEN".equals(crew.joinPolicy()) ? "ACCEPTED" : "REQUESTED";
 		crewRepository.saveMembership(crewId, userId, status);
 		if ("ACCEPTED".equals(status) && !wasAccepted(previous)) {
-			crewRepository.adjustMemberCount(crewId, 1);
+			crewRepository.refreshMemberCount(crewId);
 		}
 		if ("REQUESTED".equals(status)) {
 			notifyCrewAdmins(crewId, userId, "CREW_JOIN_REQUEST", crew.name() + " 가입 요청이 도착했습니다.", "/api/crews/" + crewId + "/members");
@@ -137,7 +140,7 @@ public class CrewService {
 				.orElseThrow(() -> new IllegalArgumentException("가입 요청을 찾을 수 없습니다."));
 		crewRepository.updateMemberStatus(crewId, targetUserId, "ACCEPTED");
 		if (!wasAccepted(previous)) {
-			crewRepository.adjustMemberCount(crewId, 1);
+			crewRepository.refreshMemberCount(crewId);
 		}
 		notifyUser(targetUserId, "CREW_JOIN_APPROVED", "크루 가입 요청이 승인되었습니다.", "/api/crews/" + crewId);
 		return new CrewJoinResponse(crewId, targetUserId, previous.role(), "ACCEPTED", "가입 요청을 승인했습니다.");
@@ -150,7 +153,7 @@ public class CrewService {
 				.orElseThrow(() -> new IllegalArgumentException("가입 요청을 찾을 수 없습니다."));
 		crewRepository.updateMemberStatus(crewId, targetUserId, "REJECTED");
 		if (wasAccepted(previous)) {
-			crewRepository.adjustMemberCount(crewId, -1);
+			crewRepository.refreshMemberCount(crewId);
 		}
 		notifyUser(targetUserId, "CREW_JOIN_REJECTED", "크루 가입 요청이 거절되었습니다.", "/api/crews/" + crewId);
 		return new CrewJoinResponse(crewId, targetUserId, previous.role(), "REJECTED", "가입 요청을 거절했습니다.");
@@ -163,7 +166,7 @@ public class CrewService {
 			throw new ForbiddenException("크루 소유자는 탈퇴할 수 없습니다.");
 		}
 		crewRepository.leaveCrew(crewId, userId);
-		crewRepository.adjustMemberCount(crewId, -1);
+		crewRepository.refreshMemberCount(crewId);
 		return new CrewJoinResponse(crewId, userId, membership.role(), "LEFT", "크루에서 탈퇴했습니다.");
 	}
 
@@ -171,6 +174,12 @@ public class CrewService {
 	public List<CrewMemberResponse> listMembers(long userId, long crewId) {
 		requireAcceptedMember(crewId, userId);
 		return crewRepository.listAcceptedMembers(crewId);
+	}
+
+	@Transactional(readOnly = true)
+	public List<CrewMemberRequestResponse> listMemberRequests(long userId, long crewId) {
+		requireAdmin(crewId, userId);
+		return crewRepository.listMemberRequests(crewId);
 	}
 
 	@Transactional
@@ -209,12 +218,12 @@ public class CrewService {
 	@Transactional
 	public CrewJoinResponse joinEvent(long userId, long crewId, long eventId) {
 		requireAcceptedMember(crewId, userId);
-		CrewEventRow event = crewRepository.findEvent(crewId, eventId)
+		CrewEventRow event = crewRepository.findEventForUpdate(crewId, eventId)
 				.orElseThrow(() -> new IllegalArgumentException("크루 일정을 찾을 수 없습니다."));
 		if (!List.of("SCHEDULED", "IN_PROGRESS").contains(event.status())) {
 			throw new IllegalArgumentException("참가할 수 없는 일정 상태입니다.");
 		}
-		if (event.capacity() != null && crewRepository.acceptedEventParticipantCount(eventId) >= event.capacity()) {
+		if (event.capacity() != null && crewRepository.acceptedEventParticipantCountExcluding(eventId, userId) >= event.capacity()) {
 			throw new IllegalArgumentException("일정 참가 정원이 가득 찼습니다.");
 		}
 		crewRepository.upsertEventParticipation(eventId, userId, "ACCEPTED");
@@ -228,6 +237,9 @@ public class CrewService {
 		long targetUserId = positiveLong(request.userId(), "user_id");
 		requireAcceptedMember(crewId, targetUserId);
 		String status = enumValue(request.status(), "ATTENDED", "ACCEPTED", "DECLINED", "CANCELLED", "ATTENDED");
+		if (request.runningRecordId() != null && !runningStatsReader.isRecordOwnedByUser(request.runningRecordId(), targetUserId)) {
+			throw new ForbiddenException("running_record_id가 대상 사용자와 일치하지 않습니다.");
+		}
 		crewRepository.markEventAttendance(eventId, targetUserId, status, request.runningRecordId());
 		return crewRepository.findEventResponse(crewId, eventId).orElseThrow();
 	}
@@ -338,12 +350,12 @@ public class CrewService {
 
 	@Transactional
 	public InstantCrewApplicationResponse approveInstantParticipant(long actorUserId, long instantCrewId, long targetUserId) {
-		InstantCrewResponse instantCrew = requireInstantHost(actorUserId, instantCrewId);
-		if (crewRepository.acceptedInstantParticipantCount(instantCrewId) >= instantCrew.capacity()) {
-			throw new IllegalArgumentException("번개 크루 참가 정원이 가득 찼습니다.");
-		}
+		InstantCrewResponse instantCrew = requireInstantHostForUpdate(actorUserId, instantCrewId);
 		crewRepository.findInstantParticipant(instantCrewId, targetUserId)
 				.orElseThrow(() -> new IllegalArgumentException("참가 신청을 찾을 수 없습니다."));
+		if (crewRepository.acceptedInstantParticipantCountExcluding(instantCrewId, targetUserId) >= instantCrew.capacity()) {
+			throw new IllegalArgumentException("번개 크루 참가 정원이 가득 찼습니다.");
+		}
 		crewRepository.updateInstantParticipantStatus(instantCrewId, targetUserId, "ACCEPTED");
 		notifyUser(targetUserId, "INSTANT_CREW_APPROVED", "번개 크루 참가 신청이 승인되었습니다.", "/api/instant-crews/" + instantCrewId);
 		return new InstantCrewApplicationResponse(instantCrewId, targetUserId, "ACCEPTED", "참가 신청을 승인했습니다.");
@@ -357,6 +369,18 @@ public class CrewService {
 		crewRepository.updateInstantParticipantStatus(instantCrewId, targetUserId, "REJECTED");
 		notifyUser(targetUserId, "INSTANT_CREW_REJECTED", "번개 크루 참가 신청이 거절되었습니다.", "/api/instant-crews/" + instantCrewId);
 		return new InstantCrewApplicationResponse(instantCrewId, targetUserId, "REJECTED", "참가 신청을 거절했습니다.");
+	}
+
+	@Transactional(readOnly = true)
+	public List<InstantCrewParticipantRequestResponse> listInstantParticipantRequests(long actorUserId, long instantCrewId) {
+		requireInstantHost(actorUserId, instantCrewId);
+		return crewRepository.listInstantParticipantRequests(instantCrewId);
+	}
+
+	@Transactional(readOnly = true)
+	public List<InstantCrewParticipantResponse> listInstantParticipants(long userId, long instantCrewId) {
+		requireInstantParticipantViewer(userId, instantCrewId);
+		return crewRepository.listAcceptedInstantParticipants(instantCrewId);
 	}
 
 	@Transactional
@@ -424,7 +448,20 @@ public class CrewService {
 		return response;
 	}
 
+	private InstantCrewResponse requireInstantHostForUpdate(long userId, long instantCrewId) {
+		InstantCrewResponse response = crewRepository.findInstantCrewForUpdate(instantCrewId, userId)
+				.orElseThrow(() -> new IllegalArgumentException("번개 크루를 찾을 수 없습니다."));
+		if (response.hostUserId() != userId) {
+			throw new ForbiddenException("번개 크루 호스트만 사용할 수 있습니다.");
+		}
+		return response;
+	}
+
 	private void requireInstantChatMember(long userId, long instantCrewId) {
+		requireInstantParticipantViewer(userId, instantCrewId);
+	}
+
+	private void requireInstantParticipantViewer(long userId, long instantCrewId) {
 		InstantCrewResponse response = crewRepository.findInstantCrew(instantCrewId, userId)
 				.orElseThrow(() -> new IllegalArgumentException("번개 크루를 찾을 수 없습니다."));
 		if (response.hostUserId() == userId) {

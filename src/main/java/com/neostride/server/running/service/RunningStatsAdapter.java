@@ -20,4 +20,10 @@ public class RunningStatsAdapter implements RunningStatsReader {
 	public Map<Long, RunningAggregate> summarizeByUsers(Collection<Long> userIds, LocalDate from, LocalDate to) {
 		return runningRecordRepository.summarizeByUsers(userIds, from, to);
 	}
+
+	@Override
+	public boolean isRecordOwnedByUser(long runningRecordId, long userId) {
+		Long ownerUserId = runningRecordRepository.findOwnerUserId(runningRecordId);
+		return ownerUserId != null && ownerUserId == userId;
+	}
 }

@@ -2,8 +2,11 @@ package com.neostride.server.crew.repository;
 
 import com.neostride.server.crew.dto.CrewChatMessageResponse;
 import com.neostride.server.crew.dto.CrewEventResponse;
+import com.neostride.server.crew.dto.CrewMemberRequestResponse;
 import com.neostride.server.crew.dto.CrewMemberResponse;
 import com.neostride.server.crew.dto.CrewResponse;
+import com.neostride.server.crew.dto.InstantCrewParticipantRequestResponse;
+import com.neostride.server.crew.dto.InstantCrewParticipantResponse;
 import com.neostride.server.crew.dto.InstantCrewResponse;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -198,6 +201,18 @@ public class CrewRepository {
 		return jdbcTemplate.update("UPDATE crews SET member_count = GREATEST(0, member_count + ?) WHERE crew_id = ?", delta, crewId);
 	}
 
+	public int refreshMemberCount(long crewId) {
+		return jdbcTemplate.update("""
+				UPDATE crews
+				SET member_count = (
+					SELECT COUNT(*)
+					FROM crew_members cm
+					WHERE cm.crew_id = crews.crew_id AND cm.status = 'ACCEPTED'
+				)
+				WHERE crew_id = ?
+				""", crewId);
+	}
+
 	public List<CrewMemberResponse> listAcceptedMembers(long crewId) {
 		return jdbcTemplate.query("""
 				SELECT cm.crew_id, cm.user_id, COALESCE(NULLIF(u.community_profile_name, ''), u.name) AS nickname,
@@ -214,6 +229,25 @@ public class CrewRepository {
 				rs.getString("role"),
 				rs.getString("status"),
 				timestamp(rs.getTimestamp("joined_at"))
+		), crewId);
+	}
+
+	public List<CrewMemberRequestResponse> listMemberRequests(long crewId) {
+		return jdbcTemplate.query("""
+				SELECT cm.crew_id, cm.user_id, COALESCE(NULLIF(u.community_profile_name, ''), u.name) AS nickname,
+					u.profile_photo AS profile_image_url, cm.role, cm.status, cm.requested_at
+				FROM crew_members cm
+				JOIN users u ON u.user_id = cm.user_id
+				WHERE cm.crew_id = ? AND cm.status = 'REQUESTED'
+				ORDER BY cm.requested_at ASC, cm.user_id ASC
+				""", (rs, rowNum) -> new CrewMemberRequestResponse(
+			rs.getLong("crew_id"),
+			rs.getLong("user_id"),
+			rs.getString("nickname"),
+			rs.getString("profile_image_url"),
+			rs.getString("role"),
+			rs.getString("status"),
+			timestamp(rs.getTimestamp("requested_at"))
 		), crewId);
 	}
 
@@ -255,6 +289,21 @@ public class CrewRepository {
 		return rows.stream().findFirst();
 	}
 
+	public Optional<CrewEventRow> findEventForUpdate(long crewId, long eventId) {
+		List<CrewEventRow> rows = jdbcTemplate.query("""
+				SELECT crew_event_id, crew_id, status, capacity
+				FROM crew_events
+				WHERE crew_id = ? AND crew_event_id = ?
+				FOR UPDATE
+				""", (rs, rowNum) -> new CrewEventRow(
+			rs.getLong("crew_event_id"),
+			rs.getLong("crew_id"),
+			rs.getString("status"),
+			nullableInt(rs.getObject("capacity"))
+		), crewId, eventId);
+		return rows.stream().findFirst();
+	}
+
 	public Optional<CrewEventResponse> findEventResponse(long crewId, long eventId) {
 		List<CrewEventResponse> rows = listEventsBySql(" AND ce.crew_event_id = ?", List.of(crewId, eventId));
 		return rows.stream().findFirst();
@@ -291,11 +340,21 @@ public class CrewRepository {
 	}
 
 	public int acceptedEventParticipantCount(long eventId) {
+		return acceptedEventParticipantCountExcluding(eventId, null);
+	}
+
+	public int acceptedEventParticipantCountExcluding(long eventId, Long excludedUserId) {
+		String excludedPredicate = excludedUserId == null ? "" : " AND user_id <> ?";
+		List<Object> args = new ArrayList<>();
+		args.add(eventId);
+		if (excludedUserId != null) {
+			args.add(excludedUserId);
+		}
 		Integer count = jdbcTemplate.queryForObject("""
 				SELECT COUNT(*)
 				FROM crew_event_participants
 				WHERE crew_event_id = ? AND status IN ('ACCEPTED', 'ATTENDED')
-				""", Integer.class, eventId);
+				""" + excludedPredicate, Integer.class, args.toArray());
 		return count == null ? 0 : count;
 	}
 
@@ -402,7 +461,7 @@ public class CrewRepository {
 	}
 
 	public Optional<InstantCrewResponse> findInstantCrew(long instantCrewId, long viewerUserId) {
-		List<InstantCrewResponse> rows = jdbcTemplate.query("""
+		return findInstantCrewBySql("""
 				SELECT ic.instant_crew_id, ic.crew_id, ic.host_user_id, ic.title, ic.description, ic.status,
 					ic.region, ic.location_label, ic.meeting_place_private, ic.starts_at, ic.recruit_until, ic.capacity,
 					ic.created_at, viewer.status AS viewer_status,
@@ -411,7 +470,25 @@ public class CrewRepository {
 				FROM instant_crews ic
 				LEFT JOIN instant_crew_participants viewer ON viewer.instant_crew_id = ic.instant_crew_id AND viewer.user_id = ?
 				WHERE ic.instant_crew_id = ?
-				""", (rs, rowNum) -> instantCrewResponse(rs, false), viewerUserId, instantCrewId);
+				""", instantCrewId, viewerUserId);
+	}
+
+	public Optional<InstantCrewResponse> findInstantCrewForUpdate(long instantCrewId, long viewerUserId) {
+		return findInstantCrewBySql("""
+				SELECT ic.instant_crew_id, ic.crew_id, ic.host_user_id, ic.title, ic.description, ic.status,
+					ic.region, ic.location_label, ic.meeting_place_private, ic.starts_at, ic.recruit_until, ic.capacity,
+					ic.created_at, viewer.status AS viewer_status,
+					(SELECT COUNT(*) FROM instant_crew_participants p
+					 WHERE p.instant_crew_id = ic.instant_crew_id AND p.status = 'ACCEPTED') AS participant_count
+				FROM instant_crews ic
+				LEFT JOIN instant_crew_participants viewer ON viewer.instant_crew_id = ic.instant_crew_id AND viewer.user_id = ?
+				WHERE ic.instant_crew_id = ?
+				FOR UPDATE
+				""", instantCrewId, viewerUserId);
+	}
+
+	private Optional<InstantCrewResponse> findInstantCrewBySql(String sql, long instantCrewId, long viewerUserId) {
+		List<InstantCrewResponse> rows = jdbcTemplate.query(sql, (rs, rowNum) -> instantCrewResponse(rs, false), viewerUserId, instantCrewId);
 		return rows.stream().findFirst();
 	}
 
@@ -454,16 +531,61 @@ public class CrewRepository {
 	}
 
 	public int acceptedInstantParticipantCount(long instantCrewId) {
+		return acceptedInstantParticipantCountExcluding(instantCrewId, null);
+	}
+
+	public int acceptedInstantParticipantCountExcluding(long instantCrewId, Long excludedUserId) {
+		String excludedPredicate = excludedUserId == null ? "" : " AND user_id <> ?";
+		List<Object> args = new ArrayList<>();
+		args.add(instantCrewId);
+		if (excludedUserId != null) {
+			args.add(excludedUserId);
+		}
 		Integer count = jdbcTemplate.queryForObject("""
 				SELECT COUNT(*)
 				FROM instant_crew_participants
 				WHERE instant_crew_id = ? AND status = 'ACCEPTED'
-				""", Integer.class, instantCrewId);
+				""" + excludedPredicate, Integer.class, args.toArray());
 		return count == null ? 0 : count;
 	}
 
 	public int updateInstantCrewStatus(long instantCrewId, String status) {
 		return jdbcTemplate.update("UPDATE instant_crews SET status = ? WHERE instant_crew_id = ?", status, instantCrewId);
+	}
+
+	public List<InstantCrewParticipantRequestResponse> listInstantParticipantRequests(long instantCrewId) {
+		return jdbcTemplate.query("""
+				SELECT p.instant_crew_id, p.user_id, COALESCE(NULLIF(u.community_profile_name, ''), u.name) AS nickname,
+					u.profile_photo AS profile_image_url, p.status, p.requested_at
+				FROM instant_crew_participants p
+				JOIN users u ON u.user_id = p.user_id
+				WHERE p.instant_crew_id = ? AND p.status = 'REQUESTED'
+				ORDER BY p.requested_at ASC, p.user_id ASC
+				""", (rs, rowNum) -> new InstantCrewParticipantRequestResponse(
+			rs.getLong("instant_crew_id"),
+			rs.getLong("user_id"),
+			rs.getString("nickname"),
+			rs.getString("profile_image_url"),
+			rs.getString("status"),
+			timestamp(rs.getTimestamp("requested_at"))
+		), instantCrewId);
+	}
+
+	public List<InstantCrewParticipantResponse> listAcceptedInstantParticipants(long instantCrewId) {
+		return jdbcTemplate.query("""
+				SELECT p.user_id, COALESCE(NULLIF(u.community_profile_name, ''), u.name) AS nickname,
+					u.profile_photo AS profile_image_url, p.status, p.joined_at
+				FROM instant_crew_participants p
+				JOIN users u ON u.user_id = p.user_id
+				WHERE p.instant_crew_id = ? AND p.status = 'ACCEPTED'
+				ORDER BY p.joined_at ASC, p.user_id ASC
+				""", (rs, rowNum) -> new InstantCrewParticipantResponse(
+			rs.getLong("user_id"),
+			rs.getString("nickname"),
+			rs.getString("profile_image_url"),
+			rs.getString("status"),
+			timestamp(rs.getTimestamp("joined_at"))
+		), instantCrewId);
 	}
 
 	public long insertCrewChatMessage(long crewId, long senderUserId, String messageText) {

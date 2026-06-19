@@ -96,7 +96,7 @@ final class CommunitySearchRepository {
 		String predicate = "1=1";
 		java.util.List<Object> args = new java.util.ArrayList<>();
 		if (!blank(keyword)) {
-			predicate = "(MATCH(u.name, u.community_profile_name, u.email) AGAINST (? IN NATURAL LANGUAGE MODE) OR MATCH(cu.community_profile_name, cu.status_message) AGAINST (? IN NATURAL LANGUAGE MODE))";
+			predicate = "(MATCH(u.name, u.community_profile_name) AGAINST (? IN NATURAL LANGUAGE MODE) OR MATCH(cu.community_profile_name, cu.status_message) AGAINST (? IN NATURAL LANGUAGE MODE))";
 			args.add(searchTerm(keyword));
 			args.add(searchTerm(keyword));
 		}
@@ -115,7 +115,7 @@ final class CommunitySearchRepository {
 		String predicate = "EXISTS (SELECT 1 FROM relationships r WHERE (r.user1_id = ? AND r.user2_id = u.user_id OR r.user2_id = ? AND r.user1_id = u.user_id) AND r.status = 'ACCEPTED')";
 		List<Object> args = new java.util.ArrayList<>(List.of(userId, userId));
 		if (!blank(keyword)) {
-			predicate += " AND (MATCH(u.name, u.community_profile_name, u.email) AGAINST (? IN NATURAL LANGUAGE MODE) OR MATCH(cu.community_profile_name, cu.status_message) AGAINST (? IN NATURAL LANGUAGE MODE))";
+			predicate += " AND (MATCH(u.name, u.community_profile_name) AGAINST (? IN NATURAL LANGUAGE MODE) OR MATCH(cu.community_profile_name, cu.status_message) AGAINST (? IN NATURAL LANGUAGE MODE))";
 			args.add(searchTerm(keyword));
 			args.add(searchTerm(keyword));
 		}

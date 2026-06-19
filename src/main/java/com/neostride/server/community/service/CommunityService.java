@@ -91,7 +91,7 @@ public class CommunityService {
 	public CommentResponse updateFeedComment(long userId, long feedId, long commentId, CommentRequest request) { validatePositive(userId, "user_id"); validatePositive(feedId, "feed_id"); validatePositive(commentId, "comment_id"); requireBody(request); return repository.updateComment(userId, feedId, commentId, request); }
 	@Transactional
 	public void deleteFeedComment(long userId, long feedId, long commentId) { validatePositive(userId, "user_id"); validatePositive(feedId, "feed_id"); validatePositive(commentId, "comment_id"); repository.deleteComment(userId, feedId, commentId); }
-	public List<FriendResponse> getTaggedUsers(long feedId) { validatePositive(feedId, "feed_id"); return repository.getTaggedUsers(feedId); }
+	public List<FriendResponse> getTaggedUsers(Long viewerUserId, long feedId) { if (viewerUserId != null) validatePositive(viewerUserId, "viewer_user_id"); validatePositive(feedId, "feed_id"); return repository.getTaggedUsers(viewerUserId, feedId); }
 	public List<FeedUploadResponse> getFeedList() { return getFeedList(null); }
 	public List<FeedUploadResponse> getFeedList(Long viewerUserId) {
 		if (viewerUserId != null) validatePositive(viewerUserId, "viewer_user_id");

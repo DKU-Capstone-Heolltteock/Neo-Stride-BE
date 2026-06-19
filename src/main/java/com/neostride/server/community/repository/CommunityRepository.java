@@ -81,7 +81,7 @@ public class CommunityRepository {
 		jdbcTemplate.update("DELETE FROM community_contents WHERE content_id=? AND author_user_id=? AND content_type=?", contentId, userId, contentType);
 	}
 
-	public List<FriendResponse> getTaggedUsers(long feedId) { return feedRepository.getTaggedUsers(feedId); }
+	public List<FriendResponse> getTaggedUsers(Long viewerUserId, long feedId) { return feedRepository.getTaggedUsers(viewerUserId, feedId); }
 
 	public long insertTip(long userId, TipUploadRequest request) { return tipRepository.insertTip(userId, request); }
 	public TipUploadResponse findTip(long tipId) { return tipRepository.findTip(tipId); }

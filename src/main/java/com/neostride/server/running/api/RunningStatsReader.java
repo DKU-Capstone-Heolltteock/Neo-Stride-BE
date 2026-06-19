@@ -6,4 +6,6 @@ import java.util.Map;
 
 public interface RunningStatsReader {
 	Map<Long, RunningAggregate> summarizeByUsers(Collection<Long> userIds, LocalDate from, LocalDate to);
+
+	boolean isRecordOwnedByUser(long runningRecordId, long userId);
 }

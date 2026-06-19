@@ -6,6 +6,7 @@ import com.neostride.server.crew.dto.CrewEventAttendanceRequest;
 import com.neostride.server.crew.dto.CrewEventRequest;
 import com.neostride.server.crew.dto.CrewEventResponse;
 import com.neostride.server.crew.dto.CrewJoinResponse;
+import com.neostride.server.crew.dto.CrewMemberRequestResponse;
 import com.neostride.server.crew.dto.CrewMemberResponse;
 import com.neostride.server.crew.dto.CrewRankingResponse;
 import com.neostride.server.crew.dto.CrewResponse;
@@ -119,6 +120,15 @@ public class CrewController {
 	) {
 		long userId = authenticatedUserService.requireUserId(authorization);
 		return crewService.listMembers(userId, crewId);
+	}
+
+	@GetMapping("/{crewId}/members/requests")
+	public List<CrewMemberRequestResponse> listMemberRequests(
+			@RequestHeader("Authorization") String authorization,
+			@PathVariable long crewId
+	) {
+		long userId = authenticatedUserService.requireUserId(authorization);
+		return crewService.listMemberRequests(userId, crewId);
 	}
 
 	@PostMapping("/{crewId}/events")

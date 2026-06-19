@@ -391,7 +391,7 @@ class CommunityControllerTest {
 		when(service.createFeedComment(1L, 99L, commentRequest)).thenReturn(comment);
 		when(service.updateFeed(1L, 99L, update)).thenReturn(feed);
 		when(service.updateFeedComment(1L, 99L, 5L, commentRequest)).thenReturn(comment);
-		when(service.getTaggedUsers(99L)).thenReturn(tagged);
+		when(service.getTaggedUsers(1L, 99L)).thenReturn(tagged);
 
 		assertThat(feedController.getFeedDetail(AUTHORIZATION, 1L, 99L).getBody()).isSameAs(detail);
 		assertThat(feedController.toggleFeedLike(AUTHORIZATION, 1L, 99L).getBody()).containsEntry("liked", "true");
@@ -401,7 +401,7 @@ class CommunityControllerTest {
 		assertThat(feedController.updateFeedComment(AUTHORIZATION, 1L, 99L, 5L, commentRequest).getBody()).isSameAs(comment);
 		assertThat(feedController.deleteFeedComment(AUTHORIZATION, 1L, 99L, 5L).getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
 		assertThat(feedController.deleteFeed(AUTHORIZATION, 1L, 99L).getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
-		assertThat(feedController.getTaggedUsers(99L).getBody()).containsExactlyElementsOf(tagged);
+		assertThat(feedController.getTaggedUsers(AUTHORIZATION, 1L, 99L).getBody()).containsExactlyElementsOf(tagged);
 	}
 
 	@Test

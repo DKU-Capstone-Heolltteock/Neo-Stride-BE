@@ -2,6 +2,8 @@ package com.neostride.server.crew.controller;
 
 import com.neostride.server.auth.service.AuthenticatedUserService;
 import com.neostride.server.crew.dto.InstantCrewApplicationResponse;
+import com.neostride.server.crew.dto.InstantCrewParticipantRequestResponse;
+import com.neostride.server.crew.dto.InstantCrewParticipantResponse;
 import com.neostride.server.crew.dto.InstantCrewRequest;
 import com.neostride.server.crew.dto.InstantCrewResponse;
 import com.neostride.server.crew.dto.InstantCrewStatusRequest;
@@ -72,6 +74,24 @@ public class InstantCrewController {
 	) {
 		long actorUserId = authenticatedUserService.requireUserId(authorization);
 		return crewService.approveInstantParticipant(actorUserId, instantCrewId, userId);
+	}
+
+	@GetMapping("/{instantCrewId}/participants/requests")
+	public List<InstantCrewParticipantRequestResponse> listParticipantRequests(
+			@RequestHeader("Authorization") String authorization,
+			@PathVariable long instantCrewId
+	) {
+		long userId = authenticatedUserService.requireUserId(authorization);
+		return crewService.listInstantParticipantRequests(userId, instantCrewId);
+	}
+
+	@GetMapping("/{instantCrewId}/participants")
+	public List<InstantCrewParticipantResponse> listParticipants(
+			@RequestHeader("Authorization") String authorization,
+			@PathVariable long instantCrewId
+	) {
+		long userId = authenticatedUserService.requireUserId(authorization);
+		return crewService.listInstantParticipants(userId, instantCrewId);
 	}
 
 	@PostMapping("/{instantCrewId}/participants/{userId}/reject")

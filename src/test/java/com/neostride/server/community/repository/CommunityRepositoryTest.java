@@ -23,6 +23,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -492,6 +493,11 @@ class CommunityRepositoryTest {
 
 	@Test
 	void updateRelationshipDeleteRemovesNonBlockedRelationshipInEitherDirection() {
+		when(jdbcTemplate.update(
+				"DELETE FROM relationships WHERE status <> 'BLOCKED' AND ((user1_id=? AND user2_id=?) OR (user1_id=? AND user2_id=?))",
+				1L, 2L, 2L, 1L
+		)).thenReturn(1);
+
 		repository.updateRelationship(1L, new com.neostride.server.community.dto.FriendRequest(2L, "delete"));
 
 		verify(jdbcTemplate).update(
@@ -502,12 +508,30 @@ class CommunityRepositoryTest {
 
 	@Test
 	void updateRelationshipUnblockRemovesCurrentUserBlockedRelationship() {
+		when(jdbcTemplate.update(
+				"DELETE FROM relationships WHERE user1_id=? AND user2_id=? AND status='BLOCKED'",
+				1L, 2L
+		)).thenReturn(1);
+
 		repository.updateRelationship(1L, new com.neostride.server.community.dto.FriendRequest(2L, "unblock"));
 
 		verify(jdbcTemplate).update(
 				"DELETE FROM relationships WHERE user1_id=? AND user2_id=? AND status='BLOCKED'",
 				1L, 2L
 		);
+	}
+
+	@Test
+	void updateRelationshipAcceptRejectAndCancelRequireExistingRequest() {
+		assertThatThrownBy(() -> repository.updateRelationship(1L, new com.neostride.server.community.dto.FriendRequest(2L, "accept")))
+				.isInstanceOf(IllegalArgumentException.class)
+				.hasMessageContaining("친구 요청");
+		assertThatThrownBy(() -> repository.updateRelationship(1L, new com.neostride.server.community.dto.FriendRequest(2L, "reject")))
+				.isInstanceOf(IllegalArgumentException.class)
+				.hasMessageContaining("친구 요청");
+		assertThatThrownBy(() -> repository.updateRelationship(1L, new com.neostride.server.community.dto.FriendRequest(2L, "cancel")))
+				.isInstanceOf(IllegalArgumentException.class)
+				.hasMessageContaining("친구 요청");
 	}
 
 	@Test
@@ -561,7 +585,7 @@ class CommunityRepositoryTest {
 		ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
 		ArgumentCaptor<Object[]> args = ArgumentCaptor.forClass(Object[].class);
 		verify(jdbcTemplate).query(sql.capture(), any(RowMapper.class), args.capture());
-		assertThat(sql.getValue()).contains("AS relationship_status", "MATCH(u.name, u.community_profile_name, u.email)", "THEN 'sent'", "THEN 'received'", "r.status='REQUESTED' AND r.user1_id=?");
+		assertThat(sql.getValue()).contains("AS relationship_status", "MATCH(u.name, u.community_profile_name)", "THEN 'sent'", "THEN 'received'", "r.status='REQUESTED' AND r.user1_id=?");
 		assertThat(args.getValue()).containsExactly(1L, 1L, 1L, 1L, 1L, "neo", "neo", 1L, 1L, 10, 0);
 	}
 

@@ -183,15 +183,28 @@ final class CommunityFeedRepository {
 		}
 	}
 
-	List<FriendResponse> getTaggedUsers(long feedId) {
+	List<FriendResponse> getTaggedUsers(Long viewerUserId, long feedId) {
+		String visibilityPredicate = viewerUserId == null ? PUBLIC_FEED_PREDICATE : VIEWER_FEED_PREDICATE + " AND " + blockedByCurrentUserPredicate();
+		java.util.List<Object> args = new java.util.ArrayList<>();
+		args.add(feedId);
+		if (viewerUserId != null) {
+			args.add(viewerUserId);
+			args.add(viewerUserId);
+			args.add(viewerUserId);
+			args.add(viewerUserId);
+			args.add(viewerUserId);
+		}
 		return jdbcTemplate.query("""
 			SELECT u.user_id, COALESCE(cu.community_profile_name, u.community_profile_name, u.name) AS nickname,
 			       COALESCE(cu.badge, 'NONE') AS badge_tier,
 			       (SELECT COUNT(*) FROM relationships rf WHERE (rf.user1_id = u.user_id OR rf.user2_id = u.user_id) AND rf.status='ACCEPTED') AS friend_count,
 			       COALESCE(cu.profile_photo, u.profile_photo) AS profile_image_url
-			FROM community_interactions ci JOIN users u ON u.user_id=ci.tagged_user_id LEFT JOIN community_users cu ON cu.user_id=u.user_id
-			WHERE ci.content_id=? AND ci.interaction_type='TAG' ORDER BY u.user_id
-			""", (rs, n) -> new FriendResponse(rs.getLong("user_id"), rs.getString("nickname"), rs.getString("badge_tier"), rs.getInt("friend_count"), rs.getString("profile_image_url"), "tagged"), feedId);
+			FROM community_interactions ci
+			JOIN community_contents cc ON cc.content_id = ci.content_id
+			JOIN users u ON u.user_id=ci.tagged_user_id
+			LEFT JOIN community_users cu ON cu.user_id=u.user_id
+			WHERE ci.content_id=? AND ci.interaction_type='TAG' AND
+			""" + visibilityPredicate + " ORDER BY u.user_id", (rs, n) -> new FriendResponse(rs.getLong("user_id"), rs.getString("nickname"), rs.getString("badge_tier"), rs.getInt("friend_count"), rs.getString("profile_image_url"), "tagged"), args.toArray());
 	}
 
 	private List<CommunityContentResponse> contentQuery(String predicate, long viewerUserId, Object... predicateArgs) {

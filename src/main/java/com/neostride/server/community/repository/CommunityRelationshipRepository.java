@@ -73,8 +73,8 @@ final class CommunityRelationshipRepository {
 				jdbcTemplate.update("INSERT INTO relationships (user1_id, user2_id, status) VALUES (?, ?, 'REQUESTED') ON DUPLICATE KEY UPDATE status = 'REQUESTED'", userId, request.targetId());
 				notifyFriendRequest(userId, request.targetId());
 			}
-			case "accept" -> jdbcTemplate.update("UPDATE relationships SET status='ACCEPTED' WHERE user1_id=? AND user2_id=?", request.targetId(), userId);
-			case "reject" -> jdbcTemplate.update("UPDATE relationships SET status='REJECTED' WHERE user1_id=? AND user2_id=?", request.targetId(), userId);
+			case "accept" -> requireChanged(jdbcTemplate.update("UPDATE relationships SET status='ACCEPTED' WHERE user1_id=? AND user2_id=? AND status='REQUESTED'", request.targetId(), userId), "친구 요청을 찾을 수 없습니다.");
+			case "reject" -> requireChanged(jdbcTemplate.update("UPDATE relationships SET status='REJECTED' WHERE user1_id=? AND user2_id=? AND status='REQUESTED'", request.targetId(), userId), "친구 요청을 찾을 수 없습니다.");
 			case "block" -> {
 				jdbcTemplate.update("DELETE FROM relationships WHERE (user1_id=? AND user2_id=?) OR (user1_id=? AND user2_id=?)", userId, request.targetId(), request.targetId(), userId);
 				jdbcTemplate.update("INSERT INTO relationships (user1_id, user2_id, status) VALUES (?, ?, 'BLOCKED')", userId, request.targetId());
@@ -84,10 +84,16 @@ final class CommunityRelationshipRepository {
 					WHERE ci.user_id = ? AND cc.author_user_id = ?
 					""", userId, request.targetId());
 			}
-			case "cancel" -> jdbcTemplate.update("DELETE FROM relationships WHERE user1_id=? AND user2_id=? AND status='REQUESTED'", userId, request.targetId());
-			case "unblock" -> jdbcTemplate.update("DELETE FROM relationships WHERE user1_id=? AND user2_id=? AND status='BLOCKED'", userId, request.targetId());
-			case "delete", "unfriend" -> jdbcTemplate.update("DELETE FROM relationships WHERE status <> 'BLOCKED' AND ((user1_id=? AND user2_id=?) OR (user1_id=? AND user2_id=?))", userId, request.targetId(), request.targetId(), userId);
+			case "cancel" -> requireChanged(jdbcTemplate.update("DELETE FROM relationships WHERE user1_id=? AND user2_id=? AND status='REQUESTED'", userId, request.targetId()), "친구 요청을 찾을 수 없습니다.");
+			case "unblock" -> requireChanged(jdbcTemplate.update("DELETE FROM relationships WHERE user1_id=? AND user2_id=? AND status='BLOCKED'", userId, request.targetId()), "차단 관계를 찾을 수 없습니다.");
+			case "delete", "unfriend" -> requireChanged(jdbcTemplate.update("DELETE FROM relationships WHERE status <> 'BLOCKED' AND ((user1_id=? AND user2_id=?) OR (user1_id=? AND user2_id=?))", userId, request.targetId(), request.targetId(), userId), "친구 관계를 찾을 수 없습니다.");
 			default -> throw new IllegalArgumentException("지원하지 않는 relationship action입니다.");
+		}
+	}
+
+	private static void requireChanged(int changed, String message) {
+		if (changed == 0) {
+			throw new IllegalArgumentException(message);
 		}
 	}
 

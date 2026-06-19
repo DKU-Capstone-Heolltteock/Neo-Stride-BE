@@ -1,6 +1,6 @@
 # MySQL Schema Baseline
 
-`latest.sql` is a schema-only baseline generated from the operational MySQL schema after migration `024_crew_core`. It includes refresh token persistence, normalized community content columns, fulltext search indexes, feed ordering support, and migration verification coverage through 024.
+`latest.sql` is a schema-only baseline generated from the operational MySQL schema after migration `025_remove_email_from_public_profile_search`. It includes refresh token persistence, normalized community content columns, privacy-safe fulltext search indexes, feed ordering support, crew core tables, and migration verification coverage through 025.
 
 It intentionally excludes application data and volatile auto-increment values. Trigger definers are omitted so the importing MySQL user becomes the definer in the target environment.
 

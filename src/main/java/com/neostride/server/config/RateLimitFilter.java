@@ -8,6 +8,8 @@ import java.io.IOException;
 import java.time.Clock;
 import java.util.Iterator;
 import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -23,6 +25,7 @@ public class RateLimitFilter extends OncePerRequestFilter {
 	private final int authLimit;
 	private final int writeLimit;
 	private final int readLimit;
+	private final Set<String> trustedProxyAddresses;
 	private final Clock clock;
 	private final Map<String, Window> windows = new ConcurrentHashMap<>();
 
@@ -31,16 +34,22 @@ public class RateLimitFilter extends OncePerRequestFilter {
 			@Value("${neostride.rate-limit.enabled:true}") boolean enabled,
 			@Value("${neostride.rate-limit.auth-per-minute:30}") int authLimit,
 			@Value("${neostride.rate-limit.write-per-minute:120}") int writeLimit,
-			@Value("${neostride.rate-limit.read-per-minute:600}") int readLimit
+			@Value("${neostride.rate-limit.read-per-minute:600}") int readLimit,
+			@Value("${neostride.rate-limit.trusted-proxy-addresses:127.0.0.1,::1}") String trustedProxyAddresses
 	) {
-		this(enabled, authLimit, writeLimit, readLimit, Clock.systemUTC());
+		this(enabled, authLimit, writeLimit, readLimit, parseTrustedProxyAddresses(trustedProxyAddresses), Clock.systemUTC());
 	}
 
 	RateLimitFilter(boolean enabled, int authLimit, int writeLimit, int readLimit, Clock clock) {
+		this(enabled, authLimit, writeLimit, readLimit, Set.of(), clock);
+	}
+
+	RateLimitFilter(boolean enabled, int authLimit, int writeLimit, int readLimit, Set<String> trustedProxyAddresses, Clock clock) {
 		this.enabled = enabled;
 		this.authLimit = Math.max(1, authLimit);
 		this.writeLimit = Math.max(1, writeLimit);
 		this.readLimit = Math.max(1, readLimit);
+		this.trustedProxyAddresses = trustedProxyAddresses == null ? Set.of() : Set.copyOf(trustedProxyAddresses);
 		this.clock = clock;
 	}
 
@@ -121,11 +130,25 @@ public class RateLimitFilter extends OncePerRequestFilter {
 	}
 
 	private String clientKey(HttpServletRequest request) {
+		String remoteAddr = request.getRemoteAddr() == null ? "unknown" : request.getRemoteAddr();
 		String forwarded = request.getHeader("X-Forwarded-For");
-		if (forwarded != null && !forwarded.isBlank()) {
-			return forwarded.split(",", 2)[0].trim();
+		if (trustedProxyAddresses.contains(remoteAddr) && forwarded != null && !forwarded.isBlank()) {
+			String firstForwarded = forwarded.split(",", 2)[0].trim();
+			if (!firstForwarded.isBlank()) {
+				return firstForwarded;
+			}
 		}
-		return request.getRemoteAddr() == null ? "unknown" : request.getRemoteAddr();
+		return remoteAddr;
+	}
+
+	private static Set<String> parseTrustedProxyAddresses(String raw) {
+		if (raw == null || raw.isBlank()) {
+			return Set.of();
+		}
+		return java.util.Arrays.stream(raw.split(","))
+				.map(String::trim)
+				.filter(value -> !value.isBlank())
+				.collect(Collectors.toUnmodifiableSet());
 	}
 
 	private void cleanup(long now) {

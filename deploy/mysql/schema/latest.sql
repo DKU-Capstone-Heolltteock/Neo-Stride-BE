@@ -533,7 +533,7 @@ CREATE TABLE `users` (
   UNIQUE KEY `uq_users_email` (`email`),
   UNIQUE KEY `uq_users_name` (`name`),
   UNIQUE KEY `uq_users_community_profile_name` (`community_profile_name`),
-  FULLTEXT KEY `ft_users_search` (`name`,`community_profile_name`,`email`)
+  FULLTEXT KEY `ft_users_search` (`name`,`community_profile_name`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 /*!40103 SET TIME_ZONE=@OLD_TIME_ZONE */;

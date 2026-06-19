@@ -61,16 +61,24 @@ final class CommunityInteractionRepository {
 		}, kh);
 		long commentId = generatedKey(kh, "댓글 ID를 생성하지 못했습니다.");
 		notifyContentInteraction(userId, contentId, "COMMENT");
-		return findComment(userId, commentId);
+		return findComment(userId, contentId, commentId);
 	}
 
 	CommentResponse updateComment(long userId, long contentId, long commentId, CommentRequest request) {
-		jdbcTemplate.update("UPDATE community_interactions SET comment_text=? WHERE interaction_id=? AND user_id=? AND content_id=? AND interaction_type='COMMENT'", request.content(), commentId, userId, contentId);
-		return findComment(userId, commentId);
+		requireViewableContent(userId, contentId);
+		int updated = jdbcTemplate.update("UPDATE community_interactions SET comment_text=? WHERE interaction_id=? AND user_id=? AND content_id=? AND interaction_type='COMMENT'", request.content(), commentId, userId, contentId);
+		if (updated == 0) {
+			throw new IllegalArgumentException("댓글을 찾을 수 없습니다.");
+		}
+		return findComment(userId, contentId, commentId);
 	}
 
 	void deleteComment(long userId, long contentId, long commentId) {
-		jdbcTemplate.update("DELETE FROM community_interactions WHERE interaction_id=? AND user_id=? AND content_id=? AND interaction_type='COMMENT'", commentId, userId, contentId);
+		requireViewableContent(userId, contentId);
+		int deleted = jdbcTemplate.update("DELETE FROM community_interactions WHERE interaction_id=? AND user_id=? AND content_id=? AND interaction_type='COMMENT'", commentId, userId, contentId);
+		if (deleted == 0) {
+			throw new IllegalArgumentException("댓글을 찾을 수 없습니다.");
+		}
 	}
 
 	List<CommentResponse> commentsPage(long viewerUserId, long contentId, LocalDateTime cursorCreatedAt, Long cursorId, int limit) {
@@ -108,14 +116,14 @@ final class CommunityInteractionRepository {
 			""" + (limit == null ? "" : " LIMIT ?"), (rs, n) -> mapComment(rs, viewerUserId), args.toArray());
 	}
 
-	private CommentResponse findComment(long viewerUserId, long commentId) {
+	private CommentResponse findComment(long viewerUserId, long contentId, long commentId) {
 		return jdbcTemplate.query("""
 			SELECT ci.interaction_id, ci.user_id, COALESCE(cu.community_profile_name, u.community_profile_name, u.name) AS nickname,
 			       COALESCE(cu.profile_photo, u.profile_photo) AS profile_image_url, ci.comment_text, ci.created_at,
 			       COALESCE(cu.badge, 'NONE') AS badge
 			FROM community_interactions ci JOIN users u ON u.user_id=ci.user_id LEFT JOIN community_users cu ON cu.user_id=u.user_id
-			WHERE ci.interaction_id=? AND ci.interaction_type='COMMENT'
-			""", (rs, n) -> mapComment(rs, viewerUserId), commentId).stream().findFirst().orElse(null);
+			WHERE ci.interaction_id=? AND ci.content_id=? AND ci.interaction_type='COMMENT'
+			""", (rs, n) -> mapComment(rs, viewerUserId), commentId, contentId).stream().findFirst().orElse(null);
 	}
 
 	private CommentResponse mapComment(java.sql.ResultSet rs, long viewerUserId) throws java.sql.SQLException {

@@ -208,8 +208,12 @@ public class CommunityFeedController {
 	}
 
 	@GetMapping("/api/community/feeds/{feedId}/tagged-users")
-	public ResponseEntity<List<FriendResponse>> getTaggedUsers(@PathVariable long feedId) {
-		return ResponseEntity.ok(service.getTaggedUsers(feedId));
+	public ResponseEntity<List<FriendResponse>> getTaggedUsers(
+			@RequestHeader(value = "Authorization", required = false) String authorization,
+			@RequestHeader(value = "X-User-Id", required = false) Long headerUserId,
+			@PathVariable long feedId
+	) {
+		return ResponseEntity.ok(service.getTaggedUsers(userContext.optionalUserId(authorization, headerUserId), feedId));
 	}
 
 	@PostMapping(value = "/api/community/feeds", consumes = MediaType.APPLICATION_JSON_VALUE)
