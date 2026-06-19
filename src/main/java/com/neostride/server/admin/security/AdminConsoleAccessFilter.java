@@ -32,7 +32,7 @@ public class AdminConsoleAccessFilter extends OncePerRequestFilter {
 			@Value("${neostride.admin-console.enabled:true}") boolean enabled,
 			@Value("${neostride.admin-console.require-allowlist:false}") boolean requireAllowlist,
 			@Value("${neostride.admin-console.allowed-ip-ranges:}") String allowedIpRanges,
-			@Value("${neostride.admin-console.trusted-proxy-addresses:${RATE_LIMIT_TRUSTED_PROXY_ADDRESSES:127.0.0.1,::1}}") String trustedProxyAddresses
+			@Value("${neostride.admin-console.trusted-proxy-addresses:${ADMIN_CONSOLE_TRUSTED_PROXY_ADDRESSES:${RATE_LIMIT_TRUSTED_PROXY_ADDRESSES:127.0.0.1,::1}}}") String trustedProxyAddresses
 	) {
 		this(
 				enabled,
