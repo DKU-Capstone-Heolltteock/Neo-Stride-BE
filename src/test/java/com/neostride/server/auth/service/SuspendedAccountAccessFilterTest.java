@@ -63,8 +63,36 @@ class SuspendedAccountAccessFilterTest {
 		verify(chain).doFilter(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
 	}
 
+	@Test
+	void permanentSuspensionBlocksLegacyFeedUpload() throws Exception {
+		FilterChain chain = mock(FilterChain.class);
+		when(userAdministrationPort.findAccount(7L)).thenReturn(Optional.of(account(null)));
+		MockHttpServletResponse response = new MockHttpServletResponse();
+
+		filter.doFilterInternal(request("POST", "/feeds"), response, chain);
+
+		assertThat(response.getStatus()).isEqualTo(403);
+		verify(chain, never()).doFilter(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
+	}
+
+	@Test
+	void permanentSuspensionBlocksLegacyStatusUpdate() throws Exception {
+		FilterChain chain = mock(FilterChain.class);
+		when(userAdministrationPort.findAccount(7L)).thenReturn(Optional.of(account(null)));
+		MockHttpServletResponse response = new MockHttpServletResponse();
+
+		filter.doFilterInternal(request("PATCH", "/users/me/status"), response, chain);
+
+		assertThat(response.getStatus()).isEqualTo(403);
+		verify(chain, never()).doFilter(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
+	}
+
 	private MockHttpServletRequest request() {
-		MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/community/feeds");
+		return request("GET", "/api/community/feeds");
+	}
+
+	private MockHttpServletRequest request(String method, String path) {
+		MockHttpServletRequest request = new MockHttpServletRequest(method, path);
 		request.addHeader("Authorization", "Bearer " + tokenService.generateAccessToken(7L, "runner@example.com", "러너"));
 		return request;
 	}

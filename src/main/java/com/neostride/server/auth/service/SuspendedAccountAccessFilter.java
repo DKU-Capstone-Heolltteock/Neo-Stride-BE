@@ -70,11 +70,22 @@ public class SuspendedAccountAccessFilter extends OncePerRequestFilter {
 	}
 
 	private boolean shouldCheck(HttpServletRequest request) {
+		String method = request.getMethod();
 		String path = request.getRequestURI();
-		return path.startsWith("/api/")
-				&& !path.startsWith("/api/auth")
-				&& !path.startsWith("/api/admin")
-				&& !path.startsWith("/api/ops")
-				&& !path.startsWith("/api/dev");
+		if (path.startsWith("/api/")) {
+			return !path.startsWith("/api/auth")
+					&& !path.startsWith("/api/admin")
+					&& !path.startsWith("/api/ops")
+					&& !path.startsWith("/api/dev");
+		}
+		return ("POST".equals(method) && path.equals("/feeds"))
+				|| hasPrefix(path, "/users/me")
+				|| hasPrefix(path, "/community/contents")
+				|| hasPrefix(path, "/community/bookmark")
+				|| hasPrefix(path, "/community/friends");
+	}
+
+	private boolean hasPrefix(String path, String prefix) {
+		return path.equals(prefix) || path.startsWith(prefix + "/");
 	}
 }
