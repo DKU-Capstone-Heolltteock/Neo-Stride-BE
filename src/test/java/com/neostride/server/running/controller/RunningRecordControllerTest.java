@@ -37,6 +37,19 @@ class RunningRecordControllerTest {
 		assertThat(response.getBody()).hasSize(1);
 	}
 
+
+	@Test
+	void fetchUserRecords_serializesFeedLinkedFlag() throws Exception {
+		authenticate();
+		when(service.findByUserId(1L)).thenReturn(List.of(RunningRecordResponse.record(
+				10L, true, null, "2026-04-28T14:30:00", new BigDecimal("3.25"), 1240, 382, 235, List.of(), List.of())));
+
+		var response = controller.fetchUserRecords(AUTHORIZATION, 1L);
+
+		String json = new ObjectMapper().writeValueAsString(response.getBody());
+		assertThat(json).contains("\"is_feed_linked\":true");
+	}
+
 	@Test
 	void getMonthlyRecords_returnsOkResponse() {
 		authenticate();

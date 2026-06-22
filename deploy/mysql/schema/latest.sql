@@ -498,9 +498,11 @@ CREATE TABLE `running_records` (
   `pace` int DEFAULT NULL,
   `calories` int DEFAULT NULL,
   `route_detail` text COLLATE utf8mb4_unicode_ci,
+  `badge` enum('NONE','BRONZE','SILVER','GOLD','PLATINUM','DIAMOND','MASTER','CHALLENGER') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'NONE',
   PRIMARY KEY (`run_record_id`),
   KEY `fk_running_records_plan` (`plan_id`),
   KEY `idx_rr_user_created` (`user_id`,`created_at` DESC,`run_record_id` DESC),
+  KEY `idx_rr_user_badge_distance` (`user_id`,`badge`,`total_distance` DESC,`created_at` DESC,`run_record_id` DESC),
   CONSTRAINT `fk_running_records_plan` FOREIGN KEY (`plan_id`) REFERENCES `plans` (`plan_id`) ON DELETE SET NULL,
   CONSTRAINT `fk_running_records_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`user_id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

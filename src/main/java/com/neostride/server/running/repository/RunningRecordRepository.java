@@ -15,6 +15,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -34,6 +35,7 @@ public class RunningRecordRepository {
 
 	private final RowMapper<RunningRecordResponse> runningRecordRowMapper = (rs, rowNum) -> RunningRecordResponse.record(
 			rs.getLong("run_record_id"),
+			rs.getBoolean("is_feed_linked"),
 			nullableLong(rs.getObject("plan_id")),
 			rs.getTimestamp("created_at").toLocalDateTime().format(RESPONSE_TIME_FORMATTER),
 			rs.getBigDecimal("total_distance"),
@@ -53,8 +55,8 @@ public class RunningRecordRepository {
 		jdbcTemplate.update(connection -> {
 			PreparedStatement ps = connection.prepareStatement("""
 					INSERT INTO running_records
-						(user_id, plan_id, total_distance, duration, pace, calories, route_detail)
-					VALUES (?, ?, ?, ?, ?, ?, ?)
+						(user_id, plan_id, total_distance, duration, pace, calories, route_detail, badge)
+					VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 					""", Statement.RETURN_GENERATED_KEYS);
 			ps.setLong(1, request.userId());
 			if (request.planId() == null) {
@@ -67,6 +69,7 @@ public class RunningRecordRepository {
 			ps.setInt(5, request.pace());
 			ps.setInt(6, roundedInt(request.calories()));
 			ps.setString(7, request.routeDetail());
+			ps.setString(8, normalizeBadge(request.badge()));
 			return ps;
 		}, keyHolder);
 
@@ -75,6 +78,17 @@ public class RunningRecordRepository {
 			throw new IllegalStateException("러닝 기록 ID를 생성하지 못했습니다.");
 		}
 		return generatedId.longValue();
+	}
+
+	private static String normalizeBadge(String badge) {
+		if (badge == null || badge.isBlank()) {
+			return "NONE";
+		}
+		String normalized = badge.trim().toUpperCase(Locale.ROOT);
+		return switch (normalized) {
+			case "BRONZE", "SILVER", "GOLD", "PLATINUM", "DIAMOND", "MASTER", "CHALLENGER" -> normalized;
+			default -> "NONE";
+		};
 	}
 
 	public void insertGpsTraces(long runRecordId, List<GpsTraceRequest> gpsTraces) {
@@ -108,10 +122,16 @@ public class RunningRecordRepository {
 
 	public List<RunningRecordResponse> findByUserId(long userId) {
 		List<RunningRecordResponse> records = jdbcTemplate.query("""
-				SELECT run_record_id, plan_id, created_at, total_distance, duration, pace, calories
-				FROM running_records
-				WHERE user_id = ?
-				ORDER BY created_at DESC, run_record_id DESC
+				SELECT rr.run_record_id, rr.plan_id, rr.created_at, rr.total_distance, rr.duration, rr.pace, rr.calories,
+				       EXISTS (
+				           SELECT 1
+				           FROM community_contents cc
+				           WHERE cc.running_record_id = rr.run_record_id
+				             AND cc.content_type = 'POST'
+				       ) AS is_feed_linked
+				FROM running_records rr
+				WHERE rr.user_id = ?
+				ORDER BY rr.created_at DESC, rr.run_record_id DESC
 				""", runningRecordRowMapper, userId);
 		return attachGpsTraces(records);
 	}
@@ -120,19 +140,31 @@ public class RunningRecordRepository {
 		LocalDate startDate = LocalDate.of(year, month, 1);
 		LocalDate endDate = startDate.plusMonths(1);
 		List<RunningRecordResponse> records = jdbcTemplate.query("""
-				SELECT run_record_id, plan_id, created_at, total_distance, duration, pace, calories
-				FROM running_records
-				WHERE user_id = ? AND created_at >= ? AND created_at < ?
-				ORDER BY created_at DESC, run_record_id DESC
+				SELECT rr.run_record_id, rr.plan_id, rr.created_at, rr.total_distance, rr.duration, rr.pace, rr.calories,
+				       EXISTS (
+				           SELECT 1
+				           FROM community_contents cc
+				           WHERE cc.running_record_id = rr.run_record_id
+				             AND cc.content_type = 'POST'
+				       ) AS is_feed_linked
+				FROM running_records rr
+				WHERE rr.user_id = ? AND rr.created_at >= ? AND rr.created_at < ?
+				ORDER BY rr.created_at DESC, rr.run_record_id DESC
 				""", runningRecordRowMapper, userId, startDate, endDate);
 		return attachGpsTraces(records);
 	}
 
 	public RunningRecordResponse findByRecordIdForUser(long userId, long recordId) {
 		List<RunningRecordResponse> records = jdbcTemplate.query("""
-				SELECT run_record_id, plan_id, created_at, total_distance, duration, pace, calories
-				FROM running_records
-				WHERE user_id = ? AND run_record_id = ?
+				SELECT rr.run_record_id, rr.plan_id, rr.created_at, rr.total_distance, rr.duration, rr.pace, rr.calories,
+				       EXISTS (
+				           SELECT 1
+				           FROM community_contents cc
+				           WHERE cc.running_record_id = rr.run_record_id
+				             AND cc.content_type = 'POST'
+				       ) AS is_feed_linked
+				FROM running_records rr
+				WHERE rr.user_id = ? AND rr.run_record_id = ?
 				""", runningRecordRowMapper, userId, recordId);
 		return records.isEmpty() ? null : attachGpsTraces(records).getFirst();
 	}
@@ -212,6 +244,7 @@ public class RunningRecordRepository {
 		return records.stream()
 				.map(record -> RunningRecordResponse.record(
 						record.runRecordId(),
+						record.isFeedLinked(),
 						record.planId(),
 						record.createdAt(),
 						record.totalDistance(),

@@ -172,9 +172,10 @@ final class CommunityFeedRepository {
 
 	void updateFeed(long userId, long feedId, FeedUploadRequest request) {
 		String contentText = CommunityContentCodec.encodeFeedContent(request.title(), request.content(), request.routeMapImageUri(), request.distance(), request.runningTime(), request.pace());
+		Long runningRecordId = request.runningRecordId();
 		int updated;
-		if (request.runningRecordId() != null) {
-			updated = jdbcTemplate.update("UPDATE community_contents SET running_record_id=?, include_route_detail=?, feed_scope=?, content_text=?, image=?, title=?, body_text=?, route_map_image_url=?, distance_km=?, running_time_text=?, pace_text=? WHERE content_id=? AND author_user_id=? AND content_type='POST'", ownedRunningRecordId(userId, request.runningRecordId()), request.mapVisible(), normalizeScope(request.privacy()), contentText, CommunityContentCodec.encodeImages(request.imageUrls()), request.title(), request.content(), request.routeMapImageUri(), request.distance(), request.runningTime(), request.pace(), feedId, userId);
+		if (runningRecordId != null && runningRecordId.longValue() != 0L) {
+			updated = jdbcTemplate.update("UPDATE community_contents SET running_record_id=?, include_route_detail=?, feed_scope=?, content_text=?, image=?, title=?, body_text=?, route_map_image_url=?, distance_km=?, running_time_text=?, pace_text=? WHERE content_id=? AND author_user_id=? AND content_type='POST'", ownedRunningRecordId(userId, runningRecordId), request.mapVisible(), normalizeScope(request.privacy()), contentText, CommunityContentCodec.encodeImages(request.imageUrls()), request.title(), request.content(), request.routeMapImageUri(), request.distance(), request.runningTime(), request.pace(), feedId, userId);
 		} else {
 			updated = jdbcTemplate.update("UPDATE community_contents SET include_route_detail=?, feed_scope=?, content_text=?, image=?, title=?, body_text=?, route_map_image_url=?, distance_km=?, running_time_text=?, pace_text=? WHERE content_id=? AND author_user_id=? AND content_type='POST'", request.mapVisible(), normalizeScope(request.privacy()), contentText, CommunityContentCodec.encodeImages(request.imageUrls()), request.title(), request.content(), request.routeMapImageUri(), request.distance(), request.runningTime(), request.pace(), feedId, userId);
 		}
