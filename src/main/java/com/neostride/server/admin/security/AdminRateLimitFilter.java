@@ -1,5 +1,6 @@
 package com.neostride.server.admin.security;
 
+import com.neostride.server.platform.web.ClientIpResolver;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -8,6 +9,7 @@ import java.io.IOException;
 import java.time.Clock;
 import java.util.Iterator;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -25,23 +27,39 @@ public class AdminRateLimitFilter extends OncePerRequestFilter {
 	private final int readLimit;
 	private final int writeLimit;
 	private final Clock clock;
+	private final ClientIpResolver clientIpResolver;
 	private final Map<String, Window> windows = new ConcurrentHashMap<>();
 
-@Autowired
+	@Autowired
 	public AdminRateLimitFilter(
 			@Value("${neostride.admin.rate-limit.enabled:${RATE_LIMIT_ENABLED:true}}") boolean enabled,
 			@Value("${neostride.admin.rate-limit.auth-per-minute:${ADMIN_RATE_LIMIT_AUTH_PER_MINUTE:20}}") int authLimit,
 			@Value("${neostride.admin.rate-limit.read-per-minute:${ADMIN_RATE_LIMIT_READ_PER_MINUTE:600}}") int readLimit,
-			@Value("${neostride.admin.rate-limit.write-per-minute:${ADMIN_RATE_LIMIT_WRITE_PER_MINUTE:120}}") int writeLimit
+			@Value("${neostride.admin.rate-limit.write-per-minute:${ADMIN_RATE_LIMIT_WRITE_PER_MINUTE:120}}") int writeLimit,
+			@Value("${neostride.admin-console.trusted-proxy-addresses:${ADMIN_CONSOLE_TRUSTED_PROXY_ADDRESSES:${neostride.rate-limit.trusted-proxy-addresses:${RATE_LIMIT_TRUSTED_PROXY_ADDRESSES:127.0.0.1,::1}}}}") String trustedProxyAddresses
 	) {
-		this(enabled, authLimit, readLimit, writeLimit, Clock.systemUTC());
+		this(enabled, authLimit, readLimit, writeLimit,
+				ClientIpResolver.parseTrustedProxyAddresses(trustedProxyAddresses),
+				Clock.systemUTC());
 	}
 
 	AdminRateLimitFilter(boolean enabled, int authLimit, int readLimit, int writeLimit, Clock clock) {
+		this(enabled, authLimit, readLimit, writeLimit, Set.of(), clock);
+	}
+
+	AdminRateLimitFilter(
+			boolean enabled,
+			int authLimit,
+			int readLimit,
+			int writeLimit,
+			Set<String> trustedProxyAddresses,
+			Clock clock
+	) {
 		this.enabled = enabled;
 		this.authLimit = Math.max(1, authLimit);
 		this.readLimit = Math.max(1, readLimit);
 		this.writeLimit = Math.max(1, writeLimit);
+		this.clientIpResolver = new ClientIpResolver(trustedProxyAddresses);
 		this.clock = clock;
 	}
 
@@ -86,11 +104,7 @@ public class AdminRateLimitFilter extends OncePerRequestFilter {
 	}
 
 	private String clientKey(HttpServletRequest request) {
-		String forwarded = request.getHeader("X-Forwarded-For");
-		if (forwarded != null && !forwarded.isBlank()) {
-			return forwarded.split(",", 2)[0].trim();
-		}
-		return request.getRemoteAddr() == null ? "unknown" : request.getRemoteAddr();
+		return clientIpResolver.resolve(request);
 	}
 
 	private void cleanup(long now) {
