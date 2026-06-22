@@ -56,7 +56,7 @@ public class DevtoolsController {
 			@RequestBody BugReportStatusRequest request,
 			HttpServletRequest servletRequest
 	) {
-		var actor = authorizationService.requirePermission(authorization, OperatorPermissions.LOGS_READ);
+		var actor = authorizationService.requirePermission(authorization, OperatorPermissions.BUG_REPORT_WRITE);
 		return ResponseEntity.ok(service.updateBugReportStatus(bugReportId, request, actor, AuditContext.from(servletRequest)));
 	}
 
@@ -65,18 +65,20 @@ public class DevtoolsController {
 			@RequestHeader(value = "Authorization", required = false) String authorization,
 			@RequestParam(value = "q", required = false) String query,
 			@RequestParam(value = "status_code", required = false) Integer statusCode,
-			@RequestParam(value = "limit", defaultValue = "50") int limit
+			@RequestParam(value = "limit", defaultValue = "50") int limit,
+			HttpServletRequest servletRequest
 	) {
-		authorizationService.requirePermission(authorization, OperatorPermissions.LOGS_READ);
-		return ResponseEntity.ok(service.searchLogs(query, statusCode, limit));
+		var actor = authorizationService.requirePermission(authorization, OperatorPermissions.LOGS_READ);
+		return ResponseEntity.ok(service.searchLogs(query, statusCode, limit, actor, AuditContext.from(servletRequest)));
 	}
 
 	@GetMapping("/logs/errors")
 	public ResponseEntity<List<ErrorEventResponse>> recentErrors(
 			@RequestHeader(value = "Authorization", required = false) String authorization,
-			@RequestParam(value = "limit", defaultValue = "50") int limit
+			@RequestParam(value = "limit", defaultValue = "50") int limit,
+			HttpServletRequest servletRequest
 	) {
-		authorizationService.requirePermission(authorization, OperatorPermissions.LOGS_READ);
-		return ResponseEntity.ok(service.recentErrors(limit));
+		var actor = authorizationService.requirePermission(authorization, OperatorPermissions.LOGS_READ);
+		return ResponseEntity.ok(service.recentErrors(limit, actor, AuditContext.from(servletRequest)));
 	}
 }

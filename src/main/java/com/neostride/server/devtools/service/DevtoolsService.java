@@ -45,11 +45,37 @@ public class DevtoolsService {
 		return after;
 	}
 
-	public List<ErrorEventResponse> searchLogs(String query, Integer statusCode, int limit) {
-		return errorEventRepository.recent(query, statusCode, limit);
+	@Transactional
+	public List<ErrorEventResponse> searchLogs(String query, Integer statusCode, int limit, OperatorPrincipal actor, AuditContext context) {
+		List<ErrorEventResponse> events = errorEventRepository.recent(query, statusCode, limit);
+		auditLogService.record(actor.operatorAccountId(), "log.search", "server_error_event", null,
+				logSearchReason(query, statusCode, limit), null, returnedCount(events), context);
+		return events;
 	}
 
-	public List<ErrorEventResponse> recentErrors(int limit) {
-		return errorEventRepository.recent(null, null, limit);
+	@Transactional
+	public List<ErrorEventResponse> recentErrors(int limit, OperatorPrincipal actor, AuditContext context) {
+		List<ErrorEventResponse> events = errorEventRepository.recent(null, null, limit);
+		auditLogService.record(actor.operatorAccountId(), "log.recent-errors", "server_error_event", null,
+				"recent_errors; limit=" + cappedLimit(limit), null, returnedCount(events), context);
+		return events;
+	}
+
+	private String logSearchReason(String query, Integer statusCode, int limit) {
+		boolean queryPresent = query != null && !query.isBlank();
+		int queryLength = queryPresent ? query.trim().length() : 0;
+		String statusSummary = statusCode == null ? "any" : String.valueOf(statusCode);
+		return "query_present=" + queryPresent
+				+ "; query_length=" + queryLength
+				+ "; status_code=" + statusSummary
+				+ "; limit=" + cappedLimit(limit);
+	}
+
+	private String returnedCount(List<ErrorEventResponse> events) {
+		return "returned_count=" + events.size();
+	}
+
+	private int cappedLimit(int limit) {
+		return Math.min(Math.max(limit, 1), 200);
 	}
 }
