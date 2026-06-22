@@ -88,6 +88,39 @@ class RunningRecordRepositoryTest {
 	}
 
 	@Test
+	void insertRunningRecordPersistsBadgeTierForBadgeDetailRecordSelection() throws Exception {
+		JdbcTemplate jdbcTemplate = mock(JdbcTemplate.class);
+		Connection connection = mock(Connection.class);
+		PreparedStatement ps = mock(PreparedStatement.class);
+		when(connection.prepareStatement(anyString(), eq(java.sql.Statement.RETURN_GENERATED_KEYS))).thenReturn(ps);
+		doAnswer(invocation -> {
+			var creator = invocation.getArgument(0, org.springframework.jdbc.core.PreparedStatementCreator.class);
+			var keyHolder = invocation.getArgument(1, org.springframework.jdbc.support.KeyHolder.class);
+			creator.createPreparedStatement(connection);
+			keyHolder.getKeyList().add(Map.of("GENERATED_KEY", 12L));
+			return 1;
+		}).when(jdbcTemplate).update(any(org.springframework.jdbc.core.PreparedStatementCreator.class), any(org.springframework.jdbc.support.KeyHolder.class));
+		RunningRecordRepository repository = new RunningRecordRepository(jdbcTemplate);
+
+		repository.insertRunningRecord(new com.neostride.server.running.dto.RunningRecordRequest(
+				7L,
+				null,
+				new BigDecimal("5.23"),
+				1800,
+				392,
+				new BigDecimal("310.56"),
+				"",
+				List.of(new GpsTraceRequest(37.5665, 126.978, "2026-05-12 18:00:00", null, null)),
+				"gold"
+		));
+
+		var sqlCaptor = org.mockito.ArgumentCaptor.forClass(String.class);
+		verify(connection).prepareStatement(sqlCaptor.capture(), eq(java.sql.Statement.RETURN_GENERATED_KEYS));
+		assertThat(sqlCaptor.getValue()).contains("badge");
+		verify(ps).setString(8, "GOLD");
+	}
+
+	@Test
 	@SuppressWarnings({"unchecked", "rawtypes"})
 	void findByUserIdSelectsPlanIdForCoachingRecords() {
 		JdbcTemplate jdbcTemplate = mock(JdbcTemplate.class);
@@ -99,6 +132,25 @@ class RunningRecordRepositoryTest {
 		var sqlCaptor = org.mockito.ArgumentCaptor.forClass(String.class);
 		verify(jdbcTemplate).query(sqlCaptor.capture(), any(RowMapper.class), eq(7L));
 		assertThat(sqlCaptor.getValue()).contains("plan_id");
+	}
+
+
+	@Test
+	@SuppressWarnings({"unchecked", "rawtypes"})
+	void findByUserIdSelectsFeedLinkedFlagFromCommunityContents() {
+		JdbcTemplate jdbcTemplate = mock(JdbcTemplate.class);
+		when(jdbcTemplate.query(anyString(), any(RowMapper.class), eq(7L))).thenReturn(List.of());
+		RunningRecordRepository repository = new RunningRecordRepository(jdbcTemplate);
+
+		repository.findByUserId(7L);
+
+		var sqlCaptor = org.mockito.ArgumentCaptor.forClass(String.class);
+		verify(jdbcTemplate).query(sqlCaptor.capture(), any(RowMapper.class), eq(7L));
+		assertThat(sqlCaptor.getValue())
+				.contains("AS is_feed_linked")
+				.contains("FROM community_contents cc")
+				.contains("cc.running_record_id = rr.run_record_id")
+				.contains("cc.content_type = 'POST'");
 	}
 
 	@Test

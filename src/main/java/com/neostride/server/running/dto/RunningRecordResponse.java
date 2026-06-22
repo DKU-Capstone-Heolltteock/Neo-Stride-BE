@@ -22,6 +22,10 @@ public record RunningRecordResponse(
 		@JsonProperty("run_record_id")
 		Long runRecordId,
 
+		@Schema(description = "해당 러닝 기록이 피드에 연결되어 있는지 여부", example = "false")
+		@JsonProperty("is_feed_linked")
+		Boolean isFeedLinked,
+
 		@Schema(description = "연동된 코칭 플랜 ID. 일반 러닝이면 null", example = "20", nullable = true)
 		@JsonProperty("plan_id")
 		Long planId,
@@ -55,17 +59,23 @@ public record RunningRecordResponse(
 		List<Integer> segmentPaces
 ) {
 	public static RunningRecordResponse success(String message, long runRecordId) {
-		return new RunningRecordResponse("success", message, runRecordId, null, null, null, null, null, null, null, null);
+		return new RunningRecordResponse("success", message, runRecordId, null, null, null, null, null, null, null, null, null);
 	}
 
 	public static RunningRecordResponse error(String message) {
-		return new RunningRecordResponse("error", message, 0L, null, null, null, null, null, null, null, null);
+		return new RunningRecordResponse("error", message, 0L, null, null, null, null, null, null, null, null, null);
+	}
+
+	public static RunningRecordResponse record(long runRecordId, Boolean isFeedLinked, Long planId, String createdAt, BigDecimal totalDistance,
+			Integer duration, Integer pace, Integer calories,
+			List<GpsTraceRequest> gpsTraces, List<Integer> segmentPaces) {
+		return new RunningRecordResponse(null, null, runRecordId, isFeedLinked, planId, createdAt, totalDistance, duration, pace, calories, gpsTraces, segmentPaces);
 	}
 
 	public static RunningRecordResponse record(long runRecordId, Long planId, String createdAt, BigDecimal totalDistance,
 			Integer duration, Integer pace, Integer calories,
 			List<GpsTraceRequest> gpsTraces, List<Integer> segmentPaces) {
-		return new RunningRecordResponse(null, null, runRecordId, planId, createdAt, totalDistance, duration, pace, calories, gpsTraces, segmentPaces);
+		return record(runRecordId, false, planId, createdAt, totalDistance, duration, pace, calories, gpsTraces, segmentPaces);
 	}
 
 	public static RunningRecordResponse record(long runRecordId, String createdAt, BigDecimal totalDistance,

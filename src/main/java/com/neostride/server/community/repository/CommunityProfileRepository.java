@@ -106,7 +106,10 @@ final class CommunityProfileRepository {
 			SELECT COALESCE(cu.badge, 'NONE') AS badge, rr.run_record_id, rr.total_distance, rr.pace, rr.created_at
 			FROM users u LEFT JOIN community_users cu ON cu.user_id = u.user_id
 			LEFT JOIN running_records rr ON rr.user_id = u.user_id
-			WHERE u.user_id = ? ORDER BY rr.total_distance DESC, rr.created_at DESC LIMIT 1
+				AND rr.badge = COALESCE(cu.badge, 'NONE')
+				AND rr.badge <> 'NONE'
+			WHERE u.user_id = ?
+			ORDER BY rr.total_distance DESC, rr.created_at DESC, rr.run_record_id DESC LIMIT 1
 			""", (rs, n) -> new BadgeDetailResponse(rs.getString("badge"), nullableLong(rs.getObject("run_record_id")), nullToZero(rs.getBigDecimal("total_distance")), rs.getObject("pace") == null ? null : String.valueOf(rs.getInt("pace")), rs.getTimestamp("created_at") == null ? null : rs.getTimestamp("created_at").toLocalDateTime().format(ISO)), userId);
 		return rows.isEmpty() ? new BadgeDetailResponse("NONE", null, BigDecimal.ZERO, null, null) : rows.getFirst();
 	}

@@ -73,6 +73,13 @@ public class ApiExceptionHandler {
 			return ResponseEntity.status(HttpStatus.CONFLICT)
 					.body(Map.of("status", "error", "message", "사용자 또는 크루 정보를 확인할 수 없습니다."));
 		}
+		if (isAdminConsoleRequest(request)) {
+			String message = isOperatorEmailDuplicate(exception)
+					? "이미 등록된 운영자 이메일입니다."
+					: "관리자 콘솔 데이터 제약 조건을 확인할 수 없습니다.";
+			return ResponseEntity.status(HttpStatus.CONFLICT)
+					.body(Map.of("status", "error", "message", message));
+		}
 		return ResponseEntity.status(HttpStatus.CONFLICT)
 				.body(RunningRecordResponse.error("사용자 또는 플랜 정보를 확인할 수 없습니다."));
 	}
@@ -125,6 +132,18 @@ public class ApiExceptionHandler {
 	private boolean isCrewRequest(WebRequest request) {
 		String uri = requestUri(request);
 		return uri.startsWith("/api/crews") || uri.startsWith("/api/instant-crews") || uri.startsWith("/api/crew-chat");
+	}
+
+	private boolean isAdminConsoleRequest(WebRequest request) {
+		String uri = requestUri(request);
+		return uri.startsWith("/api/admin") || uri.startsWith("/api/ops") || uri.startsWith("/api/dev");
+	}
+
+	private boolean isOperatorEmailDuplicate(DataIntegrityViolationException exception) {
+		String message = exception.getMostSpecificCause() == null
+				? exception.getMessage()
+				: exception.getMostSpecificCause().getMessage() + " " + exception.getMessage();
+		return message != null && message.toLowerCase().contains("uq_operator_accounts_email");
 	}
 
 	private DuplicateUserFieldException duplicateUserField(DataIntegrityViolationException exception) {

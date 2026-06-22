@@ -218,6 +218,17 @@ class CommunityRepositoryTest {
 	}
 
 	@Test
+	void updateFeedKeepsExistingRunningRecordWhenRequestSendsZero() {
+		FeedUploadRequest request = new FeedUploadRequest("updated", "body", "PUBLIC", true, "route.png", List.of(), List.of("image.png"), new BigDecimal("5.0"), "30:00", "6'00\"", 0, 0L);
+
+		repository.updateFeed(1L, 99L, request);
+
+		ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
+		verify(jdbcTemplate).update(sql.capture(), eq(true), eq("PUBLIC"), anyString(), eq("image.png"), eq("updated"), eq("body"), eq("route.png"), eq(new BigDecimal("5.0")), eq("30:00"), eq("6'00\""), eq(99L), eq(1L));
+		assertThat(sql.getValue()).doesNotContain("running_record_id=?");
+	}
+
+	@Test
 	void listFeeds_mapsStoredMetricsWhenRunningRecordIsNotLinked() throws Exception {
 		when(jdbcTemplate.query(anyString(), any(RowMapper.class), any(Object[].class))).thenAnswer(invocation -> {
 			RowMapper<FeedUploadResponse> mapper = invocation.getArgument(1);
@@ -574,6 +585,20 @@ class CommunityRepositoryTest {
 		ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
 		verify(jdbcTemplate).query(sql.capture(), any(RowMapper.class), eq(1L), eq(1L), eq(1L), eq(1L), eq(2L));
 		assertThat(sql.getValue()).contains("AS is_friend", "AS is_blocked", "AS is_sent", "r.status = 'BLOCKED' AND r.user1_id = ?", "r.status = 'REQUESTED' AND r.user1_id = ?");
+	}
+
+	@Test
+	void getBadgeDetailSelectsHighestDistanceRecordForCurrentBadgeOnly() {
+		when(jdbcTemplate.query(anyString(), any(RowMapper.class), eq(7L))).thenReturn(List.of());
+
+		repository.getBadgeDetail(7L);
+
+		ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
+		verify(jdbcTemplate).query(sql.capture(), any(RowMapper.class), eq(7L));
+		assertThat(sql.getValue())
+				.contains("rr.badge = COALESCE(cu.badge, 'NONE')")
+				.contains("rr.badge <> 'NONE'")
+				.contains("ORDER BY rr.total_distance DESC, rr.created_at DESC, rr.run_record_id DESC LIMIT 1");
 	}
 
 	@Test

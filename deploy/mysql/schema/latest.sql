@@ -498,14 +498,213 @@ CREATE TABLE `running_records` (
   `pace` int DEFAULT NULL,
   `calories` int DEFAULT NULL,
   `route_detail` text COLLATE utf8mb4_unicode_ci,
+  `badge` enum('NONE','BRONZE','SILVER','GOLD','PLATINUM','DIAMOND','MASTER','CHALLENGER') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'NONE',
   PRIMARY KEY (`run_record_id`),
   KEY `fk_running_records_plan` (`plan_id`),
   KEY `idx_rr_user_created` (`user_id`,`created_at` DESC,`run_record_id` DESC),
+  KEY `idx_rr_user_badge_distance` (`user_id`,`badge`,`total_distance` DESC,`created_at` DESC,`run_record_id` DESC),
   CONSTRAINT `fk_running_records_plan` FOREIGN KEY (`plan_id`) REFERENCES `plans` (`plan_id`) ON DELETE SET NULL,
   CONSTRAINT `fk_running_records_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`user_id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `schema_migrations`;
+DROP TABLE IF EXISTS `operator_accounts`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `operator_accounts` (
+  `operator_account_id` bigint NOT NULL AUTO_INCREMENT,
+  `email` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `password` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `name` varchar(100) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `role` enum('SUPER_ADMIN','OPERATOR_ADMIN','MODERATOR','SUPPORT','DEVELOPER','AUDITOR') COLLATE utf8mb4_unicode_ci NOT NULL,
+  `status` enum('ACTIVE','DISABLED') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'ACTIVE',
+  `last_login_at` datetime DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`operator_account_id`),
+  UNIQUE KEY `uq_operator_accounts_email` (`email`),
+  KEY `idx_operator_accounts_status_role` (`status`,`role`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `operator_account_permissions`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `operator_account_permissions` (
+  `operator_account_id` bigint NOT NULL,
+  `permission` varchar(64) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`operator_account_id`,`permission`),
+  KEY `idx_operator_account_permissions_permission` (`permission`),
+  CONSTRAINT `fk_operator_account_permissions_account` FOREIGN KEY (`operator_account_id`) REFERENCES `operator_accounts` (`operator_account_id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `operator_refresh_tokens`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `operator_refresh_tokens` (
+  `operator_refresh_token_id` bigint NOT NULL AUTO_INCREMENT,
+  `operator_account_id` bigint NOT NULL,
+  `token_id_hash` char(64) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `expires_at` datetime NOT NULL,
+  `revoked_at` datetime DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`operator_refresh_token_id`),
+  UNIQUE KEY `uq_operator_refresh_tokens_hash` (`token_id_hash`),
+  KEY `idx_operator_refresh_tokens_operator_active` (`operator_account_id`,`revoked_at`,`expires_at`),
+  CONSTRAINT `fk_operator_refresh_tokens_operator` FOREIGN KEY (`operator_account_id`) REFERENCES `operator_accounts` (`operator_account_id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `operator_audit_logs`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `operator_audit_logs` (
+  `operator_audit_log_id` bigint NOT NULL AUTO_INCREMENT,
+  `actor_operator_account_id` bigint DEFAULT NULL,
+  `action` varchar(100) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `target_type` varchar(80) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `target_id` varchar(120) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `reason` varchar(1000) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `before_summary` text COLLATE utf8mb4_unicode_ci,
+  `after_summary` text COLLATE utf8mb4_unicode_ci,
+  `request_id` varchar(120) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `ip_address` varchar(80) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `user_agent` varchar(500) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`operator_audit_log_id`),
+  KEY `idx_operator_audit_logs_actor_created` (`actor_operator_account_id`,`created_at` DESC),
+  KEY `idx_operator_audit_logs_target_created` (`target_type`,`target_id`,`created_at` DESC),
+  KEY `idx_operator_audit_logs_action_created` (`action`,`created_at` DESC),
+  CONSTRAINT `fk_operator_audit_logs_actor` FOREIGN KEY (`actor_operator_account_id`) REFERENCES `operator_accounts` (`operator_account_id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `admin_reports`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `admin_reports` (
+  `report_id` bigint NOT NULL AUTO_INCREMENT,
+  `reporter_user_id` bigint DEFAULT NULL,
+  `target_user_id` bigint DEFAULT NULL,
+  `target_type` varchar(80) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `target_id` varchar(120) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `category` varchar(80) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `status` enum('PENDING','RESOLVED','REJECTED') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'PENDING',
+  `reason` varchar(1000) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `resolution` varchar(1000) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `assigned_operator_account_id` bigint DEFAULT NULL,
+  `resolved_at` datetime DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`report_id`),
+  KEY `idx_admin_reports_status_created` (`status`,`created_at` DESC),
+  KEY `idx_admin_reports_target` (`target_type`,`target_id`),
+  KEY `idx_admin_reports_reporter` (`reporter_user_id`,`created_at` DESC),
+  KEY `idx_admin_reports_target_user` (`target_user_id`,`created_at` DESC),
+  KEY `fk_admin_reports_assigned_operator` (`assigned_operator_account_id`),
+  CONSTRAINT `fk_admin_reports_assigned_operator` FOREIGN KEY (`assigned_operator_account_id`) REFERENCES `operator_accounts` (`operator_account_id`) ON DELETE SET NULL,
+  CONSTRAINT `fk_admin_reports_reporter` FOREIGN KEY (`reporter_user_id`) REFERENCES `users` (`user_id`) ON DELETE SET NULL,
+  CONSTRAINT `fk_admin_reports_target_user` FOREIGN KEY (`target_user_id`) REFERENCES `users` (`user_id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `operator_broadcasts`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `operator_broadcasts` (
+  `broadcast_id` bigint NOT NULL AUTO_INCREMENT,
+  `sender_operator_account_id` bigint DEFAULT NULL,
+  `title` varchar(160) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `message` varchar(2000) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `target_type` enum('ALL','USER') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'ALL',
+  `target_user_id` bigint DEFAULT NULL,
+  `recipient_count` int NOT NULL DEFAULT '0',
+  `status` enum('SENT','PARTIAL','FAILED') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'SENT',
+  `discord_status` varchar(40) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `discord_error` varchar(1000) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `reason` varchar(1000) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`broadcast_id`),
+  KEY `idx_operator_broadcasts_sender_created` (`sender_operator_account_id`,`created_at` DESC),
+  KEY `idx_operator_broadcasts_created` (`created_at` DESC),
+  KEY `fk_operator_broadcasts_target_user` (`target_user_id`),
+  CONSTRAINT `fk_operator_broadcasts_sender` FOREIGN KEY (`sender_operator_account_id`) REFERENCES `operator_accounts` (`operator_account_id`) ON DELETE SET NULL,
+  CONSTRAINT `fk_operator_broadcasts_target_user` FOREIGN KEY (`target_user_id`) REFERENCES `users` (`user_id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `api_request_metrics`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `api_request_metrics` (
+  `api_request_metric_id` bigint NOT NULL AUTO_INCREMENT,
+  `method` varchar(10) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `path` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `status_code` int NOT NULL,
+  `duration_ms` bigint NOT NULL,
+  `occurred_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`api_request_metric_id`),
+  KEY `idx_api_request_metrics_occurred` (`occurred_at` DESC),
+  KEY `idx_api_request_metrics_path_status` (`path`,`status_code`,`occurred_at` DESC)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `server_error_events`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `server_error_events` (
+  `server_error_event_id` bigint NOT NULL AUTO_INCREMENT,
+  `method` varchar(10) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `path` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `status_code` int NOT NULL,
+  `error_type` varchar(120) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `message_summary` varchar(500) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `request_id` varchar(120) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`server_error_event_id`),
+  KEY `idx_server_error_events_created` (`created_at` DESC),
+  KEY `idx_server_error_events_path_created` (`path`,`created_at` DESC),
+  KEY `idx_server_error_events_status_created` (`status_code`,`created_at` DESC)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `operator_alert_rules`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `operator_alert_rules` (
+  `alert_rule_id` bigint NOT NULL AUTO_INCREMENT,
+  `name` varchar(120) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `metric_type` enum('API_ERROR_RATE','API_TRAFFIC','SERVER_ERROR_COUNT') COLLATE utf8mb4_unicode_ci NOT NULL,
+  `threshold_value` decimal(12,2) NOT NULL,
+  `window_minutes` int NOT NULL,
+  `channel` enum('DISCORD') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'DISCORD',
+  `enabled` tinyint(1) NOT NULL DEFAULT '1',
+  `discord_status` varchar(40) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `discord_error` varchar(1000) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `last_tested_at` datetime DEFAULT NULL,
+  `created_by_operator_account_id` bigint DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`alert_rule_id`),
+  KEY `idx_operator_alert_rules_enabled_metric` (`enabled`,`metric_type`),
+  KEY `fk_operator_alert_rules_creator` (`created_by_operator_account_id`),
+  CONSTRAINT `fk_operator_alert_rules_creator` FOREIGN KEY (`created_by_operator_account_id`) REFERENCES `operator_accounts` (`operator_account_id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `bug_reports`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `bug_reports` (
+  `bug_report_id` bigint NOT NULL AUTO_INCREMENT,
+  `reporter_user_id` bigint DEFAULT NULL,
+  `title` varchar(200) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `description` text COLLATE utf8mb4_unicode_ci NOT NULL,
+  `status` enum('OPEN','TRIAGED','IN_PROGRESS','RESOLVED','REJECTED') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'OPEN',
+  `severity` enum('LOW','MEDIUM','HIGH','CRITICAL') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'MEDIUM',
+  `app_version` varchar(80) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `device_model` varchar(120) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`bug_report_id`),
+  KEY `idx_bug_reports_status_created` (`status`,`created_at` DESC),
+  KEY `idx_bug_reports_reporter_created` (`reporter_user_id`,`created_at` DESC),
+  CONSTRAINT `fk_bug_reports_reporter` FOREIGN KEY (`reporter_user_id`) REFERENCES `users` (`user_id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
 CREATE TABLE `schema_migrations` (
@@ -527,13 +726,21 @@ CREATE TABLE `users` (
   `name` varchar(100) COLLATE utf8mb4_unicode_ci NOT NULL,
   `community_profile_name` varchar(100) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `profile_photo` varchar(500) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `account_status` enum('ACTIVE','SUSPENDED') COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'ACTIVE',
+  `suspended_at` datetime DEFAULT NULL,
+  `suspended_until` datetime DEFAULT NULL,
+  `suspended_reason` varchar(1000) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `suspended_by_operator_id` bigint DEFAULT NULL,
   `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`user_id`),
   UNIQUE KEY `uq_users_email` (`email`),
   UNIQUE KEY `uq_users_name` (`name`),
   UNIQUE KEY `uq_users_community_profile_name` (`community_profile_name`),
-  FULLTEXT KEY `ft_users_search` (`name`,`community_profile_name`)
+  FULLTEXT KEY `ft_users_search` (`name`,`community_profile_name`),
+  KEY `idx_users_account_status_created` (`account_status`,`created_at`),
+  KEY `idx_users_suspended_by_operator` (`suspended_by_operator_id`),
+  CONSTRAINT `fk_users_suspended_by_operator` FOREIGN KEY (`suspended_by_operator_id`) REFERENCES `operator_accounts` (`operator_account_id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 /*!40103 SET TIME_ZONE=@OLD_TIME_ZONE */;
