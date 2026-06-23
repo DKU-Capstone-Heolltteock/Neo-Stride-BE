@@ -58,9 +58,6 @@ public class RunningRecordService {
 
 		long runRecordId = runningRecordRepository.insertRunningRecord(request);
 		runningRecordRepository.insertGpsTraces(runRecordId, request.gpsTraces());
-		if (badgeProgressPort != null) {
-			badgeProgressPort.improveBadgeIfHigher(request.userId(), request.badge());
-		}
 		if (request.planId() != null && coachingPlanProgressPort != null) {
 			coachingPlanProgressPort.completePlanWithRunningRecord(
 					request.userId(),

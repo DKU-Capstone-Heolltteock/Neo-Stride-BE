@@ -85,7 +85,7 @@ class RunningRecordServiceTest {
 	}
 
 	@Test
-	void saveDelegatesBadgeProgressThroughCommunityPort() {
+	void saveIgnoresClientSuppliedBadgeForCommunityProgress() {
 		BadgeProgressPort badgeProgressPort = mock(BadgeProgressPort.class);
 		RunningRecordService badgeAwareService = new RunningRecordService(repository, badgeProgressPort);
 		GpsTraceRequest trace = new GpsTraceRequest(37.5665, 126.978, "2026-05-12 18:00:00", null, null);
@@ -106,7 +106,7 @@ class RunningRecordServiceTest {
 
 		assertThat(recordId).isEqualTo(14L);
 		verify(repository).insertGpsTraces(14L, List.of(trace));
-		verify(badgeProgressPort).improveBadgeIfHigher(7L, "GOLD");
+		verifyNoInteractions(badgeProgressPort);
 	}
 
 	@Test
