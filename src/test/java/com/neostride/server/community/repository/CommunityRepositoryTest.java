@@ -649,8 +649,8 @@ class CommunityRepositoryTest {
 		ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
 		ArgumentCaptor<Object[]> args = ArgumentCaptor.forClass(Object[].class);
 		verify(jdbcTemplate).query(sql.capture(), any(RowMapper.class), args.capture());
-		assertThat(sql.getValue()).contains("MATCH(cc.title, cc.body_text, cc.content_text) AGAINST");
-		assertThat(sql.getValue()).doesNotContain("LOWER(cc.content_text) LIKE");
+		assertThat(sql.getValue()).contains("MATCH(cc.title, cc.body_text) AGAINST");
+		assertThat(sql.getValue()).doesNotContain("cc.content_text) AGAINST", "LOWER(cc.content_text) LIKE");
 		assertThat(args.getValue()).containsExactly("tempo", 10, 0);
 	}
 
