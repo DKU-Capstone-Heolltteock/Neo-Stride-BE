@@ -17,12 +17,14 @@ public class ImageUrlResolver {
 	private static final String THUMBNAIL_DIRECTORY = "_thumbs";
 	private static final long DEFAULT_READABLE_CACHE_TTL_MILLIS = 5_000L;
 	private static final int DEFAULT_READABLE_CACHE_MAX_SIZE = 4_096;
+	private static final int DEFAULT_READABLE_CACHE_MAX_KEY_LENGTH = 2_048;
 
 	private final String publicBaseUrl;
 	private final Path uploadBaseDir;
 	private final String publicPrefix;
 	private final long readableCacheTtlNanos;
 	private final int readableCacheMaxSize;
+	private final int readableCacheMaxKeyLength;
 	private final ConcurrentMap<String, ReadableCacheEntry> readableCache = new ConcurrentHashMap<>();
 
 	@Autowired
@@ -31,9 +33,10 @@ public class ImageUrlResolver {
 			@Value("${neostride.upload.base-dir:./uploads}") String uploadBaseDir,
 			@Value("${neostride.upload.public-prefix:/uploads}") String publicPrefix,
 			@Value("${neostride.upload.readable-cache-ttl-ms:5000}") long readableCacheTtlMillis,
-			@Value("${neostride.upload.readable-cache-max-size:4096}") int readableCacheMaxSize
+			@Value("${neostride.upload.readable-cache-max-size:4096}") int readableCacheMaxSize,
+			@Value("${neostride.upload.readable-cache-max-key-length:2048}") int readableCacheMaxKeyLength
 	) {
-		this(publicBaseUrl, Path.of(uploadBaseDir).toAbsolutePath().normalize(), publicPrefix, readableCacheTtlMillis, readableCacheMaxSize);
+		this(publicBaseUrl, Path.of(uploadBaseDir).toAbsolutePath().normalize(), publicPrefix, readableCacheTtlMillis, readableCacheMaxSize, readableCacheMaxKeyLength);
 	}
 
 	public ImageUrlResolver(String publicBaseUrl) {
@@ -45,11 +48,16 @@ public class ImageUrlResolver {
 	}
 
 	ImageUrlResolver(String publicBaseUrl, Path uploadBaseDir, String publicPrefix, long readableCacheTtlMillis, int readableCacheMaxSize) {
+		this(publicBaseUrl, uploadBaseDir, publicPrefix, readableCacheTtlMillis, readableCacheMaxSize, DEFAULT_READABLE_CACHE_MAX_KEY_LENGTH);
+	}
+
+	ImageUrlResolver(String publicBaseUrl, Path uploadBaseDir, String publicPrefix, long readableCacheTtlMillis, int readableCacheMaxSize, int readableCacheMaxKeyLength) {
 		this.publicBaseUrl = normalizeBaseUrl(publicBaseUrl);
 		this.uploadBaseDir = uploadBaseDir == null ? null : uploadBaseDir.toAbsolutePath().normalize();
 		this.publicPrefix = normalizePublicPrefix(publicPrefix);
 		this.readableCacheTtlNanos = Math.max(0L, readableCacheTtlMillis) * 1_000_000L;
 		this.readableCacheMaxSize = Math.max(0, readableCacheMaxSize);
+		this.readableCacheMaxKeyLength = Math.max(0, readableCacheMaxKeyLength);
 	}
 
 	public String toPublicUrl(String value) {
@@ -141,7 +149,7 @@ public class ImageUrlResolver {
 		if (uploadBaseDir == null) {
 			return true;
 		}
-		if (readableCacheTtlNanos <= 0 || readableCacheMaxSize <= 0) {
+		if (readableCacheTtlNanos <= 0 || readableCacheMaxSize <= 0 || !isCacheableReadableUrl(url)) {
 			return isReadableStoredUploadUncached(url);
 		}
 		long now = System.nanoTime();
@@ -165,6 +173,10 @@ public class ImageUrlResolver {
 		} catch (java.io.IOException exception) {
 			return false;
 		}
+	}
+
+	private boolean isCacheableReadableUrl(String url) {
+		return readableCacheMaxKeyLength > 0 && url.length() <= readableCacheMaxKeyLength;
 	}
 
 	private void cacheReadableResult(String url, boolean readable, long checkedAtNanos) {

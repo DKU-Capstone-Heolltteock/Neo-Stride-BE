@@ -127,6 +127,22 @@ class ImageUrlResolverTest {
 	}
 
 	@Test
+	void toPublicUrl_doesNotCacheOversizedStoredUploadPaths() throws Exception {
+		Path communityDir = tempDir.resolve("community");
+		Files.createDirectories(communityDir);
+		String oversizedUrl = "/uploads/community/oversized-cache-key.png";
+		Path upload = communityDir.resolve("oversized-cache-key.png");
+		ImageUrlResolver resolver = new ImageUrlResolver("https://api.neostride.test", tempDir, "/uploads", 60_000, 16, oversizedUrl.length() - 1);
+
+		assertThat(resolver.toPublicUrl(oversizedUrl)).isNull();
+
+		Files.write(upload, imageBytes("png"));
+
+		assertThat(resolver.toPublicUrl(oversizedUrl))
+				.isEqualTo("https://api.neostride.test/uploads/community/oversized-cache-key.png");
+	}
+
+	@Test
 	void toPublicUrl_dropsMissingStoredUploadPathsWithoutDecodingImages() throws Exception {
 		Path communityDir = tempDir.resolve("community");
 		Files.createDirectories(communityDir);
