@@ -376,6 +376,17 @@ class CoachingServiceTest {
 	}
 
 	@Test
+	void lockPlanForRunningRecordDeletionLocksOwnedPlan() {
+		PlanDayRow planDay = new PlanDayRow(20L, 1L, 10L, LocalDate.parse("2026-05-04"),
+				new BigDecimal("5.00"), 390, true, "feedback", LocalDateTime.parse("2026-05-04T10:30:00"));
+		when(repository.findPlanDayByIdForUser(20L, 1L)).thenReturn(planDay);
+
+		service.lockPlanForRunningRecordDeletion(1L, 20L);
+
+		verify(repository).findPlanDayByIdForUser(20L, 1L);
+	}
+
+	@Test
 	void updateGoalStatus_updatesGoalFlagsAndReturnsCurrentGoalShape() {
 		GoalStatusUpdateRequest request = new GoalStatusUpdateRequest(false, true);
 		GoalRow completedGoal = new GoalRow(10L, 1L, 4, 3, new BigDecimal("5.00"), 360,

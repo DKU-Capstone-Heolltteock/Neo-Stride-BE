@@ -11,5 +11,7 @@ public interface CoachingPlanProgressPort {
 			Integer actualPaceSecPerKm
 	);
 
+	void lockPlanForRunningRecordDeletion(long userId, long planDayId);
+
 	void restorePlanToPendingAfterRunningRecordDeleted(long userId, long planDayId);
 }

@@ -19,6 +19,11 @@ public class CoachingPlanProgressAdapter implements CoachingPlanProgressPort {
 	}
 
 	@Override
+	public void lockPlanForRunningRecordDeletion(long userId, long planDayId) {
+		coachingService.lockPlanForRunningRecordDeletion(userId, planDayId);
+	}
+
+	@Override
 	public void restorePlanToPendingAfterRunningRecordDeleted(long userId, long planDayId) {
 		coachingService.restorePlanToPendingAfterRunningRecordDeleted(userId, planDayId);
 	}

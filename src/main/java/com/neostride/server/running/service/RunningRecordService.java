@@ -114,6 +114,9 @@ public class RunningRecordService {
 			return DeleteResult.FORBIDDEN;
 		}
 		Long planId = runningRecordRepository.findPlanIdByRecordIdForUser(userId, recordId);
+		if (planId != null && coachingPlanProgressPort != null) {
+			coachingPlanProgressPort.lockPlanForRunningRecordDeletion(userId, planId);
+		}
 		if (runningRecordRepository.deleteByRecordIdForUser(userId, recordId) <= 0) {
 			return DeleteResult.NOT_FOUND;
 		}
