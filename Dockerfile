@@ -26,7 +26,10 @@ COPY --from=webp-tools /webp/bin/cwebp /usr/bin/cwebp
 COPY --from=webp-tools /webp/lib/ /usr/local/lib/
 ENV LD_LIBRARY_PATH=/usr/local/lib
 
-RUN addgroup --system spring && adduser --system spring --ingroup spring
+ARG APP_UID=10001
+ARG APP_GID=10001
+RUN addgroup --system --gid ${APP_GID} spring \
+    && adduser --system --uid ${APP_UID} --ingroup spring spring
 USER spring:spring
 
 COPY --from=build /app/target/*.jar app.jar
