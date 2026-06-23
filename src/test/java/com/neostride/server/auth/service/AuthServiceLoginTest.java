@@ -14,6 +14,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -97,93 +98,51 @@ class AuthServiceLoginTest {
 	}
 
 	@Test
-	void refresh_withPersistedRefreshToken_concurrentRequests_shareSingleRefreshResult() throws Exception {
+	void refresh_withPersistedRefreshToken_concurrentRequests_onlyOneRequestRotatesToken() throws Exception {
 		RefreshTokenRepository refreshTokenRepository = mock(RefreshTokenRepository.class);
 		AuthService service = new AuthService(userRepository, passwordHashService, jwtTokenService, refreshTokenRepository);
-		CountDownLatch revokeStarted = new CountDownLatch(1);
-		CountDownLatch allowComplete = new CountDownLatch(1);
+		CountDownLatch revokeAttemptsReady = new CountDownLatch(2);
+		CountDownLatch releaseRevokeAttempts = new CountDownLatch(1);
+		AtomicBoolean activeToken = new AtomicBoolean(true);
 
 		when(jwtTokenService.verify("refresh-token")).thenReturn(new JwtTokenService.TokenClaims(1L, "runner@example.com", "홍길동", "refresh", "old-id", 123L));
 		when(refreshTokenRepository.revokeIfActive(1L, "old-id")).thenAnswer(invocation -> {
-			revokeStarted.countDown();
-			assertThat(allowComplete.await(2, TimeUnit.SECONDS)).isTrue();
-			return true;
+			revokeAttemptsReady.countDown();
+			assertThat(releaseRevokeAttempts.await(2, TimeUnit.SECONDS)).isTrue();
+			return activeToken.getAndSet(false);
 		});
 		when(jwtTokenService.generateAccessToken(1L, "runner@example.com", "홍길동")).thenReturn("new-access-token");
 		when(jwtTokenService.generateRefreshToken(1L, "runner@example.com", "홍길동")).thenReturn("new-refresh-token");
 		when(jwtTokenService.verify("new-refresh-token")).thenReturn(new JwtTokenService.TokenClaims(1L, "runner@example.com", "홍길동", "refresh", "new-id", 456L));
 
 		ExecutorService executor = Executors.newFixedThreadPool(2);
-		CompletableFuture<LoginResponse> first = CompletableFuture.supplyAsync(() -> service.refresh("refresh-token"), executor);
-		assertThat(revokeStarted.await(2, TimeUnit.SECONDS)).isTrue();
-		CompletableFuture<LoginResponse> second = CompletableFuture.supplyAsync(() -> service.refresh("refresh-token"), executor);
-		allowComplete.countDown();
-		LoginResponse firstResponse = first.join();
-		LoginResponse secondResponse = second.join();
+		CompletableFuture<Object> first = CompletableFuture.supplyAsync(() -> refreshOrException(service), executor);
+		CompletableFuture<Object> second = CompletableFuture.supplyAsync(() -> refreshOrException(service), executor);
+		assertThat(revokeAttemptsReady.await(2, TimeUnit.SECONDS)).isTrue();
+		releaseRevokeAttempts.countDown();
+		Object firstResult = first.join();
+		Object secondResult = second.join();
 
 		executor.shutdown();
-		assertThat(firstResponse.accessToken()).isEqualTo("new-access-token");
-		assertThat(secondResponse.accessToken()).isEqualTo("new-access-token");
-		assertThat(firstResponse.refreshToken()).isEqualTo("new-refresh-token");
-		assertThat(secondResponse.refreshToken()).isEqualTo("new-refresh-token");
+		assertThat(executor.awaitTermination(2, TimeUnit.SECONDS)).isTrue();
+		assertThat(firstResult).isNotSameAs(secondResult);
+		assertThat(firstResult instanceof LoginResponse || secondResult instanceof LoginResponse).isTrue();
+		assertThat(firstResult instanceof InvalidCredentialsException || secondResult instanceof InvalidCredentialsException).isTrue();
+		LoginResponse success = firstResult instanceof LoginResponse loginResponse ? loginResponse : (LoginResponse) secondResult;
+		assertThat(success.accessToken()).isEqualTo("new-access-token");
+		assertThat(success.refreshToken()).isEqualTo("new-refresh-token");
 
-		verify(refreshTokenRepository, times(1)).revokeIfActive(1L, "old-id");
+		verify(refreshTokenRepository, times(2)).revokeIfActive(1L, "old-id");
 		verify(refreshTokenRepository, times(1)).save(1L, "new-id", 456L);
-		verify(jwtTokenService, times(1)).generateAccessToken(1L, "runner@example.com", "홍길동");
-		verify(jwtTokenService, times(1)).generateRefreshToken(1L, "runner@example.com", "홍길동");
-	}
-
-	@Test
-	void refresh_withPersistedRefreshToken_afterRefreshCompletion_returnsCachedRefreshResultWithinReplayGrace() {
-		RefreshTokenRepository refreshTokenRepository = mock(RefreshTokenRepository.class);
-		AuthService service = new AuthService(userRepository, passwordHashService, jwtTokenService, refreshTokenRepository);
-
-		when(jwtTokenService.verify("refresh-token")).thenReturn(new JwtTokenService.TokenClaims(1L, "runner@example.com", "홍길동", "refresh", "old-id", 123L));
-		when(refreshTokenRepository.revokeIfActive(1L, "old-id")).thenReturn(true);
-		when(jwtTokenService.generateAccessToken(1L, "runner@example.com", "홍길동")).thenReturn("new-access-token");
-		when(jwtTokenService.generateRefreshToken(1L, "runner@example.com", "홍길동")).thenReturn("new-refresh-token");
-		when(jwtTokenService.verify("new-refresh-token")).thenReturn(new JwtTokenService.TokenClaims(1L, "runner@example.com", "홍길동", "refresh", "new-id", 456L));
-
-		LoginResponse firstResponse = service.refresh("refresh-token");
-		LoginResponse secondResponse = service.refresh("refresh-token");
-
-		assertThat(firstResponse.accessToken()).isEqualTo("new-access-token");
-		assertThat(firstResponse.refreshToken()).isEqualTo("new-refresh-token");
-		assertThat(secondResponse.accessToken()).isEqualTo("new-access-token");
-		assertThat(secondResponse.refreshToken()).isEqualTo("new-refresh-token");
-
-		verify(refreshTokenRepository, times(1)).revokeIfActive(1L, "old-id");
 		verify(refreshTokenRepository, never()).wasRevokedWithin(1L, "old-id", 30L);
-		verify(refreshTokenRepository, times(1)).save(1L, "new-id", 456L);
 		verify(jwtTokenService, times(1)).generateAccessToken(1L, "runner@example.com", "홍길동");
 		verify(jwtTokenService, times(1)).generateRefreshToken(1L, "runner@example.com", "홍길동");
 	}
 
 	@Test
-	void refresh_withRecentlyRevokedPersistedRefreshToken_allowsGraceRotation() {
+	void refresh_withPersistedRefreshToken_afterRefreshCompletion_rejectsReusedToken() {
 		RefreshTokenRepository refreshTokenRepository = mock(RefreshTokenRepository.class);
 		AuthService service = new AuthService(userRepository, passwordHashService, jwtTokenService, refreshTokenRepository);
-
-		when(jwtTokenService.verify("refresh-token")).thenReturn(new JwtTokenService.TokenClaims(1L, "runner@example.com", "홍길동", "refresh", "old-id", 123L));
-		when(refreshTokenRepository.revokeIfActive(1L, "old-id")).thenReturn(false);
-		when(refreshTokenRepository.wasRevokedWithin(1L, "old-id", 30L)).thenReturn(true);
-		when(jwtTokenService.generateAccessToken(1L, "runner@example.com", "홍길동")).thenReturn("new-access-token");
-		when(jwtTokenService.generateRefreshToken(1L, "runner@example.com", "홍길동")).thenReturn("new-refresh-token");
-		when(jwtTokenService.verify("new-refresh-token")).thenReturn(new JwtTokenService.TokenClaims(1L, "runner@example.com", "홍길동", "refresh", "new-id", 456L));
-
-		LoginResponse response = service.refresh("refresh-token");
-
-		assertThat(response.accessToken()).isEqualTo("new-access-token");
-		assertThat(response.refreshToken()).isEqualTo("new-refresh-token");
-		verify(refreshTokenRepository, times(1)).revokeIfActive(1L, "old-id");
-		verify(refreshTokenRepository, times(1)).wasRevokedWithin(1L, "old-id", 30L);
-		verify(refreshTokenRepository, times(1)).save(1L, "new-id", 456L);
-	}
-
-	@Test
-	void refresh_withPersistedRefreshToken_whenReplayGraceDisabled_rejectsReusedToken() {
-		RefreshTokenRepository refreshTokenRepository = mock(RefreshTokenRepository.class);
-		AuthService service = new AuthService(userRepository, passwordHashService, jwtTokenService, refreshTokenRepository, 0);
 
 		when(jwtTokenService.verify("refresh-token")).thenReturn(new JwtTokenService.TokenClaims(1L, "runner@example.com", "홍길동", "refresh", "old-id", 123L));
 		when(refreshTokenRepository.revokeIfActive(1L, "old-id")).thenReturn(true, false);
@@ -199,7 +158,33 @@ class AuthServiceLoginTest {
 				.isInstanceOf(InvalidCredentialsException.class);
 
 		verify(refreshTokenRepository, times(2)).revokeIfActive(1L, "old-id");
-		verify(refreshTokenRepository, never()).wasRevokedWithin(1L, "old-id", 0L);
+		verify(refreshTokenRepository, never()).wasRevokedWithin(1L, "old-id", 30L);
+		verify(refreshTokenRepository, times(1)).save(1L, "new-id", 456L);
+		verify(jwtTokenService, times(1)).generateAccessToken(1L, "runner@example.com", "홍길동");
+		verify(jwtTokenService, times(1)).generateRefreshToken(1L, "runner@example.com", "홍길동");
+	}
+
+
+	@Test
+	void refresh_withPersistedRefreshToken_rejectsReusedTokenWithoutReplayGrace() {
+		RefreshTokenRepository refreshTokenRepository = mock(RefreshTokenRepository.class);
+		AuthService service = new AuthService(userRepository, passwordHashService, jwtTokenService, refreshTokenRepository);
+
+		when(jwtTokenService.verify("refresh-token")).thenReturn(new JwtTokenService.TokenClaims(1L, "runner@example.com", "홍길동", "refresh", "old-id", 123L));
+		when(refreshTokenRepository.revokeIfActive(1L, "old-id")).thenReturn(true, false);
+		when(jwtTokenService.generateAccessToken(1L, "runner@example.com", "홍길동")).thenReturn("new-access-token");
+		when(jwtTokenService.generateRefreshToken(1L, "runner@example.com", "홍길동")).thenReturn("new-refresh-token");
+		when(jwtTokenService.verify("new-refresh-token")).thenReturn(new JwtTokenService.TokenClaims(1L, "runner@example.com", "홍길동", "refresh", "new-id", 456L));
+
+		LoginResponse firstResponse = service.refresh("refresh-token");
+
+		assertThat(firstResponse.accessToken()).isEqualTo("new-access-token");
+		assertThat(firstResponse.refreshToken()).isEqualTo("new-refresh-token");
+		assertThatThrownBy(() -> service.refresh("refresh-token"))
+				.isInstanceOf(InvalidCredentialsException.class);
+
+		verify(refreshTokenRepository, times(2)).revokeIfActive(1L, "old-id");
+		verify(refreshTokenRepository, never()).wasRevokedWithin(1L, "old-id", 30L);
 		verify(refreshTokenRepository, times(1)).save(1L, "new-id", 456L);
 		verify(jwtTokenService, times(1)).generateAccessToken(1L, "runner@example.com", "홍길동");
 		verify(jwtTokenService, times(1)).generateRefreshToken(1L, "runner@example.com", "홍길동");
@@ -218,6 +203,13 @@ class AuthServiceLoginTest {
 		verify(jwtTokenService, never()).generateAccessToken(1L, "runner@example.com", "홍길동");
 	}
 
+	private Object refreshOrException(AuthService service) {
+		try {
+			return service.refresh("refresh-token");
+		} catch (InvalidCredentialsException exception) {
+			return exception;
+		}
+	}
 
 	@Test
 	void refresh_withAccessToken_throwsInvalidCredentials() {
