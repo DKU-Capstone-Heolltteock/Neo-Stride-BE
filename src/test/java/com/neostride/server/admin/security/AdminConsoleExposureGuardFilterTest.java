@@ -88,6 +88,40 @@ class AdminConsoleExposureGuardFilterTest {
 	}
 
 	@Test
+	void matrixParameterAdminPathIsDisabledByProdDefault() throws Exception {
+		MockEnvironment environment = new MockEnvironment();
+		environment.setActiveProfiles("prod");
+		AdminConsoleExposureGuardFilter filter = new AdminConsoleExposureGuardFilter(environment);
+		FilterChain chain = mock(FilterChain.class);
+		MockHttpServletResponse response = new MockHttpServletResponse();
+
+		filter.doFilterInternal(request("POST", "/api/admin;anything/auth/login", "203.0.113.7"), response, chain);
+
+		assertThat(response.getStatus()).isEqualTo(404);
+		verify(chain, never()).doFilter(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
+	}
+
+	@Test
+	void matrixParameterConsolePathsRequireAllowlist() throws Exception {
+		AdminConsoleExposureGuardFilter filter = new AdminConsoleExposureGuardFilter(
+				true,
+				true,
+				AdminConsoleAccessFilter.parseAllowedIpRanges("198.51.100.0/24"),
+				new ClientIpResolver(Set.of())
+		);
+		FilterChain chain = mock(FilterChain.class);
+
+		for (String path : List.of("/api/admin;anything/auth/login", "/api/ops;anything/metrics/usage", "/api/dev;anything/logs/errors")) {
+			MockHttpServletResponse response = new MockHttpServletResponse();
+
+			filter.doFilterInternal(request("GET", path, "203.0.113.7"), response, chain);
+
+			assertThat(response.getStatus()).isEqualTo(403);
+		}
+		verify(chain, never()).doFilter(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
+	}
+
+	@Test
 	void nonConsolePathPassesThrough() throws Exception {
 		AdminConsoleExposureGuardFilter filter = new AdminConsoleExposureGuardFilter(
 				false,
