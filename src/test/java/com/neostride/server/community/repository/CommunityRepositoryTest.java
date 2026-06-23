@@ -370,6 +370,28 @@ class CommunityRepositoryTest {
 	}
 
 	@Test
+	void findTipDetailHidesCourseAddressWhenRouteDetailPrivateForNonAuthor() throws Exception {
+		when(jdbcTemplate.query(anyString(), any(RowMapper.class), any(Object[].class))).thenAnswer(invocation -> {
+			String sql = invocation.getArgument(0);
+			RowMapper<com.neostride.server.community.dto.TipDetailResponse> mapper = invocation.getArgument(1);
+			if (sql.contains("WHERE cc.content_type='TIP'")) {
+				ResultSet row = tipRowWithCourseAddress();
+				when(row.getLong("author_user_id")).thenReturn(2L);
+				when(row.getBoolean("include_route_detail")).thenReturn(false);
+				return List.of(mapper.mapRow(row, 0));
+			}
+			return List.of();
+		});
+
+		var detail = repository.findTipDetail(1L, 7L);
+
+		assertThat(detail.gpsVisible()).isFalse();
+		assertThat(detail.mine()).isFalse();
+		assertThat(detail.routeMapImageUrl()).isNull();
+		assertThat(detail.courseAddress()).isNull();
+	}
+
+	@Test
 	void findTipDetailFiltersBlockedCommentAuthors() throws Exception {
 		List<String> commentQueries = new java.util.ArrayList<>();
 		List<Object[]> commentArgs = new java.util.ArrayList<>();
