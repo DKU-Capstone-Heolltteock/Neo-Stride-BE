@@ -3,9 +3,11 @@ package com.neostride.server.storage;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.zip.CRC32;
 import javax.imageio.ImageIO;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -161,6 +163,16 @@ class StorageServiceTest {
 	}
 
 	@Test
+	void storeImage_rejectsPngDimensionsBeforeDecodingRaster() {
+		StorageService storageService = new StorageService(tempDir, "/uploads");
+		MockMultipartFile file = new MockMultipartFile("images", "huge.png", "image/png", pngWithDimensions(9000, 9000));
+
+		assertThatThrownBy(() -> storageService.storeImage(file, "community"))
+				.isInstanceOf(IllegalArgumentException.class)
+				.hasMessageContaining("이미지 해상도가 너무 큽니다");
+	}
+
+	@Test
 	void storeImage_acceptsIphoneHeicImage() {
 		StorageService storageService = new StorageService(tempDir, "/uploads");
 		MockMultipartFile file = new MockMultipartFile("images", "IMG_0001.HEIC", "image/heic", isoBaseMediaFile("heic"));
@@ -228,6 +240,36 @@ class StorageServiceTest {
 		output.write(0);
 		output.write(tiff, 0, tiff.length);
 		return output.toByteArray();
+	}
+
+	private static byte[] pngWithDimensions(int width, int height) {
+		ByteArrayOutputStream output = new ByteArrayOutputStream();
+		output.writeBytes(new byte[] {(byte) 0x89, 'P', 'N', 'G', 13, 10, 26, 10});
+		writePngChunk(output, "IHDR", new byte[] {
+				(byte) (width >>> 24), (byte) (width >>> 16), (byte) (width >>> 8), (byte) width,
+				(byte) (height >>> 24), (byte) (height >>> 16), (byte) (height >>> 8), (byte) height,
+				8, 2, 0, 0, 0
+		});
+		writePngChunk(output, "IEND", new byte[0]);
+		return output.toByteArray();
+	}
+
+	private static void writePngChunk(ByteArrayOutputStream output, String type, byte[] data) {
+		output.write((data.length >>> 24) & 0xff);
+		output.write((data.length >>> 16) & 0xff);
+		output.write((data.length >>> 8) & 0xff);
+		output.write(data.length & 0xff);
+		byte[] typeBytes = type.getBytes(StandardCharsets.US_ASCII);
+		output.writeBytes(typeBytes);
+		output.writeBytes(data);
+		CRC32 crc = new CRC32();
+		crc.update(typeBytes);
+		crc.update(data);
+		long value = crc.getValue();
+		output.write((int) ((value >>> 24) & 0xff));
+		output.write((int) ((value >>> 16) & 0xff));
+		output.write((int) ((value >>> 8) & 0xff));
+		output.write((int) (value & 0xff));
 	}
 
 	private static byte[] isoBaseMediaFile(String majorBrand) {

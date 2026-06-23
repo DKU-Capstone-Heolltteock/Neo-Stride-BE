@@ -9,6 +9,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Iterator;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
@@ -18,8 +19,10 @@ import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
 import javax.imageio.IIOImage;
 import javax.imageio.ImageIO;
+import javax.imageio.ImageReader;
 import javax.imageio.ImageWriteParam;
 import javax.imageio.ImageWriter;
+import javax.imageio.stream.ImageInputStream;
 import javax.imageio.stream.ImageOutputStream;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -44,6 +47,8 @@ public class StorageService {
 	private static final float THUMBNAIL_JPEG_QUALITY = 0.78f;
 	private static final float ORIENTED_JPEG_QUALITY = 0.92f;
 	private static final float THUMBNAIL_WEBP_QUALITY = 74.0f;
+	private static final int MAX_RASTER_DIMENSION = 8192;
+	private static final long MAX_RASTER_PIXELS = 25_000_000L;
 	static final String THUMBNAIL_DIRECTORY = "_thumbs";
 	private static volatile Boolean cwebpAvailable;
 
@@ -124,14 +129,41 @@ public class StorageService {
 		if (!"image/jpeg".equals(contentType) && !"image/png".equals(contentType)) {
 			return null;
 		}
-		try (ByteArrayInputStream input = new ByteArrayInputStream(bytes)) {
-			BufferedImage image = ImageIO.read(input);
-			if (image == null || image.getWidth() <= 0 || image.getHeight() <= 0) {
+		try (ByteArrayInputStream metadataInput = new ByteArrayInputStream(bytes);
+				ImageInputStream imageInput = ImageIO.createImageInputStream(metadataInput)) {
+			if (imageInput == null) {
 				throw new IllegalArgumentException("이미지 파일을 읽을 수 없습니다.");
 			}
-			return image;
+			Iterator<ImageReader> readers = ImageIO.getImageReaders(imageInput);
+			ImageReader reader = readers.hasNext() ? readers.next() : null;
+			if (reader == null) {
+				throw new IllegalArgumentException("이미지 파일을 읽을 수 없습니다.");
+			}
+			try {
+				reader.setInput(imageInput, true, true);
+				int width = reader.getWidth(0);
+				int height = reader.getHeight(0);
+				validateRasterDimensions(width, height);
+				BufferedImage image = reader.read(0);
+				if (image == null) {
+					throw new IllegalArgumentException("이미지 파일을 읽을 수 없습니다.");
+				}
+				return image;
+			} finally {
+				reader.dispose();
+			}
 		} catch (IOException exception) {
 			throw new IllegalArgumentException("이미지 파일을 읽을 수 없습니다.", exception);
+		}
+	}
+
+	private static void validateRasterDimensions(int width, int height) {
+		if (width <= 0 || height <= 0) {
+			throw new IllegalArgumentException("이미지 파일을 읽을 수 없습니다.");
+		}
+		long pixels = (long) width * height;
+		if (width > MAX_RASTER_DIMENSION || height > MAX_RASTER_DIMENSION || pixels > MAX_RASTER_PIXELS) {
+			throw new IllegalArgumentException("이미지 해상도가 너무 큽니다.");
 		}
 	}
 
