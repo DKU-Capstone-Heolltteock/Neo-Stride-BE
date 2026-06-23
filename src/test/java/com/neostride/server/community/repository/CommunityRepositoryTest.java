@@ -486,12 +486,21 @@ class CommunityRepositoryTest {
 
 	@Test
 	void updateRelationshipRequestDelegatesNotificationCreation() {
+		String requestSql = """
+					INSERT INTO relationships (user1_id, user2_id, status)
+					SELECT ?, ?, 'REQUESTED'
+					WHERE NOT EXISTS (
+						SELECT 1 FROM relationships
+						WHERE status = 'BLOCKED'
+						  AND ((user1_id = ? AND user2_id = ?) OR (user1_id = ? AND user2_id = ?))
+					)
+					ON DUPLICATE KEY UPDATE status = IF(status = 'BLOCKED', status, 'REQUESTED')
+					""";
+		when(jdbcTemplate.update(requestSql, 1L, 2L, 1L, 2L, 2L, 1L)).thenReturn(1);
+
 		repository.updateRelationship(1L, new com.neostride.server.community.dto.FriendRequest(2L, "request"));
 
-		verify(jdbcTemplate).update(
-				"INSERT INTO relationships (user1_id, user2_id, status) VALUES (?, ?, 'REQUESTED') ON DUPLICATE KEY UPDATE status = 'REQUESTED'",
-				1L, 2L
-		);
+		verify(jdbcTemplate).update(requestSql, 1L, 2L, 1L, 2L, 2L, 1L);
 		ArgumentCaptor<Object> eventCaptor = ArgumentCaptor.forClass(Object.class);
 		verify(eventPublisher).publishEvent(eventCaptor.capture());
 		assertThat(eventCaptor.getValue()).isInstanceOf(NotificationRequestedEvent.class);
@@ -546,14 +555,14 @@ class CommunityRepositoryTest {
 	}
 
 	@Test
-	void updateRelationshipBlockReplacesExistingPairWithCurrentUserBlock() {
+	void updateRelationshipBlockPreservesExistingBlocksAndCreatesCurrentUserBlock() {
 		repository.updateRelationship(1L, new com.neostride.server.community.dto.FriendRequest(2L, "block"));
 
 		verify(jdbcTemplate).update(
-				"DELETE FROM relationships WHERE (user1_id=? AND user2_id=?) OR (user1_id=? AND user2_id=?)",
+				"DELETE FROM relationships WHERE status <> 'BLOCKED' AND ((user1_id=? AND user2_id=?) OR (user1_id=? AND user2_id=?))",
 				1L, 2L, 2L, 1L
 		);
-		verify(jdbcTemplate).update("INSERT INTO relationships (user1_id, user2_id, status) VALUES (?, ?, 'BLOCKED')", 1L, 2L);
+		verify(jdbcTemplate).update("INSERT INTO relationships (user1_id, user2_id, status) VALUES (?, ?, 'BLOCKED') ON DUPLICATE KEY UPDATE status = 'BLOCKED'", 1L, 2L);
 		verify(jdbcTemplate).update("""
 					DELETE ci FROM community_interactions ci
 					JOIN community_contents cc ON cc.content_id = ci.content_id

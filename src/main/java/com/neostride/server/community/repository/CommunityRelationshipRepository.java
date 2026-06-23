@@ -70,14 +70,25 @@ final class CommunityRelationshipRepository {
 		if (request.targetId() == null || request.targetId() <= 0 || request.targetId() == userId) throw new IllegalArgumentException("target_id가 올바르지 않습니다.");
 		switch ((request.action() == null ? "" : request.action().trim()).toLowerCase(Locale.ROOT)) {
 			case "request" -> {
-				jdbcTemplate.update("INSERT INTO relationships (user1_id, user2_id, status) VALUES (?, ?, 'REQUESTED') ON DUPLICATE KEY UPDATE status = 'REQUESTED'", userId, request.targetId());
-				notifyFriendRequest(userId, request.targetId());
+				int changed = jdbcTemplate.update("""
+					INSERT INTO relationships (user1_id, user2_id, status)
+					SELECT ?, ?, 'REQUESTED'
+					WHERE NOT EXISTS (
+						SELECT 1 FROM relationships
+						WHERE status = 'BLOCKED'
+						  AND ((user1_id = ? AND user2_id = ?) OR (user1_id = ? AND user2_id = ?))
+					)
+					ON DUPLICATE KEY UPDATE status = IF(status = 'BLOCKED', status, 'REQUESTED')
+					""", userId, request.targetId(), userId, request.targetId(), request.targetId(), userId);
+				if (changed > 0) {
+					notifyFriendRequest(userId, request.targetId());
+				}
 			}
 			case "accept" -> requireChanged(jdbcTemplate.update("UPDATE relationships SET status='ACCEPTED' WHERE user1_id=? AND user2_id=? AND status='REQUESTED'", request.targetId(), userId), "친구 요청을 찾을 수 없습니다.");
 			case "reject" -> requireChanged(jdbcTemplate.update("UPDATE relationships SET status='REJECTED' WHERE user1_id=? AND user2_id=? AND status='REQUESTED'", request.targetId(), userId), "친구 요청을 찾을 수 없습니다.");
 			case "block" -> {
-				jdbcTemplate.update("DELETE FROM relationships WHERE (user1_id=? AND user2_id=?) OR (user1_id=? AND user2_id=?)", userId, request.targetId(), request.targetId(), userId);
-				jdbcTemplate.update("INSERT INTO relationships (user1_id, user2_id, status) VALUES (?, ?, 'BLOCKED')", userId, request.targetId());
+				jdbcTemplate.update("DELETE FROM relationships WHERE status <> 'BLOCKED' AND ((user1_id=? AND user2_id=?) OR (user1_id=? AND user2_id=?))", userId, request.targetId(), request.targetId(), userId);
+				jdbcTemplate.update("INSERT INTO relationships (user1_id, user2_id, status) VALUES (?, ?, 'BLOCKED') ON DUPLICATE KEY UPDATE status = 'BLOCKED'", userId, request.targetId());
 				jdbcTemplate.update("""
 					DELETE ci FROM community_interactions ci
 					JOIN community_contents cc ON cc.content_id = ci.content_id
