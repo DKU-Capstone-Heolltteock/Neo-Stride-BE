@@ -116,7 +116,7 @@ public class StorageService {
 		} catch (IOException exception) {
 			throw new IllegalStateException("이미지 파일 저장에 실패했습니다.", exception);
 		}
-		scheduleThumbnailIfPossible(raster, targetDirectory, filename);
+		scheduleThumbnailIfPossible(raster, target, targetDirectory, filename);
 		return publicPrefix + "/" + safeDirectory + "/" + filename;
 	}
 
@@ -335,24 +335,38 @@ public class StorageService {
 				| (long) (bytes[offset + 3] & 0xff);
 	}
 
-	private void scheduleThumbnailIfPossible(BufferedImage source, Path targetDirectory, String filename) {
+	private void scheduleThumbnailIfPossible(BufferedImage source, Path sourcePath, Path targetDirectory, String filename) {
 		if (source == null) {
 			return;
 		}
 		try {
-			thumbnailExecutor.execute(() -> writeThumbnailIfPossible(source, targetDirectory, filename));
+			thumbnailExecutor.execute(() -> writeThumbnailIfPossible(source, sourcePath, targetDirectory, filename));
 		} catch (RejectedExecutionException exception) {
 			log.warn("Rejected image thumbnail task for {}", filename, exception);
 		}
 	}
 
-	private static void writeThumbnailIfPossible(BufferedImage source, Path targetDirectory, String filename) {
+	private static void writeThumbnailIfPossible(BufferedImage source, Path sourcePath, Path targetDirectory, String filename) {
 		try {
+			if (Files.notExists(sourcePath)) {
+				return;
+			}
 			Path thumbnailDirectory = targetDirectory.resolve(THUMBNAIL_DIRECTORY);
-			Files.createDirectories(thumbnailDirectory);
 			Path jpegThumbnail = thumbnailDirectory.resolve(thumbnailFilename(filename));
-			writeJpeg(resize(source, THUMBNAIL_MAX_DIMENSION), jpegThumbnail);
+			BufferedImage thumbnail = resize(source, THUMBNAIL_MAX_DIMENSION);
+			if (Files.notExists(sourcePath)) {
+				return;
+			}
+			Files.createDirectories(thumbnailDirectory);
+			writeJpeg(thumbnail, jpegThumbnail);
+			if (Files.notExists(sourcePath)) {
+				deleteThumbnailIfExists(sourcePath);
+				return;
+			}
 			writeWebpIfAvailable(jpegThumbnail, thumbnailDirectory.resolve(thumbnailWebpFilename(filename)));
+			if (Files.notExists(sourcePath)) {
+				deleteThumbnailIfExists(sourcePath);
+			}
 		} catch (IOException | RuntimeException exception) {
 			log.warn("Failed to create image thumbnail for {}", filename, exception);
 		}

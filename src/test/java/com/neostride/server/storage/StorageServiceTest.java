@@ -95,6 +95,30 @@ class StorageServiceTest {
 	}
 
 	@Test
+	void queuedThumbnailSkipsWhenOriginalWasDeletedBeforeTaskRuns() throws Exception {
+		AtomicReference<Runnable> thumbnailTask = new AtomicReference<>();
+		StorageService storageService = new StorageService(tempDir, "/uploads", command -> {
+			if (!thumbnailTask.compareAndSet(null, command)) {
+				throw new IllegalStateException("unexpected extra thumbnail task");
+			}
+		});
+		byte[] imageBytes = imageBytes("jpg", 1600, 900);
+		MockMultipartFile file = new MockMultipartFile("image", "wide.jpg", "image/jpeg", imageBytes);
+
+		String url = storageService.storeImage(file, "profile");
+		Path storedPath = tempDir.resolve(url.replaceFirst("^/uploads/", ""));
+		String filename = storedPath.getFileName().toString();
+		String basename = filename.substring(0, filename.lastIndexOf('.'));
+		Path thumbnail = storedPath.getParent().resolve("_thumbs").resolve(basename + "_480.jpg");
+
+		storageService.deleteStoredImage(url);
+		thumbnailTask.get().run();
+
+		assertThat(Files.exists(storedPath)).isFalse();
+		assertThat(Files.exists(thumbnail)).isFalse();
+	}
+
+	@Test
 	void storeImage_rejectsEmptyFile() {
 		StorageService storageService = new StorageService(tempDir, "/uploads");
 		MockMultipartFile file = new MockMultipartFile("image", "empty.png", "image/png", new byte[0]);
