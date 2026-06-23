@@ -180,6 +180,45 @@ class StorageServiceTest {
 		assertThat(stored).startsWith("/uploads/community/").endsWith(".heif");
 	}
 
+	@Test
+	void storeImage_rejectsHeicWhenFtypBoxSizeIsMalformed() {
+		StorageService storageService = new StorageService(tempDir, "/uploads");
+		byte[] bytes = new byte[] {
+				'<', 'h', '1', ' ', 'f', 't', 'y', 'p',
+				0, 0, 0, 0, 0, 0, 0, 0,
+				'h', 'e', 'i', 'c'
+		};
+		MockMultipartFile file = new MockMultipartFile("images", "payload.heic", "image/heic", bytes);
+
+		assertThatThrownBy(() -> storageService.storeImage(file, "community"))
+				.isInstanceOf(IllegalArgumentException.class)
+				.hasMessageContaining("이미지 파일 내용");
+	}
+
+	@Test
+	void storeImage_rejectsHeicBrandOutsideFtypBox() {
+		StorageService storageService = new StorageService(tempDir, "/uploads");
+		byte[] bytes = new byte[20];
+		bytes[3] = 16;
+		bytes[4] = 'f';
+		bytes[5] = 't';
+		bytes[6] = 'y';
+		bytes[7] = 'p';
+		bytes[8] = 'i';
+		bytes[9] = 's';
+		bytes[10] = 'o';
+		bytes[11] = 'm';
+		bytes[16] = 'h';
+		bytes[17] = 'e';
+		bytes[18] = 'i';
+		bytes[19] = 'c';
+		MockMultipartFile file = new MockMultipartFile("images", "payload.heic", "image/heic", bytes);
+
+		assertThatThrownBy(() -> storageService.storeImage(file, "community"))
+				.isInstanceOf(IllegalArgumentException.class)
+				.hasMessageContaining("이미지 파일 내용");
+	}
+
 	private static byte[] imageBytes(String format) {
 		return imageBytes(format, 1, 1);
 	}
