@@ -101,6 +101,7 @@ public class CommunityProfileController {
 			@RequestPart(value = "image", required = false) MultipartFile image,
 			@RequestPart(value = "profile_photo", required = false) MultipartFile profilePhoto
 	) {
+		long userId = userContext.authenticatedUserId(authorization, headerUserId);
 		String storedValue = CommunityMultipartSupport.normalizedNonBlank(profileImageUrl);
 		MultipartFile upload = image != null ? image : profilePhoto;
 		if (upload != null) {
@@ -109,7 +110,7 @@ public class CommunityProfileController {
 		if (storedValue == null) {
 			throw new IllegalArgumentException("profile_image_url, image 또는 profile_photo 중 하나는 필요합니다.");
 		}
-		service.updateProfileImage(userContext.authenticatedUserId(authorization, headerUserId), storedValue);
+		service.updateProfileImage(userId, storedValue);
 		return ResponseEntity.noContent().build();
 	}
 
