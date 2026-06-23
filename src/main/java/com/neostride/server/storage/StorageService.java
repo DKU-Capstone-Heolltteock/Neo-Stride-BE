@@ -9,6 +9,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Iterator;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
@@ -20,6 +21,7 @@ import javax.imageio.IIOImage;
 import javax.imageio.ImageIO;
 import javax.imageio.ImageWriteParam;
 import javax.imageio.ImageWriter;
+import javax.imageio.stream.ImageInputStream;
 import javax.imageio.stream.ImageOutputStream;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -41,6 +43,8 @@ public class StorageService {
 			"image/heif", "heif"
 	);
 	private static final int THUMBNAIL_MAX_DIMENSION = 480;
+	private static final int MAX_IMAGE_DIMENSION = 10_000;
+	private static final long MAX_IMAGE_PIXELS = 25_000_000L;
 	private static final float THUMBNAIL_JPEG_QUALITY = 0.78f;
 	private static final float ORIENTED_JPEG_QUALITY = 0.92f;
 	private static final float THUMBNAIL_WEBP_QUALITY = 74.0f;
@@ -124,14 +128,45 @@ public class StorageService {
 		if (!"image/jpeg".equals(contentType) && !"image/png".equals(contentType)) {
 			return null;
 		}
+		validateImageDimensions(bytes, contentType);
 		try (ByteArrayInputStream input = new ByteArrayInputStream(bytes)) {
 			BufferedImage image = ImageIO.read(input);
 			if (image == null || image.getWidth() <= 0 || image.getHeight() <= 0) {
 				throw new IllegalArgumentException("이미지 파일을 읽을 수 없습니다.");
 			}
+			validateImageDimensions(image.getWidth(), image.getHeight());
 			return image;
 		} catch (IOException exception) {
 			throw new IllegalArgumentException("이미지 파일을 읽을 수 없습니다.", exception);
+		}
+	}
+
+	private static void validateImageDimensions(byte[] bytes, String contentType) {
+		Iterator<ImageReader> readers = ImageIO.getImageReadersByMIMEType(contentType);
+		if (!readers.hasNext()) {
+			throw new IllegalArgumentException("이미지 파일을 읽을 수 없습니다.");
+		}
+		ImageReader reader = readers.next();
+		try (ImageInputStream input = ImageIO.createImageInputStream(new ByteArrayInputStream(bytes))) {
+			if (input == null) {
+				throw new IllegalArgumentException("이미지 파일을 읽을 수 없습니다.");
+			}
+			reader.setInput(input, true, true);
+			validateImageDimensions(reader.getWidth(0), reader.getHeight(0));
+		} catch (IOException | IndexOutOfBoundsException exception) {
+			throw new IllegalArgumentException("이미지 파일을 읽을 수 없습니다.", exception);
+		} finally {
+			reader.dispose();
+		}
+	}
+
+	private static void validateImageDimensions(int width, int height) {
+		if (width <= 0 || height <= 0) {
+			throw new IllegalArgumentException("이미지 파일을 읽을 수 없습니다.");
+		}
+		long pixels = (long) width * height;
+		if (width > MAX_IMAGE_DIMENSION || height > MAX_IMAGE_DIMENSION || pixels > MAX_IMAGE_PIXELS) {
+			throw new IllegalArgumentException("이미지 크기가 너무 큽니다.");
 		}
 	}
 

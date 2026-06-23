@@ -4,6 +4,7 @@ import java.awt.image.BufferedImage;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.file.Files;
+import java.util.zip.CRC32;
 import java.nio.file.Path;
 import java.util.concurrent.atomic.AtomicReference;
 import javax.imageio.ImageIO;
@@ -145,6 +146,16 @@ class StorageServiceTest {
 	}
 
 	@Test
+	void storeImage_rejectsImageDimensionsThatWouldExhaustProcessing() {
+		StorageService storageService = new StorageService(tempDir, "/uploads");
+		MockMultipartFile file = new MockMultipartFile("image", "huge.png", "image/png", pngHeaderOnly(25_001, 1_000));
+
+		assertThatThrownBy(() -> storageService.storeImage(file, "profile"))
+				.isInstanceOf(IllegalArgumentException.class)
+				.hasMessageContaining("이미지 크기");
+	}
+
+	@Test
 	void storeImage_rejectsPngThatHasOnlyHeaderChunks() {
 		StorageService storageService = new StorageService(tempDir, "/uploads");
 		byte[] truncatedPng = new byte[] {
@@ -178,6 +189,35 @@ class StorageServiceTest {
 		String stored = storageService.storeImage(file, "community");
 
 		assertThat(stored).startsWith("/uploads/community/").endsWith(".heif");
+	}
+
+	private static byte[] pngHeaderOnly(int width, int height) {
+		ByteArrayOutputStream output = new ByteArrayOutputStream();
+		output.writeBytes(new byte[] {(byte) 0x89, 'P', 'N', 'G', 13, 10, 26, 10});
+		writePngChunk(output, "IHDR", new byte[] {
+				(byte) (width >>> 24), (byte) (width >>> 16), (byte) (width >>> 8), (byte) width,
+				(byte) (height >>> 24), (byte) (height >>> 16), (byte) (height >>> 8), (byte) height,
+				8, 2, 0, 0, 0
+		});
+		return output.toByteArray();
+	}
+
+	private static void writePngChunk(ByteArrayOutputStream output, String type, byte[] data) {
+		output.write((data.length >>> 24) & 0xff);
+		output.write((data.length >>> 16) & 0xff);
+		output.write((data.length >>> 8) & 0xff);
+		output.write(data.length & 0xff);
+		byte[] typeBytes = type.getBytes(java.nio.charset.StandardCharsets.US_ASCII);
+		output.writeBytes(typeBytes);
+		output.writeBytes(data);
+		CRC32 crc = new CRC32();
+		crc.update(typeBytes);
+		crc.update(data);
+		long value = crc.getValue();
+		output.write((int) ((value >>> 24) & 0xff));
+		output.write((int) ((value >>> 16) & 0xff));
+		output.write((int) ((value >>> 8) & 0xff));
+		output.write((int) (value & 0xff));
 	}
 
 	private static byte[] imageBytes(String format) {
