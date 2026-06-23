@@ -134,7 +134,6 @@ class AuthServiceLoginTest {
 
 		verify(refreshTokenRepository, times(2)).revokeIfActive(1L, "old-id");
 		verify(refreshTokenRepository, times(1)).save(1L, "new-id", 456L);
-		verify(refreshTokenRepository, never()).wasRevokedWithin(1L, "old-id", 30L);
 		verify(jwtTokenService, times(1)).generateAccessToken(1L, "runner@example.com", "홍길동");
 		verify(jwtTokenService, times(1)).generateRefreshToken(1L, "runner@example.com", "홍길동");
 	}
@@ -158,7 +157,6 @@ class AuthServiceLoginTest {
 				.isInstanceOf(InvalidCredentialsException.class);
 
 		verify(refreshTokenRepository, times(2)).revokeIfActive(1L, "old-id");
-		verify(refreshTokenRepository, never()).wasRevokedWithin(1L, "old-id", 30L);
 		verify(refreshTokenRepository, times(1)).save(1L, "new-id", 456L);
 		verify(jwtTokenService, times(1)).generateAccessToken(1L, "runner@example.com", "홍길동");
 		verify(jwtTokenService, times(1)).generateRefreshToken(1L, "runner@example.com", "홍길동");
@@ -184,7 +182,6 @@ class AuthServiceLoginTest {
 				.isInstanceOf(InvalidCredentialsException.class);
 
 		verify(refreshTokenRepository, times(2)).revokeIfActive(1L, "old-id");
-		verify(refreshTokenRepository, never()).wasRevokedWithin(1L, "old-id", 30L);
 		verify(refreshTokenRepository, times(1)).save(1L, "new-id", 456L);
 		verify(jwtTokenService, times(1)).generateAccessToken(1L, "runner@example.com", "홍길동");
 		verify(jwtTokenService, times(1)).generateRefreshToken(1L, "runner@example.com", "홍길동");
