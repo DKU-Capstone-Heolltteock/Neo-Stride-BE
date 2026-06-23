@@ -8,13 +8,18 @@ import com.neostride.server.auth.dto.SignupResponse;
 import com.neostride.server.auth.service.AuthService;
 import com.neostride.server.storage.StorageService;
 import org.junit.jupiter.api.Test;
+import org.mockito.InOrder;
 import org.springframework.http.HttpStatus;
 import org.springframework.mock.web.MockMultipartFile;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.doThrow;
 
 class AuthControllerTest {
 
@@ -51,8 +56,42 @@ class AuthControllerTest {
 		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CREATED);
 		assertThat(response.getBody()).isNotNull();
 		assertThat(response.getBody().userId()).isEqualTo(1L);
-		verify(storageService).storeImage(photo, "profile");
-		verify(authService).signup(expectedRequest, "/uploads/profile/profile-id.jpg");
+		InOrder inOrder = inOrder(authService, storageService);
+		inOrder.verify(authService).validateSignupRequestAvailable(expectedRequest);
+		inOrder.verify(storageService).storeImage(photo, "profile");
+		inOrder.verify(authService).signup(expectedRequest, "/uploads/profile/profile-id.jpg");
+	}
+
+	@Test
+	void signupWithPhoto_validatesBeforeStoringProfilePhoto() {
+		StorageService storageService = mock(StorageService.class);
+		AuthController multipartController = new AuthController(authService, storageService);
+		MockMultipartFile photo = new MockMultipartFile("profile_photo", "profile.jpg", "image/jpeg", new byte[] {(byte) 0xff, (byte) 0xd8, (byte) 0xff});
+		SignupRequest expectedRequest = new SignupRequest("bad-email", "홍길동", "plain-password");
+		doThrow(new IllegalArgumentException("email 형식이 올바르지 않습니다."))
+				.when(authService).validateSignupRequestAvailable(expectedRequest);
+
+		assertThatThrownBy(() -> multipartController.signupWithPhoto("bad-email", "홍길동", "plain-password", photo))
+				.isInstanceOf(IllegalArgumentException.class);
+
+		verify(authService).validateSignupRequestAvailable(expectedRequest);
+		verify(storageService, never()).storeImage(photo, "profile");
+	}
+
+	@Test
+	void signupWithPhoto_deletesProfilePhotoWhenSignupFailsAfterStorage() {
+		StorageService storageService = mock(StorageService.class);
+		AuthController multipartController = new AuthController(authService, storageService);
+		MockMultipartFile photo = new MockMultipartFile("profile_photo", "profile.jpg", "image/jpeg", new byte[] {(byte) 0xff, (byte) 0xd8, (byte) 0xff});
+		SignupRequest expectedRequest = new SignupRequest("runner@example.com", "홍길동", "plain-password");
+		when(storageService.storeImage(photo, "profile")).thenReturn("/uploads/profile/profile-id.jpg");
+		doThrow(new IllegalStateException("signup failed"))
+				.when(authService).signup(expectedRequest, "/uploads/profile/profile-id.jpg");
+
+		assertThatThrownBy(() -> multipartController.signupWithPhoto("runner@example.com", "홍길동", "plain-password", photo))
+				.isInstanceOf(IllegalStateException.class);
+
+		verify(storageService).deleteStoredImage("/uploads/profile/profile-id.jpg");
 	}
 
 	@Test

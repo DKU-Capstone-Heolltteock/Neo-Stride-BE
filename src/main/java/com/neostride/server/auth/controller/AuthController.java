@@ -80,6 +80,9 @@ public class AuthController {
 			@RequestParam("password") String password,
 			@RequestPart(value = "profile_photo", required = false) MultipartFile profilePhoto
 	) {
+		SignupRequest request = new SignupRequest(email, name, password);
+		authService.validateSignupRequestAvailable(request);
+
 		String profilePhotoUrl = null;
 		if (profilePhoto != null) {
 			if (storageService == null) {
@@ -87,8 +90,15 @@ public class AuthController {
 			}
 			profilePhotoUrl = storageService.storeImage(profilePhoto, "profile");
 		}
-		return ResponseEntity.status(HttpStatus.CREATED)
-				.body(authService.signup(new SignupRequest(email, name, password), profilePhotoUrl));
+		try {
+			return ResponseEntity.status(HttpStatus.CREATED)
+					.body(authService.signup(request, profilePhotoUrl));
+		} catch (RuntimeException exception) {
+			if (profilePhotoUrl != null) {
+				storageService.deleteStoredImage(profilePhotoUrl);
+			}
+			throw exception;
+		}
 	}
 
 	@Operation(summary = "로그인", description = "이메일과 비밀번호를 검증하고 JWT access token과 refresh token을 발급합니다.")
