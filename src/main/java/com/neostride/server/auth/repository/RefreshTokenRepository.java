@@ -55,21 +55,6 @@ public class RefreshTokenRepository {
 		return updated > 0;
 	}
 
-	public boolean wasRevokedWithin(long userId, String tokenId, long graceSeconds) {
-		if (tokenId == null || tokenId.isBlank() || graceSeconds <= 0) {
-			return false;
-		}
-		Integer count = jdbcTemplate.queryForObject("""
-			SELECT COUNT(*)
-			FROM refresh_tokens
-			WHERE user_id = ?
-			  AND token_id_hash = ?
-			  AND revoked_at IS NOT NULL
-			  AND expires_at > NOW()
-			  AND revoked_at >= TIMESTAMPADD(SECOND, -?, NOW())
-			""", Integer.class, userId, sha256Hex(tokenId), graceSeconds);
-		return count != null && count > 0;
-	}
 
 	public void revoke(long userId, String tokenId) {
 		if (tokenId == null || tokenId.isBlank()) {
