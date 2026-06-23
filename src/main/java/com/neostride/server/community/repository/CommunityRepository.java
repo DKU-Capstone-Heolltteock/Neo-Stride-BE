@@ -44,7 +44,9 @@ public class CommunityRepository {
 	public List<CommunityContentResponse> feedsByUserForViewer(Long viewerUserId, long userId) { return feedRepository.feedsByUserForViewer(viewerUserId, userId); }
 	public List<CommunityContentResponse> taggedFeeds(long userId) { return feedRepository.taggedFeeds(userId); }
 	public List<CommunityContentResponse> interactedFeeds(long userId, String type) { return feedRepository.interactedFeeds(userId, type); }
-	public List<MyCommentActivityResponse> myCommentActivities(long userId) { return commentActivityRepository.myCommentActivities(userId); }
+	public List<MyCommentActivityResponse> myCommentActivities(long userId, LocalDateTime cursorCreatedAt, Long cursorId, int limit) {
+		return commentActivityRepository.myCommentActivities(userId, cursorCreatedAt, cursorId, limit);
+	}
 
 	public boolean toggleBookmark(long userId, long contentId) {
 		return toggleInteraction(userId, contentId, "BOOKMARK");

@@ -61,7 +61,20 @@ public class CommunityService {
 	public List<CommunityContentResponse> getMyFeeds(long userId) { validatePositive(userId, "user_id"); return repository.myFeeds(userId); }
 	public List<CommunityContentResponse> getTaggedFeeds(long userId) { validatePositive(userId, "user_id"); return repository.taggedFeeds(userId); }
 	public List<CommunityContentResponse> getCommentedFeeds(long userId) { validatePositive(userId, "user_id"); return repository.interactedFeeds(userId, "COMMENT"); }
-	public List<MyCommentActivityResponse> getMyCommentActivities(long userId) { validatePositive(userId, "user_id"); return repository.myCommentActivities(userId); }
+	public MyCommentActivityPageResponse getMyCommentActivities(long userId, String cursorCreatedAt, Long cursorId, int limit) {
+		validatePositive(userId, "user_id");
+		validateLimit(limit);
+		LocalDateTime parsedCursorCreatedAt = parseFeedCursor(cursorCreatedAt, cursorId);
+		List<MyCommentActivityResponse> rows = repository.myCommentActivities(userId, parsedCursorCreatedAt, cursorId, limit + 1);
+		boolean hasMore = rows.size() > limit;
+		List<MyCommentActivityResponse> items = hasMore ? rows.subList(0, limit) : rows;
+		CommentCursorResponse nextCursor = null;
+		if (hasMore && !items.isEmpty()) {
+			MyCommentActivityResponse last = items.getLast();
+			nextCursor = new CommentCursorResponse(last.commentCreatedAt(), last.commentId());
+		}
+		return new MyCommentActivityPageResponse(items, nextCursor, hasMore);
+	}
 	public List<CommunityContentResponse> getLikedFeeds(long userId) { validatePositive(userId, "user_id"); return repository.interactedFeeds(userId, "LIKE"); }
 	public List<CommunityContentResponse> getBookmarkedFeeds(long userId) { validatePositive(userId, "user_id"); return repository.interactedFeeds(userId, "BOOKMARK"); }
 	public List<CommunityContentResponse> getUserFeeds(long userId) { return getUserFeeds(null, userId); }

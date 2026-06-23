@@ -102,6 +102,19 @@ class RateLimitFilterTest {
 		assertThat(secondResponse.getStatus()).isEqualTo(429);
 	}
 
+	@Test
+	void readBucketCoversCommunityCommentActivityEndpoint() throws Exception {
+		RateLimitFilter filter = new RateLimitFilter(true, 10, 10, 1, Clock.fixed(Instant.parse("2026-05-28T00:00:00Z"), ZoneOffset.UTC));
+		FilterChain chain = mock(FilterChain.class);
+
+		filter.doFilterInternal(request("GET", "/api/community/feeds"), new MockHttpServletResponse(), chain);
+		MockHttpServletResponse secondResponse = new MockHttpServletResponse();
+		filter.doFilterInternal(request("GET", "/api/community/comments/me"), secondResponse, chain);
+
+		verify(chain, times(1)).doFilter(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
+		assertThat(secondResponse.getStatus()).isEqualTo(429);
+	}
+
 	private static MockHttpServletRequest request(String method, String path) {
 		MockHttpServletRequest request = new MockHttpServletRequest(method, path);
 		request.setRemoteAddr("203.0.113.7");

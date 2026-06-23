@@ -5,7 +5,9 @@ import java.math.BigDecimal;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Timestamp;
+import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.List;
 import org.springframework.jdbc.core.JdbcTemplate;
 
@@ -19,7 +21,26 @@ final class CommunityCommentActivityRepository {
 		this.jdbcTemplate = jdbcTemplate;
 	}
 
-	List<MyCommentActivityResponse> myCommentActivities(long userId) {
+	List<MyCommentActivityResponse> myCommentActivities(long userId, LocalDateTime cursorCreatedAt, Long cursorId, int limit) {
+		String cursorPredicate = "";
+		List<Object> args = new ArrayList<>();
+		args.add(userId);
+		args.add(userId);
+		args.add(userId);
+		args.add(userId);
+		args.add(userId);
+		args.add(userId);
+		args.add(userId);
+		args.add(userId);
+		args.add(userId);
+		if (cursorCreatedAt != null && cursorId != null) {
+			cursorPredicate = " AND (ci.created_at < ? OR (ci.created_at = ? AND ci.interaction_id < ?))";
+			Timestamp cursorTimestamp = Timestamp.valueOf(cursorCreatedAt);
+			args.add(cursorTimestamp);
+			args.add(cursorTimestamp);
+			args.add(cursorId);
+		}
+		args.add(limit);
 		return jdbcTemplate.query("""
 			SELECT ci.interaction_id AS comment_id, ci.comment_text, ci.created_at AS comment_created_at,
 			       cc.content_id, cc.content_type, cc.author_user_id,
@@ -51,9 +72,10 @@ final class CommunityCommentActivityRepository {
 			  AND (cc.content_type='TIP' OR (cc.content_type='POST' AND """ + VIEWER_SCOPE_PREDICATE + """
 			  ))
 			  AND """ + blockedByCurrentUserPredicate() + """
+			""" + cursorPredicate + """
 			ORDER BY ci.created_at DESC, ci.interaction_id DESC
-			""", (rs, n) -> mapRow(rs, userId),
-				userId, userId, userId, userId, userId, userId, userId, userId, userId);
+			LIMIT ?
+			""", (rs, n) -> mapRow(rs, userId), args.toArray());
 	}
 
 	private MyCommentActivityResponse mapRow(ResultSet rs, long userId) throws SQLException {
