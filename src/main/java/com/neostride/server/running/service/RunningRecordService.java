@@ -117,7 +117,8 @@ public class RunningRecordService {
 		if (runningRecordRepository.deleteByRecordIdForUser(userId, recordId) <= 0) {
 			return DeleteResult.NOT_FOUND;
 		}
-		if (planId != null && coachingPlanProgressPort != null) {
+		if (planId != null && coachingPlanProgressPort != null
+				&& !runningRecordRepository.hasRecordsForPlanIdForUser(userId, planId)) {
 			coachingPlanProgressPort.restorePlanToPendingAfterRunningRecordDeleted(userId, planId);
 		}
 		return DeleteResult.DELETED;

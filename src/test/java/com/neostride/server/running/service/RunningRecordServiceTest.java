@@ -136,6 +136,22 @@ class RunningRecordServiceTest {
 	}
 
 	@Test
+	void deleteByRecordIdForUserDoesNotRestoreCoachingPlanWhenOtherRecordsRemainLinked() {
+		CoachingPlanProgressPort coachingPlanProgressPort = mock(CoachingPlanProgressPort.class);
+		RunningRecordService coachingAwareService = new RunningRecordService(repository, coachingPlanProgressPort);
+		when(repository.findOwnerUserId(10L)).thenReturn(7L);
+		when(repository.findPlanIdByRecordIdForUser(7L, 10L)).thenReturn(20L);
+		when(repository.deleteByRecordIdForUser(7L, 10L)).thenReturn(1);
+		when(repository.hasRecordsForPlanIdForUser(7L, 20L)).thenReturn(true);
+
+		DeleteResult result = coachingAwareService.deleteByRecordIdForUser(7L, 10L);
+
+		assertThat(result).isEqualTo(DeleteResult.DELETED);
+		verify(repository).deleteByRecordIdForUser(7L, 10L);
+		verify(coachingPlanProgressPort, never()).restorePlanToPendingAfterRunningRecordDeleted(7L, 20L);
+	}
+
+	@Test
 	void deleteByRecordIdForUserReturnsNotFoundWhenRecordDoesNotExist() {
 		when(repository.findOwnerUserId(10L)).thenReturn(null);
 
