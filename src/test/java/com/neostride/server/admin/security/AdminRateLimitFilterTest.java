@@ -36,6 +36,25 @@ class AdminRateLimitFilterTest {
 	}
 
 	@Test
+	void matrixParameterAdminAuthPathUsesAuthBucket() throws Exception {
+		AdminRateLimitFilter filter = new AdminRateLimitFilter(
+				true,
+				1,
+				10,
+				10,
+				Clock.fixed(Instant.parse("2026-06-19T00:00:00Z"), ZoneOffset.UTC)
+		);
+		FilterChain chain = mock(FilterChain.class);
+
+		filter.doFilterInternal(request("POST", "/api;v=1/admin/auth/login"), new MockHttpServletResponse(), chain);
+		MockHttpServletResponse secondResponse = new MockHttpServletResponse();
+		filter.doFilterInternal(request("POST", "/api;v=2/admin/auth/login"), secondResponse, chain);
+
+		verify(chain, times(1)).doFilter(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
+		assertThat(secondResponse.getStatus()).isEqualTo(429);
+	}
+
+	@Test
 	void nonAdminPathPassesThrough() throws Exception {
 		AdminRateLimitFilter filter = new AdminRateLimitFilter(
 				true,

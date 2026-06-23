@@ -9,7 +9,8 @@ final class AdminConsolePathMatcher {
 	}
 
 	static boolean isConsolePath(String path) {
-		return hasPrefix(path, ADMIN_PREFIX) || hasPrefix(path, OPS_PREFIX) || hasPrefix(path, DEV_PREFIX);
+		String normalized = stripMatrixParameters(path);
+		return hasPrefix(normalized, ADMIN_PREFIX) || hasPrefix(normalized, OPS_PREFIX) || hasPrefix(normalized, DEV_PREFIX);
 	}
 
 	private static boolean hasPrefix(String path, String prefix) {
@@ -27,5 +28,25 @@ final class AdminConsolePathMatcher {
 		}
 		char boundary = path.charAt(prefix.length());
 		return boundary == '/' || boundary == ';';
+	}
+
+	static String stripMatrixParameters(String path) {
+		if (path == null || path.indexOf(';') < 0) {
+			return path;
+		}
+		StringBuilder normalized = new StringBuilder(path.length());
+		int index = 0;
+		while (index < path.length()) {
+			char current = path.charAt(index);
+			if (current == ';') {
+				while (index < path.length() && path.charAt(index) != '/') {
+					index++;
+				}
+				continue;
+			}
+			normalized.append(current);
+			index++;
+		}
+		return normalized.toString();
 	}
 }

@@ -90,8 +90,8 @@ public class AdminRateLimitFilter extends OncePerRequestFilter {
 	}
 
 	private Bucket bucket(HttpServletRequest request) {
-		String path = request.getRequestURI();
-		if (!path.startsWith("/api/admin") && !path.startsWith("/api/ops") && !path.startsWith("/api/dev")) {
+		String path = AdminConsolePathMatcher.stripMatrixParameters(request.getRequestURI());
+		if (!AdminConsolePathMatcher.isConsolePath(path)) {
 			return null;
 		}
 		if ("POST".equals(request.getMethod()) && path.startsWith("/api/admin/auth")) {

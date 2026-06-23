@@ -6,10 +6,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 class OperatorPermissionsTest {
 	@Test
-	void developerCanTriageBugReportsButAuditorCannot() {
+	void developerAndAuditorDefaultToReadOnlyBugReportAccess() {
 		assertThat(OperatorPermissions.defaultsForRole("DEVELOPER"))
-				.contains(OperatorPermissions.LOGS_READ, OperatorPermissions.BUG_REPORT_WRITE)
-				.doesNotContain(OperatorPermissions.OPERATOR_MANAGE);
+				.contains(OperatorPermissions.LOGS_READ)
+				.doesNotContain(OperatorPermissions.BUG_REPORT_WRITE, OperatorPermissions.OPERATOR_MANAGE);
 		assertThat(OperatorPermissions.defaultsForRole("AUDITOR"))
 				.contains(OperatorPermissions.LOGS_READ, OperatorPermissions.AUDIT_READ)
 				.doesNotContain(OperatorPermissions.BUG_REPORT_WRITE, OperatorPermissions.OPERATOR_MANAGE);
