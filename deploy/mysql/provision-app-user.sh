@@ -83,6 +83,16 @@ require_host_pattern() {
 	esac
 }
 
+require_host_pattern() {
+	value=$1
+	case "$value" in
+		*[!A-Za-z0-9._:%-]*|"")
+			echo "APP_DB_HOST_PATTERN may contain only letters, numbers, dots, underscores, colons, percent signs, and hyphens." >&2
+			exit 1
+			;;
+	esac
+}
+
 require_identifier "$DB_NAME" "DB_NAME"
 require_identifier "$APP_DB_USERNAME" "APP_DB_USERNAME"
 require_host_pattern "$APP_DB_HOST_PATTERN"
