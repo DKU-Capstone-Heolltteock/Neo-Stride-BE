@@ -53,8 +53,19 @@ sql_string() {
 	printf "%s" "$1" | sed "s/'/''/g"
 }
 
+require_host_pattern() {
+	value=$1
+	case "$value" in
+		*[!A-Za-z0-9._:%-]*|"")
+			echo "APP_DB_HOST_PATTERN may contain only letters, numbers, dots, underscores, colons, percent signs, and hyphens." >&2
+			exit 1
+			;;
+	esac
+}
+
 require_identifier "$DB_NAME" "DB_NAME"
 require_identifier "$APP_DB_USERNAME" "APP_DB_USERNAME"
+require_host_pattern "$APP_DB_HOST_PATTERN"
 
 if [ -z "${APP_DB_PASSWORD:-}" ]; then
 	echo "APP_DB_PASSWORD is required." >&2
@@ -75,12 +86,13 @@ run_mysql() {
 	fi
 }
 
-db_name=$(sql_string "$DB_NAME")
+db_name=$DB_NAME
 app_user=$(sql_string "$APP_DB_USERNAME")
 app_host=$(sql_string "$APP_DB_HOST_PATTERN")
 app_password=$(sql_string "$APP_DB_PASSWORD")
 
 cat <<SQL | run_mysql
+SET SESSION sql_mode = IF(@@SESSION.sql_mode = '', 'NO_BACKSLASH_ESCAPES', CONCAT(@@SESSION.sql_mode, ',NO_BACKSLASH_ESCAPES'));
 CREATE DATABASE IF NOT EXISTS \`$db_name\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 CREATE USER IF NOT EXISTS '$app_user'@'$app_host' IDENTIFIED BY '$app_password';
 ALTER USER '$app_user'@'$app_host' IDENTIFIED BY '$app_password';
