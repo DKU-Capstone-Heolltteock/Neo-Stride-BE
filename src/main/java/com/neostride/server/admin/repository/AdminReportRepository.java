@@ -38,7 +38,7 @@ public class AdminReportRepository {
 		}
 		appendRangeAndCursor(sql, args, cursor, from, to);
 		sql.append(" ORDER BY created_at DESC, report_id DESC LIMIT ?");
-		args.add(CursorSupport.cappedLimit(limit));
+		args.add(CursorSupport.cappedFetchLimit(limit));
 		return jdbcTemplate.query(sql.toString(), this::mapReport, args.toArray());
 	}
 

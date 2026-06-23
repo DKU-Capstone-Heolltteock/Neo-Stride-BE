@@ -85,7 +85,7 @@ public class OperatorRepository {
 		}
 		appendRangeAndCursor(sql, args, "operator_account_id", cursor, from, to);
 		sql.append(" ORDER BY created_at DESC, operator_account_id DESC LIMIT ?");
-		args.add(CursorSupport.cappedLimit(limit));
+		args.add(CursorSupport.cappedFetchLimit(limit));
 		return jdbcTemplate.query(sql.toString(), this::mapAccountResponse, args.toArray());
 	}
 
