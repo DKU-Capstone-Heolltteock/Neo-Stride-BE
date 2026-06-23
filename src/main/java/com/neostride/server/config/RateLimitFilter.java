@@ -116,6 +116,7 @@ public class RateLimitFilter extends OncePerRequestFilter {
 	private boolean isReadLimitedPath(String path) {
 		return path.startsWith("/api/community/feeds")
 				|| path.startsWith("/api/community/search")
+				|| path.startsWith("/api/community/comments")
 				|| path.startsWith("/api/crews")
 				|| path.startsWith("/api/instant-crews")
 				|| path.startsWith("/api/crew-chat")

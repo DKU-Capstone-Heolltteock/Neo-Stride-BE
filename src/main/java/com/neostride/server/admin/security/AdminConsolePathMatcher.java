@@ -1,0 +1,31 @@
+package com.neostride.server.admin.security;
+
+final class AdminConsolePathMatcher {
+	private static final String ADMIN_PREFIX = "/api/admin";
+	private static final String OPS_PREFIX = "/api/ops";
+	private static final String DEV_PREFIX = "/api/dev";
+
+	private AdminConsolePathMatcher() {
+	}
+
+	static boolean isConsolePath(String path) {
+		return hasPrefix(path, ADMIN_PREFIX) || hasPrefix(path, OPS_PREFIX) || hasPrefix(path, DEV_PREFIX);
+	}
+
+	private static boolean hasPrefix(String path, String prefix) {
+		if (path == null) {
+			return false;
+		}
+		if (path.equals(prefix)) {
+			return true;
+		}
+		if (!path.startsWith(prefix)) {
+			return false;
+		}
+		if (path.length() == prefix.length()) {
+			return true;
+		}
+		char boundary = path.charAt(prefix.length());
+		return boundary == '/' || boundary == ';';
+	}
+}

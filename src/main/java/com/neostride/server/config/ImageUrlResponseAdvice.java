@@ -7,6 +7,7 @@ import com.neostride.server.community.dto.FeedDetailResponse;
 import com.neostride.server.community.dto.FeedPageResponse;
 import com.neostride.server.community.dto.FeedUploadResponse;
 import com.neostride.server.community.dto.FriendResponse;
+import com.neostride.server.community.dto.MyCommentActivityPageResponse;
 import com.neostride.server.community.dto.MyCommentActivityResponse;
 import com.neostride.server.community.dto.SearchUserResponse;
 import com.neostride.server.community.dto.TipDetailResponse;
@@ -61,6 +62,10 @@ public class ImageUrlResponseAdvice implements ResponseBodyAdvice<Object> {
 		}
 		if (body instanceof FeedPageResponse response) {
 			return new FeedPageResponse(feeds(response.items(), thumbnails, webpThumbnails), response.nextCursor(), response.hasMore());
+		}
+		if (body instanceof MyCommentActivityPageResponse response) {
+			return new MyCommentActivityPageResponse(myCommentActivities(response.items(), thumbnails, webpThumbnails),
+					response.nextCursor(), response.hasMore());
 		}
 		if (body instanceof CommunityContentResponse response) {
 			return communityContent(response, thumbnails, webpThumbnails);
@@ -204,6 +209,14 @@ public class ImageUrlResponseAdvice implements ResponseBodyAdvice<Object> {
 			return List.of();
 		}
 		return comments.stream().map(this::comment).toList();
+	}
+
+	private List<MyCommentActivityResponse> myCommentActivities(List<MyCommentActivityResponse> activities,
+			boolean thumbnails, boolean webpThumbnails) {
+		if (activities == null || activities.isEmpty()) {
+			return List.of();
+		}
+		return activities.stream().map(activity -> myCommentActivity(activity, thumbnails, webpThumbnails)).toList();
 	}
 
 	private String publicImage(String value, boolean thumbnails, boolean webpThumbnails) {
