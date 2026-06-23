@@ -66,9 +66,17 @@ jobs:
             set -euo pipefail
             mkdir -p ~/neo-stride/uploads
             docker run --rm \
+              -e APP_UID=10001 \
+              -e APP_GID=10001 \
               -v "$HOME/neo-stride/uploads:/data/uploads" \
               alpine:3.20 \
-              sh -c 'mkdir -p /data/uploads/community /data/uploads/routes /data/uploads/profile && chmod -R 0777 /data/uploads'
+              sh -c '
+                set -e
+                mkdir -p /data/uploads/community /data/uploads/routes /data/uploads/profile
+                chown -R "${APP_UID}:${APP_GID}" /data/uploads
+                find /data/uploads -type d -exec chmod 0750 {} +
+                find /data/uploads -type f -exec chmod 0640 {} +
+              '
             cd ~/neo-stride/backend
             chmod +x deploy/mysql/apply-migrations.sh
             MYSQL_CONTAINER=neostride-mysql USE_CONTAINER_MYSQL_ENV=true deploy/mysql/apply-migrations.sh

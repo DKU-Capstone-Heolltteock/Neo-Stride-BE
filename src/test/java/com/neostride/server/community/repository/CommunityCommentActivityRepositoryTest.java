@@ -4,6 +4,7 @@ import com.neostride.server.community.dto.MyCommentActivityResponse;
 import java.math.BigDecimal;
 import java.sql.ResultSet;
 import java.sql.Timestamp;
+import java.time.LocalDateTime;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -22,13 +23,14 @@ class CommunityCommentActivityRepositoryTest {
 	private final CommunityCommentActivityRepository repository = new CommunityCommentActivityRepository(jdbcTemplate);
 
 	@Test
-	void myCommentActivities_returnsCommentRowsWithEditableCommentIdentifiers() throws Exception {
+	void myCommentActivities_returnsBoundedCommentRowsWithEditableCommentIdentifiers() throws Exception {
 		when(jdbcTemplate.query(anyString(), any(RowMapper.class), any(Object[].class))).thenAnswer(invocation -> {
 			RowMapper<MyCommentActivityResponse> mapper = invocation.getArgument(1);
 			return List.of(mapper.mapRow(feedCommentActivityRow(), 0), mapper.mapRow(tipCommentActivityRow(), 1));
 		});
 
-		List<MyCommentActivityResponse> rows = repository.myCommentActivities(1L);
+		LocalDateTime cursorCreatedAt = LocalDateTime.parse("2026-06-02T11:00:00");
+		List<MyCommentActivityResponse> rows = repository.myCommentActivities(1L, cursorCreatedAt, 98L, 21);
 
 		assertThat(rows).hasSize(2);
 		MyCommentActivityResponse feed = rows.get(0);
@@ -55,9 +57,28 @@ class CommunityCommentActivityRepositoryTest {
 		assertThat(sql.getValue())
 				.contains("ci.interaction_id AS comment_id")
 				.contains("ci.user_id=? AND ci.interaction_type='COMMENT'")
+				.contains("AND (ci.created_at < ? OR (ci.created_at = ? AND ci.interaction_id < ?))")
 				.contains("ORDER BY ci.created_at DESC, ci.interaction_id DESC")
+				.contains("LIMIT ?")
 				.doesNotContain("GROUP BY");
-		assertThat(args.getValue()).containsExactly(1L, 1L, 1L, 1L, 1L, 1L, 1L, 1L, 1L);
+		Timestamp cursorTimestamp = Timestamp.valueOf(cursorCreatedAt);
+		assertThat(args.getValue()).containsExactly(1L, 1L, 1L, 1L, 1L, 1L, 1L, 1L, 1L,
+				cursorTimestamp, cursorTimestamp, 98L, 21);
+	}
+
+	@Test
+	void myCommentActivities_omitsCursorPredicateWhenCursorIsAbsentButKeepsLimit() {
+		when(jdbcTemplate.query(anyString(), any(RowMapper.class), any(Object[].class))).thenReturn(List.of());
+
+		repository.myCommentActivities(1L, null, null, 21);
+
+		ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
+		ArgumentCaptor<Object[]> args = ArgumentCaptor.forClass(Object[].class);
+		verify(jdbcTemplate).query(sql.capture(), any(RowMapper.class), args.capture());
+		assertThat(sql.getValue())
+				.doesNotContain("ci.created_at < ?")
+				.contains("LIMIT ?");
+		assertThat(args.getValue()).containsExactly(1L, 1L, 1L, 1L, 1L, 1L, 1L, 1L, 1L, 21);
 	}
 
 	private ResultSet feedCommentActivityRow() throws Exception {

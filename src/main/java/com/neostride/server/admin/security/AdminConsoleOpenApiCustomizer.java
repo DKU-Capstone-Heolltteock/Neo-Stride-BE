@@ -14,15 +14,8 @@ public class AdminConsoleOpenApiCustomizer {
 			if (paths == null) {
 				return;
 			}
-			paths.entrySet().removeIf(entry -> isConsolePath(entry.getKey()));
+			paths.entrySet().removeIf(entry -> AdminConsolePathMatcher.isConsolePath(entry.getKey()));
 		};
 	}
 
-	private static boolean isConsolePath(String path) {
-		return hasPrefix(path, "/api/admin") || hasPrefix(path, "/api/ops") || hasPrefix(path, "/api/dev");
-	}
-
-	private static boolean hasPrefix(String path, String prefix) {
-		return path.equals(prefix) || path.startsWith(prefix + "/");
-	}
 }

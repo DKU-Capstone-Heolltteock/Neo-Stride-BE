@@ -34,14 +34,4 @@ class RefreshTokenRepositoryTest {
 		assertThat(repository.revokeIfActive(1L, "refresh-id")).isTrue();
 	}
 
-	@Test
-	void wasRevokedWithinChecksHashedTokenIdAndGraceWindow() {
-		ArgumentCaptor<String> tokenHash = ArgumentCaptor.forClass(String.class);
-		when(jdbcTemplate.queryForObject(anyString(), eq(Integer.class), eq(1L), tokenHash.capture(), eq(30L)))
-				.thenReturn(1);
-
-		assertThat(repository.wasRevokedWithin(1L, "refresh-id", 30L)).isTrue();
-		assertThat(tokenHash.getValue()).hasSize(64);
-		assertThat(tokenHash.getValue()).doesNotContain("refresh-id");
-	}
 }

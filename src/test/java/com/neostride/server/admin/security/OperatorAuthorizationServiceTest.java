@@ -67,6 +67,28 @@ class OperatorAuthorizationServiceTest {
 	}
 
 	@Test
+	void requirePermission_usesReloadedPermissionsInsteadOfTokenPermissions() {
+		String token = tokenService.generateAccessToken(new OperatorPrincipal(
+				3L,
+				"moderator@example.com",
+				"모더레이터",
+				"MODERATOR",
+				List.of(OperatorPermissions.ACCOUNT_SUSPEND)
+		));
+
+		when(operatorRepository.findPrincipal(3L)).thenReturn(Optional.of(new OperatorPrincipal(
+				3L,
+				"moderator@example.com",
+				"모더레이터",
+				"MODERATOR",
+				List.of(OperatorPermissions.REPORT_READ)
+		)));
+
+		assertThatThrownBy(() -> authorizationService.requirePermission("Bearer " + token, OperatorPermissions.ACCOUNT_SUSPEND))
+				.isInstanceOf(ForbiddenException.class);
+	}
+
+	@Test
 	void requireAuthenticated_rejectsMissingBearerToken() {
 		assertThatThrownBy(() -> authorizationService.requireAuthenticated(null))
 				.isInstanceOf(AuthenticationRequiredException.class);
