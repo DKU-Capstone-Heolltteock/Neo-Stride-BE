@@ -56,7 +56,7 @@ public class AdminConsoleExposureGuardFilter extends OncePerRequestFilter {
 	@Override
 	protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
 			throws ServletException, IOException {
-		if (!isConsolePath(request.getRequestURI())) {
+		if (!AdminConsolePathMatcher.isConsolePath(request.getRequestURI())) {
 			filterChain.doFilter(request, response);
 			return;
 		}
@@ -82,14 +82,6 @@ public class AdminConsoleExposureGuardFilter extends OncePerRequestFilter {
 			}
 		}
 		return false;
-	}
-
-	private boolean isConsolePath(String path) {
-		return hasPrefix(path, "/api/admin") || hasPrefix(path, "/api/ops") || hasPrefix(path, "/api/dev");
-	}
-
-	private boolean hasPrefix(String path, String prefix) {
-		return path.equals(prefix) || path.startsWith(prefix + "/");
 	}
 
 	private void writeJson(HttpServletResponse response, HttpStatus status, String message) throws IOException {
