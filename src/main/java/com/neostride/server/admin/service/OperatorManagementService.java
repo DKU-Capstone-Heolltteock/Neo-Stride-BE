@@ -107,6 +107,9 @@ public class OperatorManagementService {
 		if (!canManageRole(actor, role)) {
 			throw new ForbiddenException("해당 운영자 역할을 부여할 권한이 없습니다.");
 		}
+		if (!role.equals(before.role())) {
+			requireTargetEffectivePermissionsWithinActor(actor, role, before.explicitPermissions());
+		}
 		if (email.equals(before.email()) && name.equals(before.name()) && role.equals(before.role())) {
 			throw new IllegalArgumentException("수정할 운영자 정보가 없습니다.");
 		}
@@ -144,6 +147,7 @@ public class OperatorManagementService {
 		OperatorAccountResponse before = get(operatorAccountId);
 		requireCanManage(actor, before);
 		requireCanAssignPermissions(actor, explicitPermissions);
+		requireTargetEffectivePermissionsWithinActor(actor, before.role(), explicitPermissions);
 		OperatorAccountResponse after = operatorRepository.replacePermissions(operatorAccountId, explicitPermissions);
 		auditLogService.record(actor.operatorAccountId(), "operator.permissions-update", "operator_account", String.valueOf(operatorAccountId),
 				reason, permissionsSummary(before.explicitPermissions()), permissionsSummary(after.explicitPermissions()), context);
@@ -155,6 +159,7 @@ public class OperatorManagementService {
 			throw new ForbiddenException("해당 운영자 역할을 생성할 권한이 없습니다.");
 		}
 		requireCanAssignPermissions(actor, explicitPermissions);
+		requireTargetEffectivePermissionsWithinActor(actor, targetRole, explicitPermissions);
 	}
 
 	private void requireCanManage(OperatorPrincipal actor, OperatorAccountResponse target) {
@@ -167,6 +172,27 @@ public class OperatorManagementService {
 		if (!isSuperAdmin(actor) && explicitPermissions.stream().anyMatch(MANAGEMENT_PERMISSIONS::contains)) {
 			throw new ForbiddenException("관리 권한 부여는 SUPER_ADMIN만 가능합니다.");
 		}
+	}
+
+	private void requireTargetEffectivePermissionsWithinActor(OperatorPrincipal actor, String targetRole, List<String> explicitPermissions) {
+		if (isSuperAdmin(actor)) {
+			return;
+		}
+		Set<String> actorPermissions = effectivePermissions(actor == null ? null : actor.role(), actor == null ? null : actor.permissions());
+		Set<String> targetPermissions = effectivePermissions(targetRole, explicitPermissions);
+		Set<String> excessivePermissions = new LinkedHashSet<>(targetPermissions);
+		excessivePermissions.removeAll(actorPermissions);
+		if (!excessivePermissions.isEmpty()) {
+			throw new ForbiddenException("보유하지 않은 권한은 부여할 수 없습니다.");
+		}
+	}
+
+	private Set<String> effectivePermissions(String role, List<String> explicitPermissions) {
+		Set<String> permissions = new LinkedHashSet<>(OperatorPermissions.defaultsForRole(role));
+		if (explicitPermissions != null) {
+			permissions.addAll(explicitPermissions);
+		}
+		return permissions;
 	}
 
 	private boolean canManageRole(OperatorPrincipal actor, String targetRole) {

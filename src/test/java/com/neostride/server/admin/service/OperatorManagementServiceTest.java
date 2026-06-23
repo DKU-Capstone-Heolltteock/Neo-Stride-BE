@@ -2,9 +2,9 @@ package com.neostride.server.admin.service;
 
 import com.neostride.server.admin.dto.OperatorAccountResponse;
 import com.neostride.server.admin.dto.OperatorCreateRequest;
-import com.neostride.server.admin.dto.OperatorUpdateRequest;
 import com.neostride.server.admin.dto.OperatorPermissionsUpdateRequest;
 import com.neostride.server.admin.dto.OperatorStatusUpdateRequest;
+import com.neostride.server.admin.dto.OperatorUpdateRequest;
 import com.neostride.server.admin.repository.OperatorRepository;
 import com.neostride.server.admin.security.OperatorPermissions;
 import com.neostride.server.admin.security.OperatorPrincipal;
@@ -45,27 +45,27 @@ class OperatorManagementServiceTest {
 		when(operatorRepository.createAccount("new@example.com", "hash", "New Admin", "DEVELOPER", "ACTIVE", List.of(OperatorPermissions.LOGS_READ)))
 				.thenReturn(created);
 
-		OperatorAccountResponse response = service.create(request, actor, context);
+		OperatorAccountResponse response = service.create(request, superAdmin, context);
 
 		assertThat(response).isEqualTo(created);
 		verify(passwordHashService).hash("secret");
-		verify(auditLogService).record(eq(1L), eq("operator.create"), eq("operator_account"), eq("2"),
+		verify(auditLogService).record(eq(10L), eq("operator.create"), eq("operator_account"), eq("2"),
 				eq("onboarding"), isNull(), contains("role=DEVELOPER"), eq(context));
 	}
 
 	@Test
 	void updateAccountChangesProfileAndAudits() {
-		OperatorAccountResponse before = account(2L, "old@example.com", "DEVELOPER", "ACTIVE", List.of(OperatorPermissions.LOGS_READ));
-		OperatorAccountResponse after = account(2L, "new@example.com", "SUPPORT", "ACTIVE", List.of(OperatorPermissions.LOGS_READ));
+		OperatorAccountResponse before = account(2L, "old@example.com", "SUPPORT", "ACTIVE", List.of());
+		OperatorAccountResponse after = account(2L, "new@example.com", "MODERATOR", "ACTIVE", List.of());
 		when(operatorRepository.findAccount(2L)).thenReturn(Optional.of(before));
-		when(operatorRepository.updateAccount(2L, "new@example.com", "New Name", "SUPPORT")).thenReturn(after);
+		when(operatorRepository.updateAccount(2L, "new@example.com", "New Name", "MODERATOR")).thenReturn(after);
 
-		OperatorAccountResponse response = service.updateAccount(2L, new OperatorUpdateRequest("New@Example.com", "New Name", "support", "profile correction"), actor, context);
+		OperatorAccountResponse response = service.updateAccount(2L, new OperatorUpdateRequest("New@Example.com", "New Name", "moderator", "profile correction"), actor, context);
 
 		assertThat(response).isEqualTo(after);
-		verify(operatorRepository).updateAccount(2L, "new@example.com", "New Name", "SUPPORT");
+		verify(operatorRepository).updateAccount(2L, "new@example.com", "New Name", "MODERATOR");
 		verify(auditLogService).record(eq(1L), eq("operator.profile-update"), eq("operator_account"), eq("2"),
-				eq("profile correction"), contains("email=old@example.com"), contains("role=SUPPORT"), eq(context));
+				eq("profile correction"), contains("email=old@example.com"), contains("role=MODERATOR"), eq(context));
 	}
 
 	@Test
@@ -86,6 +86,40 @@ class OperatorManagementServiceTest {
 		verify(operatorRepository, never()).updateStatus(eq(1L), eq("DISABLED"));
 	}
 
+	@Test
+	void operatorAdminCannotCreateDeveloperBecauseRoleGrantsLogsRead() {
+		OperatorCreateRequest request = new OperatorCreateRequest("dev@example.com", "secret", "Dev", "DEVELOPER", List.of(), "onboarding");
+
+		assertThatThrownBy(() -> service.create(request, actor, context))
+				.isInstanceOf(ForbiddenException.class)
+				.hasMessageContaining("보유하지 않은 권한");
+		verify(passwordHashService, never()).hash("secret");
+	}
+
+	@Test
+	void operatorAdminCannotCreateAuditorBecauseRoleGrantsLogsRead() {
+		OperatorCreateRequest request = new OperatorCreateRequest("auditor@example.com", "secret", "Auditor", "AUDITOR", List.of(), "onboarding");
+
+		assertThatThrownBy(() -> service.create(request, actor, context))
+				.isInstanceOf(ForbiddenException.class)
+				.hasMessageContaining("보유하지 않은 권한");
+		verify(passwordHashService, never()).hash("secret");
+	}
+
+	@Test
+	void operatorAdminCanCreateSubsetRole() {
+		OperatorCreateRequest request = new OperatorCreateRequest("support@example.com", "secret", "Support", "SUPPORT", List.of(), "onboarding");
+		OperatorAccountResponse created = account(3L, "support@example.com", "SUPPORT", "ACTIVE", List.of());
+		when(passwordHashService.hash("secret")).thenReturn("hash");
+		when(operatorRepository.createAccount("support@example.com", "hash", "Support", "SUPPORT", "ACTIVE", List.of()))
+				.thenReturn(created);
+
+		OperatorAccountResponse response = service.create(request, actor, context);
+
+		assertThat(response).isEqualTo(created);
+		verify(auditLogService).record(eq(1L), eq("operator.create"), eq("operator_account"), eq("3"),
+				eq("onboarding"), isNull(), contains("role=SUPPORT"), eq(context));
+	}
 
 	@Test
 	void operatorAdminCannotCreateProtectedRoles() {
@@ -108,6 +142,32 @@ class OperatorManagementServiceTest {
 	}
 
 	@Test
+	void operatorAdminCannotGrantPermissionOutsideEffectiveSet() {
+		when(operatorRepository.findAccount(2L)).thenReturn(Optional.of(account(2L, "mod@example.com", "MODERATOR", "ACTIVE", List.of())));
+
+		assertThatThrownBy(() -> service.updatePermissions(2L,
+				new OperatorPermissionsUpdateRequest(List.of(OperatorPermissions.LOGS_READ), "grant"), actor, context))
+				.isInstanceOf(ForbiddenException.class)
+				.hasMessageContaining("보유하지 않은 권한");
+		verify(operatorRepository, never()).replacePermissions(eq(2L), org.mockito.ArgumentMatchers.anyList());
+	}
+
+	@Test
+	void operatorAdminCanGrantPermissionInsideEffectiveSet() {
+		OperatorAccountResponse before = account(2L, "mod@example.com", "MODERATOR", "ACTIVE", List.of());
+		OperatorAccountResponse after = account(2L, "mod@example.com", "MODERATOR", "ACTIVE", List.of(OperatorPermissions.NOTIFICATION_SEND));
+		when(operatorRepository.findAccount(2L)).thenReturn(Optional.of(before));
+		when(operatorRepository.replacePermissions(2L, List.of(OperatorPermissions.NOTIFICATION_SEND))).thenReturn(after);
+
+		OperatorAccountResponse response = service.updatePermissions(2L,
+				new OperatorPermissionsUpdateRequest(List.of(OperatorPermissions.NOTIFICATION_SEND), "grant"), actor, context);
+
+		assertThat(response).isEqualTo(after);
+		verify(auditLogService).record(eq(1L), eq("operator.permissions-update"), eq("operator_account"), eq("2"),
+				eq("grant"), contains("explicit_permissions=0"), contains("notification:send"), eq(context));
+	}
+
+	@Test
 	void operatorAdminCannotGrantOperatorManagePermission() {
 		when(operatorRepository.findAccount(2L)).thenReturn(Optional.of(account(2L, "dev@example.com", "DEVELOPER", "ACTIVE", List.of())));
 
@@ -116,6 +176,23 @@ class OperatorManagementServiceTest {
 				.isInstanceOf(ForbiddenException.class)
 				.hasMessageContaining("SUPER_ADMIN");
 		verify(operatorRepository, never()).replacePermissions(eq(2L), org.mockito.ArgumentMatchers.anyList());
+	}
+
+	@Test
+	void superAdminCanCreateAuditorWithSensitiveExplicitPermissions() {
+		OperatorCreateRequest request = new OperatorCreateRequest("audit@example.com", "secret", "Audit", "AUDITOR",
+				List.of(OperatorPermissions.LOGS_READ, OperatorPermissions.OPERATOR_MANAGE), "security team");
+		OperatorAccountResponse created = account(12L, "audit@example.com", "AUDITOR", "ACTIVE",
+				List.of(OperatorPermissions.LOGS_READ, OperatorPermissions.OPERATOR_MANAGE));
+		when(passwordHashService.hash("secret")).thenReturn("hash");
+		when(operatorRepository.createAccount("audit@example.com", "hash", "Audit", "AUDITOR", "ACTIVE",
+				List.of(OperatorPermissions.LOGS_READ, OperatorPermissions.OPERATOR_MANAGE))).thenReturn(created);
+
+		OperatorAccountResponse response = service.create(request, superAdmin, context);
+
+		assertThat(response).isEqualTo(created);
+		verify(auditLogService).record(eq(10L), eq("operator.create"), eq("operator_account"), eq("12"),
+				eq("security team"), isNull(), contains("role=AUDITOR"), eq(context));
 	}
 
 	@Test
