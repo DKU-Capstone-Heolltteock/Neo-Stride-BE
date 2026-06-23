@@ -1,6 +1,8 @@
 package com.neostride.server.devtools.repository;
 
 import com.neostride.server.devtools.dto.BugReportResponse;
+import com.neostride.server.platform.web.CursorSupport;
+import com.neostride.server.platform.web.CursorSupport.CursorPosition;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.LocalDateTime;
@@ -19,6 +21,10 @@ public class BugReportRepository {
 	}
 
 	public List<BugReportResponse> list(String status, int limit) {
+		return list(status, null, null, null, limit);
+	}
+
+	public List<BugReportResponse> list(String status, CursorPosition cursor, LocalDateTime from, LocalDateTime to, int limit) {
 		List<Object> args = new ArrayList<>();
 		StringBuilder sql = new StringBuilder("""
 				SELECT bug_report_id, reporter_user_id, title, description, status, severity, app_version, device_model, created_at, updated_at
@@ -29,8 +35,9 @@ public class BugReportRepository {
 			sql.append(" AND status = ?");
 			args.add(normalizeStatus(status));
 		}
+		appendRangeAndCursor(sql, args, cursor, from, to);
 		sql.append(" ORDER BY created_at DESC, bug_report_id DESC LIMIT ?");
-		args.add(Math.min(Math.max(limit, 1), 200));
+		args.add(CursorSupport.cappedLimit(limit));
 		return jdbcTemplate.query(sql.toString(), this::mapReport, args.toArray());
 	}
 
@@ -85,5 +92,22 @@ public class BugReportRepository {
 	private LocalDateTime toLocalDateTime(ResultSet rs, String columnName) throws SQLException {
 		var timestamp = rs.getTimestamp(columnName);
 		return timestamp == null ? null : timestamp.toLocalDateTime();
+	}
+
+	private void appendRangeAndCursor(StringBuilder sql, List<Object> args, CursorPosition cursor, LocalDateTime from, LocalDateTime to) {
+		if (from != null) {
+			sql.append(" AND created_at >= ?");
+			args.add(from);
+		}
+		if (to != null) {
+			sql.append(" AND created_at <= ?");
+			args.add(to);
+		}
+		if (cursor != null) {
+			sql.append(" AND (created_at < ? OR (created_at = ? AND bug_report_id < ?))");
+			args.add(cursor.createdAt());
+			args.add(cursor.createdAt());
+			args.add(cursor.id());
+		}
 	}
 }

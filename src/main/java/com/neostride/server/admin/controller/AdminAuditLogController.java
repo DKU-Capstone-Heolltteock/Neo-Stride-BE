@@ -4,6 +4,7 @@ import com.neostride.server.admin.security.OperatorAuthorizationService;
 import com.neostride.server.admin.security.OperatorPermissions;
 import com.neostride.server.audit.dto.AuditLogResponse;
 import com.neostride.server.audit.service.AuditLogService;
+import com.neostride.server.platform.web.CursorSupport;
 import java.util.List;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -31,10 +32,14 @@ public class AdminAuditLogController {
 			@RequestParam(value = "target_type", required = false) String targetType,
 			@RequestParam(value = "target_id", required = false) String targetId,
 			@RequestParam(value = "actor_operator_account_id", required = false) Long actorOperatorAccountId,
+			@RequestParam(value = "cursor", required = false) String cursor,
+			@RequestParam(value = "from", required = false) String from,
+			@RequestParam(value = "to", required = false) String to,
 			@RequestParam(value = "limit", defaultValue = "50") int limit
 	) {
 		authorizationService.requirePermission(authorization, OperatorPermissions.AUDIT_READ);
-		return ResponseEntity.ok(auditLogService.search(action, targetType, targetId, actorOperatorAccountId, limit));
+		var page = auditLogService.searchPage(action, targetType, targetId, actorOperatorAccountId, cursor, from, to, limit);
+		return ResponseEntity.ok().headers(CursorSupport.headers(page)).body(page.items());
 	}
 
 	@GetMapping("/{auditLogId}")

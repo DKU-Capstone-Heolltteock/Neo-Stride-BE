@@ -2,6 +2,8 @@ package com.neostride.server.audit.repository;
 
 import com.neostride.server.audit.dto.AuditLogResponse;
 import com.neostride.server.audit.service.AuditContext;
+import com.neostride.server.platform.web.CursorSupport;
+import com.neostride.server.platform.web.CursorSupport.CursorPosition;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.LocalDateTime;
@@ -50,6 +52,10 @@ public class AuditLogRepository {
 	}
 
 	public List<AuditLogResponse> search(String action, String targetType, String targetId, Long actorOperatorAccountId, int limit) {
+		return search(action, targetType, targetId, actorOperatorAccountId, null, null, null, limit);
+	}
+
+	public List<AuditLogResponse> search(String action, String targetType, String targetId, Long actorOperatorAccountId, CursorPosition cursor, LocalDateTime from, LocalDateTime to, int limit) {
 		List<Object> args = new ArrayList<>();
 		StringBuilder sql = new StringBuilder("""
 				SELECT operator_audit_log_id, actor_operator_account_id, action, target_type, target_id,
@@ -73,8 +79,9 @@ public class AuditLogRepository {
 			sql.append(" AND actor_operator_account_id = ?");
 			args.add(actorOperatorAccountId);
 		}
+		appendRangeAndCursor(sql, args, cursor, from, to);
 		sql.append(" ORDER BY created_at DESC, operator_audit_log_id DESC LIMIT ?");
-		args.add(cappedLimit(limit));
+		args.add(CursorSupport.cappedLimit(limit));
 		return jdbcTemplate.query(sql.toString(), this::mapLog, args.toArray());
 	}
 
@@ -107,12 +114,25 @@ public class AuditLogRepository {
 		);
 	}
 
-	private int cappedLimit(int limit) {
-		return Math.min(Math.max(limit, 1), 200);
-	}
-
 	private LocalDateTime toLocalDateTime(ResultSet rs, String columnName) throws SQLException {
 		var timestamp = rs.getTimestamp(columnName);
 		return timestamp == null ? null : timestamp.toLocalDateTime();
+	}
+
+	private void appendRangeAndCursor(StringBuilder sql, List<Object> args, CursorPosition cursor, LocalDateTime from, LocalDateTime to) {
+		if (from != null) {
+			sql.append(" AND created_at >= ?");
+			args.add(from);
+		}
+		if (to != null) {
+			sql.append(" AND created_at <= ?");
+			args.add(to);
+		}
+		if (cursor != null) {
+			sql.append(" AND (created_at < ? OR (created_at = ? AND operator_audit_log_id < ?))");
+			args.add(cursor.createdAt());
+			args.add(cursor.createdAt());
+			args.add(cursor.id());
+		}
 	}
 }

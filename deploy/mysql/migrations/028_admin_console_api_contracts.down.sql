@@ -1,0 +1,7 @@
+DROP INDEX idx_operator_alert_rules_created_cursor ON operator_alert_rules;
+DROP INDEX idx_server_error_events_created_cursor ON server_error_events;
+DROP INDEX idx_bug_reports_created_cursor ON bug_reports;
+DROP INDEX idx_admin_reports_created_cursor ON admin_reports;
+DROP INDEX idx_operator_audit_logs_created_cursor ON operator_audit_logs;
+DROP INDEX idx_users_created_cursor ON users;
+DROP INDEX idx_operator_accounts_created_cursor ON operator_accounts;

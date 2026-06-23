@@ -2,6 +2,8 @@ package com.neostride.server.auth.service;
 
 import com.neostride.server.auth.api.AdminUserAccount;
 import com.neostride.server.auth.api.UserAdministrationPort;
+import com.neostride.server.platform.web.CursorSupport;
+import com.neostride.server.platform.web.CursorSupport.CursorPosition;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.LocalDateTime;
@@ -14,9 +16,6 @@ import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class AdminUserAdministrationService implements UserAdministrationPort {
-	private static final int DEFAULT_LIMIT = 50;
-	private static final int MAX_LIMIT = 200;
-
 	private final JdbcTemplate jdbcTemplate;
 
 	public AdminUserAdministrationService(JdbcTemplate jdbcTemplate) {
@@ -25,7 +24,11 @@ public class AdminUserAdministrationService implements UserAdministrationPort {
 
 	@Override
 	public List<AdminUserAccount> searchAccounts(String query, String status, int limit) {
-		int normalizedLimit = normalizeLimit(limit);
+		return searchAccounts(query, status, null, null, null, limit);
+	}
+
+	@Override
+	public List<AdminUserAccount> searchAccounts(String query, String status, CursorPosition cursor, LocalDateTime from, LocalDateTime to, int limit) {
 		List<Object> args = new ArrayList<>();
 		StringBuilder sql = new StringBuilder("""
 				SELECT user_id, email, name, community_profile_name, profile_photo, account_status,
@@ -41,12 +44,12 @@ public class AdminUserAdministrationService implements UserAdministrationPort {
 			args.add(like);
 		}
 		if (status != null && !status.isBlank()) {
-			String normalizedStatus = normalizeStatus(status);
 			sql.append(" AND account_status = ?");
-			args.add(normalizedStatus);
+			args.add(normalizeStatus(status));
 		}
+		appendRangeAndCursor(sql, args, cursor, from, to);
 		sql.append(" ORDER BY created_at DESC, user_id DESC LIMIT ?");
-		args.add(normalizedLimit);
+		args.add(CursorSupport.cappedLimit(limit));
 		return jdbcTemplate.query(sql.toString(), this::mapAccount, args.toArray());
 	}
 
@@ -111,7 +114,7 @@ public class AdminUserAdministrationService implements UserAdministrationPort {
 				WHERE account_status = 'ACTIVE'
 				ORDER BY user_id
 				LIMIT ?
-				""", (rs, rowNum) -> rs.getLong("user_id"), normalizeLimit(limit));
+				""", (rs, rowNum) -> rs.getLong("user_id"), CursorSupport.cappedLimit(limit));
 	}
 
 	@Override
@@ -145,18 +148,28 @@ public class AdminUserAdministrationService implements UserAdministrationPort {
 		return timestamp == null ? null : timestamp.toLocalDateTime();
 	}
 
-	private int normalizeLimit(int limit) {
-		if (limit <= 0) {
-			return DEFAULT_LIMIT;
-		}
-		return Math.min(limit, MAX_LIMIT);
-	}
-
 	private String normalizeStatus(String status) {
 		String normalized = status.trim().toUpperCase();
 		if (!"ACTIVE".equals(normalized) && !"SUSPENDED".equals(normalized)) {
 			throw new IllegalArgumentException("status는 ACTIVE 또는 SUSPENDED만 가능합니다.");
 		}
 		return normalized;
+	}
+
+	private void appendRangeAndCursor(StringBuilder sql, List<Object> args, CursorPosition cursor, LocalDateTime from, LocalDateTime to) {
+		if (from != null) {
+			sql.append(" AND created_at >= ?");
+			args.add(from);
+		}
+		if (to != null) {
+			sql.append(" AND created_at <= ?");
+			args.add(to);
+		}
+		if (cursor != null) {
+			sql.append(" AND (created_at < ? OR (created_at = ? AND user_id < ?))");
+			args.add(cursor.createdAt());
+			args.add(cursor.createdAt());
+			args.add(cursor.id());
+		}
 	}
 }

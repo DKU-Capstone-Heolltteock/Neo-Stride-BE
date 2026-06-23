@@ -1,6 +1,8 @@
 package com.neostride.server.admin.repository;
 
 import com.neostride.server.admin.dto.AdminReportResponse;
+import com.neostride.server.platform.web.CursorSupport;
+import com.neostride.server.platform.web.CursorSupport.CursorPosition;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.LocalDateTime;
@@ -19,6 +21,10 @@ public class AdminReportRepository {
 	}
 
 	public List<AdminReportResponse> list(String status, int limit) {
+		return list(status, null, null, null, limit);
+	}
+
+	public List<AdminReportResponse> list(String status, CursorPosition cursor, LocalDateTime from, LocalDateTime to, int limit) {
 		List<Object> args = new ArrayList<>();
 		StringBuilder sql = new StringBuilder("""
 				SELECT report_id, reporter_user_id, target_user_id, target_type, target_id, category,
@@ -30,8 +36,9 @@ public class AdminReportRepository {
 			sql.append(" AND status = ?");
 			args.add(normalizeStatus(status));
 		}
+		appendRangeAndCursor(sql, args, cursor, from, to);
 		sql.append(" ORDER BY created_at DESC, report_id DESC LIMIT ?");
-		args.add(Math.min(Math.max(limit, 1), 200));
+		args.add(CursorSupport.cappedLimit(limit));
 		return jdbcTemplate.query(sql.toString(), this::mapReport, args.toArray());
 	}
 
@@ -54,6 +61,18 @@ public class AdminReportRepository {
 				    resolved_at = NOW()
 				WHERE report_id = ?
 				""", normalizeResolveStatus(status), resolution, operatorAccountId, reportId);
+		if (updated == 0) {
+			throw new IllegalArgumentException("신고를 찾을 수 없습니다.");
+		}
+		return find(reportId).orElseThrow(() -> new IllegalArgumentException("신고를 찾을 수 없습니다."));
+	}
+
+	public AdminReportResponse assign(long reportId, Long operatorAccountId) {
+		int updated = jdbcTemplate.update("""
+				UPDATE admin_reports
+				SET assigned_operator_account_id = ?
+				WHERE report_id = ?
+				""", operatorAccountId, reportId);
 		if (updated == 0) {
 			throw new IllegalArgumentException("신고를 찾을 수 없습니다.");
 		}
@@ -105,5 +124,22 @@ public class AdminReportRepository {
 	private LocalDateTime toLocalDateTime(ResultSet rs, String columnName) throws SQLException {
 		var timestamp = rs.getTimestamp(columnName);
 		return timestamp == null ? null : timestamp.toLocalDateTime();
+	}
+
+	private void appendRangeAndCursor(StringBuilder sql, List<Object> args, CursorPosition cursor, LocalDateTime from, LocalDateTime to) {
+		if (from != null) {
+			sql.append(" AND created_at >= ?");
+			args.add(from);
+		}
+		if (to != null) {
+			sql.append(" AND created_at <= ?");
+			args.add(to);
+		}
+		if (cursor != null) {
+			sql.append(" AND (created_at < ? OR (created_at = ? AND report_id < ?))");
+			args.add(cursor.createdAt());
+			args.add(cursor.createdAt());
+			args.add(cursor.id());
+		}
 	}
 }

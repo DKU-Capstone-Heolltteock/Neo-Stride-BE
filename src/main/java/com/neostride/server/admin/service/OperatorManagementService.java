@@ -5,6 +5,7 @@ import com.neostride.server.admin.dto.OperatorCreateRequest;
 import com.neostride.server.admin.dto.OperatorPermissionCatalogResponse;
 import com.neostride.server.admin.dto.OperatorPermissionsUpdateRequest;
 import com.neostride.server.admin.dto.OperatorStatusUpdateRequest;
+import com.neostride.server.admin.dto.OperatorUpdateRequest;
 import com.neostride.server.admin.repository.OperatorRepository;
 import com.neostride.server.admin.security.OperatorPermissions;
 import com.neostride.server.admin.security.OperatorPrincipal;
@@ -12,6 +13,8 @@ import com.neostride.server.audit.service.AuditContext;
 import com.neostride.server.audit.service.AuditLogService;
 import com.neostride.server.auth.exception.ForbiddenException;
 import com.neostride.server.auth.service.PasswordHashService;
+import com.neostride.server.platform.web.CursorSupport;
+import com.neostride.server.platform.web.CursorSupport.CursorPage;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
@@ -44,7 +47,19 @@ public class OperatorManagementService {
 	}
 
 	public List<OperatorAccountResponse> list(String role, String status, int limit) {
-		return operatorRepository.listAccounts(normalizeOptionalRole(role), normalizeOptionalStatus(status), limit);
+		return listPage(role, status, null, null, null, limit).items();
+	}
+
+	public CursorPage<OperatorAccountResponse> listPage(String role, String status, String cursor, String from, String to, int limit) {
+		var rows = operatorRepository.listAccounts(
+				normalizeOptionalRole(role),
+				normalizeOptionalStatus(status),
+				CursorSupport.decode(cursor),
+				CursorSupport.parseDateTime(from, "from"),
+				CursorSupport.parseDateTime(to, "to"),
+				CursorSupport.fetchLimit(limit)
+		);
+		return CursorSupport.page(rows, limit, OperatorAccountResponse::createdAt, OperatorAccountResponse::operatorAccountId);
 	}
 
 	public OperatorAccountResponse get(long operatorAccountId) {
@@ -76,6 +91,29 @@ public class OperatorManagementService {
 		auditLogService.record(actor.operatorAccountId(), "operator.create", "operator_account", String.valueOf(created.operatorAccountId()),
 				reason, null, accountSummary(created), context);
 		return created;
+	}
+
+	@Transactional
+	public OperatorAccountResponse updateAccount(long operatorAccountId, OperatorUpdateRequest request, OperatorPrincipal actor, AuditContext context) {
+		if (request == null) {
+			throw new IllegalArgumentException("요청 본문이 필요합니다.");
+		}
+		String reason = requireReason(request.reason());
+		OperatorAccountResponse before = get(operatorAccountId);
+		requireCanManage(actor, before);
+		String email = request.email() == null ? before.email() : normalizeEmail(request.email());
+		String name = request.name() == null ? before.name() : requireText(request.name(), "name");
+		String role = request.role() == null ? before.role() : normalizeRole(request.role());
+		if (!canManageRole(actor, role)) {
+			throw new ForbiddenException("해당 운영자 역할을 부여할 권한이 없습니다.");
+		}
+		if (email.equals(before.email()) && name.equals(before.name()) && role.equals(before.role())) {
+			throw new IllegalArgumentException("수정할 운영자 정보가 없습니다.");
+		}
+		OperatorAccountResponse after = operatorRepository.updateAccount(operatorAccountId, email, name, role);
+		auditLogService.record(actor.operatorAccountId(), "operator.profile-update", "operator_account", String.valueOf(operatorAccountId),
+				reason, accountSummary(before), accountSummary(after), context);
+		return after;
 	}
 
 	@Transactional
@@ -111,7 +149,6 @@ public class OperatorManagementService {
 				reason, permissionsSummary(before.explicitPermissions()), permissionsSummary(after.explicitPermissions()), context);
 		return after;
 	}
-
 
 	private void requireCanCreate(OperatorPrincipal actor, String targetRole, List<String> explicitPermissions) {
 		if (!canManageRole(actor, targetRole)) {
@@ -208,7 +245,9 @@ public class OperatorManagementService {
 	}
 
 	private String accountSummary(OperatorAccountResponse account) {
-		return "role=" + account.role()
+		return "email=" + account.email()
+				+ "; name=" + account.name()
+				+ "; role=" + account.role()
 				+ "; status=" + account.status()
 				+ "; explicit_permissions=" + account.explicitPermissions().size();
 	}

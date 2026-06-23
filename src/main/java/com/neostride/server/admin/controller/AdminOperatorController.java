@@ -5,10 +5,12 @@ import com.neostride.server.admin.dto.OperatorCreateRequest;
 import com.neostride.server.admin.dto.OperatorPermissionCatalogResponse;
 import com.neostride.server.admin.dto.OperatorPermissionsUpdateRequest;
 import com.neostride.server.admin.dto.OperatorStatusUpdateRequest;
+import com.neostride.server.admin.dto.OperatorUpdateRequest;
 import com.neostride.server.admin.security.OperatorAuthorizationService;
 import com.neostride.server.admin.security.OperatorPermissions;
 import com.neostride.server.admin.service.OperatorManagementService;
 import com.neostride.server.audit.service.AuditContext;
+import com.neostride.server.platform.web.CursorSupport;
 import jakarta.servlet.http.HttpServletRequest;
 import java.util.List;
 import org.springframework.http.ResponseEntity;
@@ -39,10 +41,14 @@ public class AdminOperatorController {
 			@RequestHeader(value = "Authorization", required = false) String authorization,
 			@RequestParam(value = "role", required = false) String role,
 			@RequestParam(value = "status", required = false) String status,
+			@RequestParam(value = "cursor", required = false) String cursor,
+			@RequestParam(value = "from", required = false) String from,
+			@RequestParam(value = "to", required = false) String to,
 			@RequestParam(value = "limit", defaultValue = "50") int limit
 	) {
 		authorizationService.requirePermission(authorization, OperatorPermissions.OPERATOR_MANAGE);
-		return ResponseEntity.ok(service.list(role, status, limit));
+		var page = service.listPage(role, status, cursor, from, to, limit);
+		return ResponseEntity.ok().headers(CursorSupport.headers(page)).body(page.items());
 	}
 
 	@GetMapping("/permissions")
@@ -70,6 +76,17 @@ public class AdminOperatorController {
 	) {
 		var actor = authorizationService.requirePermission(authorization, OperatorPermissions.OPERATOR_MANAGE);
 		return ResponseEntity.ok(service.create(request, actor, AuditContext.from(servletRequest)));
+	}
+
+	@PatchMapping("/{operatorAccountId}")
+	public ResponseEntity<OperatorAccountResponse> update(
+			@RequestHeader(value = "Authorization", required = false) String authorization,
+			@PathVariable long operatorAccountId,
+			@RequestBody OperatorUpdateRequest request,
+			HttpServletRequest servletRequest
+	) {
+		var actor = authorizationService.requirePermission(authorization, OperatorPermissions.OPERATOR_MANAGE);
+		return ResponseEntity.ok(service.updateAccount(operatorAccountId, request, actor, AuditContext.from(servletRequest)));
 	}
 
 	@PatchMapping("/{operatorAccountId}/status")

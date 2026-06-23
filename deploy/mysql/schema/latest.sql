@@ -523,7 +523,8 @@ CREATE TABLE `operator_accounts` (
   `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`operator_account_id`),
   UNIQUE KEY `uq_operator_accounts_email` (`email`),
-  KEY `idx_operator_accounts_status_role` (`status`,`role`)
+  KEY `idx_operator_accounts_status_role` (`status`,`role`),
+  KEY `idx_operator_accounts_created_cursor` (`created_at` DESC,`operator_account_id` DESC)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `operator_account_permissions`;
@@ -574,6 +575,7 @@ CREATE TABLE `operator_audit_logs` (
   KEY `idx_operator_audit_logs_actor_created` (`actor_operator_account_id`,`created_at` DESC),
   KEY `idx_operator_audit_logs_target_created` (`target_type`,`target_id`,`created_at` DESC),
   KEY `idx_operator_audit_logs_action_created` (`action`,`created_at` DESC),
+  KEY `idx_operator_audit_logs_created_cursor` (`created_at` DESC,`operator_audit_log_id` DESC),
   CONSTRAINT `fk_operator_audit_logs_actor` FOREIGN KEY (`actor_operator_account_id`) REFERENCES `operator_accounts` (`operator_account_id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
@@ -599,6 +601,7 @@ CREATE TABLE `admin_reports` (
   KEY `idx_admin_reports_target` (`target_type`,`target_id`),
   KEY `idx_admin_reports_reporter` (`reporter_user_id`,`created_at` DESC),
   KEY `idx_admin_reports_target_user` (`target_user_id`,`created_at` DESC),
+  KEY `idx_admin_reports_created_cursor` (`created_at` DESC,`report_id` DESC),
   KEY `fk_admin_reports_assigned_operator` (`assigned_operator_account_id`),
   CONSTRAINT `fk_admin_reports_assigned_operator` FOREIGN KEY (`assigned_operator_account_id`) REFERENCES `operator_accounts` (`operator_account_id`) ON DELETE SET NULL,
   CONSTRAINT `fk_admin_reports_reporter` FOREIGN KEY (`reporter_user_id`) REFERENCES `users` (`user_id`) ON DELETE SET NULL,
@@ -659,7 +662,8 @@ CREATE TABLE `server_error_events` (
   PRIMARY KEY (`server_error_event_id`),
   KEY `idx_server_error_events_created` (`created_at` DESC),
   KEY `idx_server_error_events_path_created` (`path`,`created_at` DESC),
-  KEY `idx_server_error_events_status_created` (`status_code`,`created_at` DESC)
+  KEY `idx_server_error_events_status_created` (`status_code`,`created_at` DESC),
+  KEY `idx_server_error_events_created_cursor` (`created_at` DESC,`server_error_event_id` DESC)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `operator_alert_rules`;
@@ -681,6 +685,7 @@ CREATE TABLE `operator_alert_rules` (
   `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`alert_rule_id`),
   KEY `idx_operator_alert_rules_enabled_metric` (`enabled`,`metric_type`),
+  KEY `idx_operator_alert_rules_created_cursor` (`created_at` DESC,`alert_rule_id` DESC),
   KEY `fk_operator_alert_rules_creator` (`created_by_operator_account_id`),
   CONSTRAINT `fk_operator_alert_rules_creator` FOREIGN KEY (`created_by_operator_account_id`) REFERENCES `operator_accounts` (`operator_account_id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -702,6 +707,7 @@ CREATE TABLE `bug_reports` (
   PRIMARY KEY (`bug_report_id`),
   KEY `idx_bug_reports_status_created` (`status`,`created_at` DESC),
   KEY `idx_bug_reports_reporter_created` (`reporter_user_id`,`created_at` DESC),
+  KEY `idx_bug_reports_created_cursor` (`created_at` DESC,`bug_report_id` DESC),
   CONSTRAINT `fk_bug_reports_reporter` FOREIGN KEY (`reporter_user_id`) REFERENCES `users` (`user_id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
@@ -739,6 +745,7 @@ CREATE TABLE `users` (
   UNIQUE KEY `uq_users_community_profile_name` (`community_profile_name`),
   FULLTEXT KEY `ft_users_search` (`name`,`community_profile_name`),
   KEY `idx_users_account_status_created` (`account_status`,`created_at`),
+  KEY `idx_users_created_cursor` (`created_at` DESC,`user_id` DESC),
   KEY `idx_users_suspended_by_operator` (`suspended_by_operator_id`),
   CONSTRAINT `fk_users_suspended_by_operator` FOREIGN KEY (`suspended_by_operator_id`) REFERENCES `operator_accounts` (`operator_account_id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

@@ -8,6 +8,8 @@ import com.neostride.server.devtools.dto.BugReportStatusRequest;
 import com.neostride.server.devtools.dto.ErrorEventResponse;
 import com.neostride.server.devtools.repository.BugReportRepository;
 import com.neostride.server.devtools.repository.ErrorEventRepository;
+import com.neostride.server.platform.web.CursorSupport;
+import com.neostride.server.platform.web.CursorSupport.CursorPage;
 import java.util.List;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -25,7 +27,18 @@ public class DevtoolsService {
 	}
 
 	public List<BugReportResponse> listBugReports(String status, int limit) {
-		return bugReportRepository.list(status, limit);
+		return listBugReportsPage(status, null, null, null, limit).items();
+	}
+
+	public CursorPage<BugReportResponse> listBugReportsPage(String status, String cursor, String from, String to, int limit) {
+		var rows = bugReportRepository.list(
+				status,
+				CursorSupport.decode(cursor),
+				CursorSupport.parseDateTime(from, "from"),
+				CursorSupport.parseDateTime(to, "to"),
+				CursorSupport.fetchLimit(limit)
+		);
+		return CursorSupport.page(rows, limit, BugReportResponse::createdAt, BugReportResponse::bugReportId);
 	}
 
 	public BugReportResponse getBugReport(long bugReportId) {
@@ -47,18 +60,53 @@ public class DevtoolsService {
 
 	@Transactional
 	public List<ErrorEventResponse> searchLogs(String query, Integer statusCode, int limit, OperatorPrincipal actor, AuditContext context) {
-		List<ErrorEventResponse> events = errorEventRepository.recent(query, statusCode, limit);
+		return searchLogsPage(query, statusCode, null, null, null, limit, actor, context).items();
+	}
+
+	@Transactional
+	public CursorPage<ErrorEventResponse> searchLogsPage(String query, Integer statusCode, String cursor, String from, String to, int limit, OperatorPrincipal actor, AuditContext context) {
+		List<ErrorEventResponse> rows = errorEventRepository.recent(
+				query,
+				statusCode,
+				CursorSupport.decode(cursor),
+				CursorSupport.parseDateTime(from, "from"),
+				CursorSupport.parseDateTime(to, "to"),
+				CursorSupport.fetchLimit(limit)
+		);
+		CursorPage<ErrorEventResponse> page = CursorSupport.page(rows, limit, ErrorEventResponse::createdAt, ErrorEventResponse::errorEventId);
 		auditLogService.record(actor.operatorAccountId(), "log.search", "server_error_event", null,
-				logSearchReason(query, statusCode, limit), null, returnedCount(events), context);
-		return events;
+				logSearchReason(query, statusCode, limit), null, returnedCount(page.items()), context);
+		return page;
 	}
 
 	@Transactional
 	public List<ErrorEventResponse> recentErrors(int limit, OperatorPrincipal actor, AuditContext context) {
-		List<ErrorEventResponse> events = errorEventRepository.recent(null, null, limit);
+		return recentErrorsPage(null, null, null, limit, actor, context).items();
+	}
+
+	@Transactional
+	public CursorPage<ErrorEventResponse> recentErrorsPage(String cursor, String from, String to, int limit, OperatorPrincipal actor, AuditContext context) {
+		List<ErrorEventResponse> rows = errorEventRepository.recent(
+				null,
+				null,
+				CursorSupport.decode(cursor),
+				CursorSupport.parseDateTime(from, "from"),
+				CursorSupport.parseDateTime(to, "to"),
+				CursorSupport.fetchLimit(limit)
+		);
+		CursorPage<ErrorEventResponse> page = CursorSupport.page(rows, limit, ErrorEventResponse::createdAt, ErrorEventResponse::errorEventId);
 		auditLogService.record(actor.operatorAccountId(), "log.recent-errors", "server_error_event", null,
-				"recent_errors; limit=" + cappedLimit(limit), null, returnedCount(events), context);
-		return events;
+				"recent_errors; limit=" + CursorSupport.cappedLimit(limit), null, returnedCount(page.items()), context);
+		return page;
+	}
+
+	@Transactional
+	public ErrorEventResponse getErrorEvent(long errorEventId, OperatorPrincipal actor, AuditContext context) {
+		ErrorEventResponse response = errorEventRepository.find(errorEventId)
+				.orElseThrow(() -> new IllegalArgumentException("에러 로그를 찾을 수 없습니다."));
+		auditLogService.record(actor.operatorAccountId(), "log.get", "server_error_event", String.valueOf(errorEventId),
+				"get error event detail", null, response.errorType(), context);
+		return response;
 	}
 
 	private String logSearchReason(String query, Integer statusCode, int limit) {
@@ -68,14 +116,10 @@ public class DevtoolsService {
 		return "query_present=" + queryPresent
 				+ "; query_length=" + queryLength
 				+ "; status_code=" + statusSummary
-				+ "; limit=" + cappedLimit(limit);
+				+ "; limit=" + CursorSupport.cappedLimit(limit);
 	}
 
 	private String returnedCount(List<ErrorEventResponse> events) {
 		return "returned_count=" + events.size();
-	}
-
-	private int cappedLimit(int limit) {
-		return Math.min(Math.max(limit, 1), 200);
 	}
 }

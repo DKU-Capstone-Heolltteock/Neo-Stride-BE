@@ -3,6 +3,8 @@ package com.neostride.server.admin.repository;
 import com.neostride.server.admin.dto.OperatorAccountResponse;
 import com.neostride.server.admin.security.OperatorPermissions;
 import com.neostride.server.admin.security.OperatorPrincipal;
+import com.neostride.server.platform.web.CursorSupport;
+import com.neostride.server.platform.web.CursorSupport.CursorPosition;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
@@ -63,6 +65,10 @@ public class OperatorRepository {
 	}
 
 	public List<OperatorAccountResponse> listAccounts(String role, String status, int limit) {
+		return listAccounts(role, status, null, null, null, limit);
+	}
+
+	public List<OperatorAccountResponse> listAccounts(String role, String status, CursorPosition cursor, LocalDateTime from, LocalDateTime to, int limit) {
 		List<Object> args = new ArrayList<>();
 		StringBuilder sql = new StringBuilder("""
 				SELECT operator_account_id, email, name, role, status, last_login_at, created_at, updated_at
@@ -77,8 +83,9 @@ public class OperatorRepository {
 			sql.append(" AND status = ?");
 			args.add(status.trim());
 		}
+		appendRangeAndCursor(sql, args, "operator_account_id", cursor, from, to);
 		sql.append(" ORDER BY created_at DESC, operator_account_id DESC LIMIT ?");
-		args.add(cappedLimit(limit));
+		args.add(CursorSupport.cappedLimit(limit));
 		return jdbcTemplate.query(sql.toString(), this::mapAccountResponse, args.toArray());
 	}
 
@@ -117,6 +124,21 @@ public class OperatorRepository {
 
 	public OperatorAccountResponse updateStatus(long operatorAccountId, String status) {
 		int updated = jdbcTemplate.update("UPDATE operator_accounts SET status = ? WHERE operator_account_id = ?", status, operatorAccountId);
+		if (updated == 0) {
+			throw new IllegalArgumentException("운영자 계정을 찾을 수 없습니다.");
+		}
+		return findAccount(operatorAccountId)
+				.orElseThrow(() -> new IllegalArgumentException("운영자 계정을 찾을 수 없습니다."));
+	}
+
+	public OperatorAccountResponse updateAccount(long operatorAccountId, String email, String name, String role) {
+		int updated = jdbcTemplate.update("""
+				UPDATE operator_accounts
+				SET email = ?,
+				    name = ?,
+				    role = ?
+				WHERE operator_account_id = ?
+				""", email, name, role, operatorAccountId);
 		if (updated == 0) {
 			throw new IllegalArgumentException("운영자 계정을 찾을 수 없습니다.");
 		}
@@ -186,12 +208,25 @@ public class OperatorRepository {
 				""", (rs, rowNum) -> rs.getString("permission"), operatorAccountId);
 	}
 
-	private int cappedLimit(int limit) {
-		return Math.min(Math.max(limit, 1), 200);
-	}
-
 	private LocalDateTime toLocalDateTime(ResultSet rs, String columnName) throws SQLException {
 		var timestamp = rs.getTimestamp(columnName);
 		return timestamp == null ? null : timestamp.toLocalDateTime();
+	}
+
+	private void appendRangeAndCursor(StringBuilder sql, List<Object> args, String idColumn, CursorPosition cursor, LocalDateTime from, LocalDateTime to) {
+		if (from != null) {
+			sql.append(" AND created_at >= ?");
+			args.add(from);
+		}
+		if (to != null) {
+			sql.append(" AND created_at <= ?");
+			args.add(to);
+		}
+		if (cursor != null) {
+			sql.append(" AND (created_at < ? OR (created_at = ? AND ").append(idColumn).append(" < ?))");
+			args.add(cursor.createdAt());
+			args.add(cursor.createdAt());
+			args.add(cursor.id());
+		}
 	}
 }

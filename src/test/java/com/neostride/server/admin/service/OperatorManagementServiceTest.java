@@ -2,6 +2,7 @@ package com.neostride.server.admin.service;
 
 import com.neostride.server.admin.dto.OperatorAccountResponse;
 import com.neostride.server.admin.dto.OperatorCreateRequest;
+import com.neostride.server.admin.dto.OperatorUpdateRequest;
 import com.neostride.server.admin.dto.OperatorPermissionsUpdateRequest;
 import com.neostride.server.admin.dto.OperatorStatusUpdateRequest;
 import com.neostride.server.admin.repository.OperatorRepository;
@@ -20,6 +21,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isA;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -49,6 +51,29 @@ class OperatorManagementServiceTest {
 		verify(passwordHashService).hash("secret");
 		verify(auditLogService).record(eq(1L), eq("operator.create"), eq("operator_account"), eq("2"),
 				eq("onboarding"), isNull(), contains("role=DEVELOPER"), eq(context));
+	}
+
+	@Test
+	void updateAccountChangesProfileAndAudits() {
+		OperatorAccountResponse before = account(2L, "old@example.com", "DEVELOPER", "ACTIVE", List.of(OperatorPermissions.LOGS_READ));
+		OperatorAccountResponse after = account(2L, "new@example.com", "SUPPORT", "ACTIVE", List.of(OperatorPermissions.LOGS_READ));
+		when(operatorRepository.findAccount(2L)).thenReturn(Optional.of(before));
+		when(operatorRepository.updateAccount(2L, "new@example.com", "New Name", "SUPPORT")).thenReturn(after);
+
+		OperatorAccountResponse response = service.updateAccount(2L, new OperatorUpdateRequest("New@Example.com", "New Name", "support", "profile correction"), actor, context);
+
+		assertThat(response).isEqualTo(after);
+		verify(operatorRepository).updateAccount(2L, "new@example.com", "New Name", "SUPPORT");
+		verify(auditLogService).record(eq(1L), eq("operator.profile-update"), eq("operator_account"), eq("2"),
+				eq("profile correction"), contains("email=old@example.com"), contains("role=SUPPORT"), eq(context));
+	}
+
+	@Test
+	void updateAccountRequiresReason() {
+		assertThatThrownBy(() -> service.updateAccount(2L, new OperatorUpdateRequest("new@example.com", null, null, " "), actor, context))
+				.isInstanceOf(IllegalArgumentException.class)
+				.hasMessageContaining("reason");
+		verify(operatorRepository, never()).updateAccount(eq(2L), isA(String.class), isA(String.class), isA(String.class));
 	}
 
 	@Test
