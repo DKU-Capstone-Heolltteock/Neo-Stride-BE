@@ -15,7 +15,6 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -69,7 +68,7 @@ public class RunningRecordRepository {
 			ps.setInt(5, request.pace());
 			ps.setInt(6, roundedInt(request.calories()));
 			ps.setString(7, request.routeDetail());
-			ps.setString(8, normalizeBadge(request.badge()));
+			ps.setString(8, "NONE");
 			return ps;
 		}, keyHolder);
 
@@ -80,16 +79,6 @@ public class RunningRecordRepository {
 		return generatedId.longValue();
 	}
 
-	private static String normalizeBadge(String badge) {
-		if (badge == null || badge.isBlank()) {
-			return "NONE";
-		}
-		String normalized = badge.trim().toUpperCase(Locale.ROOT);
-		return switch (normalized) {
-			case "BRONZE", "SILVER", "GOLD", "PLATINUM", "DIAMOND", "MASTER", "CHALLENGER" -> normalized;
-			default -> "NONE";
-		};
-	}
 
 	public void insertGpsTraces(long runRecordId, List<GpsTraceRequest> gpsTraces) {
 		if (supportsWatchMetricColumns()) {

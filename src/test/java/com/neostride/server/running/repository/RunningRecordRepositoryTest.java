@@ -88,7 +88,7 @@ class RunningRecordRepositoryTest {
 	}
 
 	@Test
-	void insertRunningRecordPersistsBadgeTierForBadgeDetailRecordSelection() throws Exception {
+	void insertRunningRecordDoesNotPersistClientSuppliedBadge() throws Exception {
 		JdbcTemplate jdbcTemplate = mock(JdbcTemplate.class);
 		Connection connection = mock(Connection.class);
 		PreparedStatement ps = mock(PreparedStatement.class);
@@ -117,7 +117,7 @@ class RunningRecordRepositoryTest {
 		var sqlCaptor = org.mockito.ArgumentCaptor.forClass(String.class);
 		verify(connection).prepareStatement(sqlCaptor.capture(), eq(java.sql.Statement.RETURN_GENERATED_KEYS));
 		assertThat(sqlCaptor.getValue()).contains("badge");
-		verify(ps).setString(8, "GOLD");
+		verify(ps).setString(8, "NONE");
 	}
 
 	@Test
