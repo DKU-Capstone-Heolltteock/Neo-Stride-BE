@@ -5,7 +5,12 @@ import org.springframework.web.bind.annotation.GetMapping;
 
 @Controller
 public class StaticPageController {
-	@GetMapping({"/onboarding", "/onboarding/"})
+	@GetMapping("/onboarding")
+	public String onboardingWithoutTrailingSlash() {
+		return "redirect:/onboarding/";
+	}
+
+	@GetMapping("/onboarding/")
 	public String onboarding() {
 		return "forward:/onboarding/index.html";
 	}
