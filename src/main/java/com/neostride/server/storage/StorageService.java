@@ -18,8 +18,10 @@ import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
 import javax.imageio.IIOImage;
 import javax.imageio.ImageIO;
+import javax.imageio.ImageReader;
 import javax.imageio.ImageWriteParam;
 import javax.imageio.ImageWriter;
+import javax.imageio.stream.ImageInputStream;
 import javax.imageio.stream.ImageOutputStream;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -41,6 +43,8 @@ public class StorageService {
 			"image/heif", "heif"
 	);
 	private static final int THUMBNAIL_MAX_DIMENSION = 480;
+	private static final int MAX_IMAGE_DIMENSION = 8_192;
+	private static final long MAX_IMAGE_PIXELS = 16_000_000L;
 	private static final float THUMBNAIL_JPEG_QUALITY = 0.78f;
 	private static final float ORIENTED_JPEG_QUALITY = 0.92f;
 	private static final float THUMBNAIL_WEBP_QUALITY = 74.0f;
@@ -116,7 +120,7 @@ public class StorageService {
 		} catch (IOException exception) {
 			throw new IllegalStateException("이미지 파일 저장에 실패했습니다.", exception);
 		}
-		scheduleThumbnailIfPossible(raster, targetDirectory, filename);
+		scheduleThumbnailIfPossible(target, actualContentType);
 		return publicPrefix + "/" + safeDirectory + "/" + filename;
 	}
 
@@ -124,14 +128,60 @@ public class StorageService {
 		if (!"image/jpeg".equals(contentType) && !"image/png".equals(contentType)) {
 			return null;
 		}
+		validateImageDimensions(bytes, contentType);
 		try (ByteArrayInputStream input = new ByteArrayInputStream(bytes)) {
 			BufferedImage image = ImageIO.read(input);
 			if (image == null || image.getWidth() <= 0 || image.getHeight() <= 0) {
 				throw new IllegalArgumentException("이미지 파일을 읽을 수 없습니다.");
 			}
+			validatePixelCount(image.getWidth(), image.getHeight());
 			return image;
 		} catch (IOException exception) {
 			throw new IllegalArgumentException("이미지 파일을 읽을 수 없습니다.", exception);
+		}
+	}
+
+	private static void validateImageDimensions(byte[] bytes, String contentType) {
+		try (ByteArrayInputStream input = new ByteArrayInputStream(bytes);
+				ImageInputStream imageInput = ImageIO.createImageInputStream(input)) {
+			validateImageDimensions(imageInput, contentType);
+		} catch (IOException exception) {
+			throw new IllegalArgumentException("이미지 파일을 읽을 수 없습니다.", exception);
+		}
+	}
+
+	private static void validateImageDimensions(Path source) {
+		try (ImageInputStream imageInput = ImageIO.createImageInputStream(source.toFile())) {
+			validateImageDimensions(imageInput, null);
+		} catch (IOException exception) {
+			throw new IllegalArgumentException("이미지 파일을 읽을 수 없습니다.", exception);
+		}
+	}
+
+	private static void validateImageDimensions(ImageInputStream imageInput, String contentType) throws IOException {
+		if (imageInput == null) {
+			throw new IllegalArgumentException("이미지 파일을 읽을 수 없습니다.");
+		}
+		var readers = contentType == null ? ImageIO.getImageReaders(imageInput) : ImageIO.getImageReadersByMIMEType(contentType);
+		if (!readers.hasNext()) {
+			throw new IllegalArgumentException("이미지 파일을 읽을 수 없습니다.");
+		}
+		ImageReader reader = readers.next();
+		try {
+			reader.setInput(imageInput, true, true);
+			validatePixelCount(reader.getWidth(0), reader.getHeight(0));
+		} finally {
+			reader.dispose();
+		}
+	}
+
+	private static void validatePixelCount(int width, int height) {
+		if (width <= 0 || height <= 0) {
+			throw new IllegalArgumentException("이미지 파일을 읽을 수 없습니다.");
+		}
+		long pixels = (long) width * height;
+		if (width > MAX_IMAGE_DIMENSION || height > MAX_IMAGE_DIMENSION || pixels > MAX_IMAGE_PIXELS) {
+			throw new IllegalArgumentException("이미지 크기가 너무 큽니다.");
 		}
 	}
 
@@ -302,23 +352,34 @@ public class StorageService {
 				| (long) (bytes[offset + 3] & 0xff);
 	}
 
-	private void scheduleThumbnailIfPossible(BufferedImage source, Path targetDirectory, String filename) {
-		if (source == null) {
-			return;
-		}
+	private void scheduleThumbnailIfPossible(Path source) {
 		try {
-			thumbnailExecutor.execute(() -> writeThumbnailIfPossible(source, targetDirectory, filename));
+			thumbnailExecutor.execute(() -> writeThumbnailIfPossible(source));
 		} catch (RejectedExecutionException exception) {
-			log.warn("Rejected image thumbnail task for {}", filename, exception);
+			log.warn("Rejected image thumbnail task for {}", source.getFileName(), exception);
 		}
 	}
 
-	private static void writeThumbnailIfPossible(BufferedImage source, Path targetDirectory, String filename) {
+	private void scheduleThumbnailIfPossible(Path source, String contentType) {
+		if (!"image/jpeg".equals(contentType) && !"image/png".equals(contentType)) {
+			return;
+		}
+		scheduleThumbnailIfPossible(source);
+	}
+
+	private static void writeThumbnailIfPossible(Path source) {
+		String filename = source.getFileName().toString();
 		try {
-			Path thumbnailDirectory = targetDirectory.resolve(THUMBNAIL_DIRECTORY);
+			validateImageDimensions(source);
+			BufferedImage image = ImageIO.read(source.toFile());
+			if (image == null) {
+				throw new IOException("Image file is not decodable");
+			}
+			validatePixelCount(image.getWidth(), image.getHeight());
+			Path thumbnailDirectory = source.getParent().resolve(THUMBNAIL_DIRECTORY);
 			Files.createDirectories(thumbnailDirectory);
 			Path jpegThumbnail = thumbnailDirectory.resolve(thumbnailFilename(filename));
-			writeJpeg(resize(source, THUMBNAIL_MAX_DIMENSION), jpegThumbnail);
+			writeJpeg(resize(image, THUMBNAIL_MAX_DIMENSION), jpegThumbnail);
 			writeWebpIfAvailable(jpegThumbnail, thumbnailDirectory.resolve(thumbnailWebpFilename(filename)));
 		} catch (IOException | RuntimeException exception) {
 			log.warn("Failed to create image thumbnail for {}", filename, exception);
