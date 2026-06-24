@@ -81,6 +81,51 @@ Optional:
 - `IMAGE_THUMBNAIL_MAX_POOL_SIZE`: background thumbnail worker max size, default `2`.
 - `IMAGE_THUMBNAIL_QUEUE_CAPACITY`: background thumbnail queue capacity, default `32`.
 
+Admin and developer console exposure:
+
+- `ADMIN_EXPOSURE_ENABLED`: enables the admin/ops/dev API exposure guard. In `prod`, the console is hidden by default unless this is `true`.
+- `ADMIN_ALLOWED_SURFACES`: comma-separated allowed admin surfaces. Use `tailscale` for the MVP; `cloudflare` is reserved for a controlled Cloudflare Access/Tunnel surface.
+- `ADMIN_ALLOWED_CIDRS`: comma-separated CIDR ranges allowed for the Tailscale surface, for example `100.64.0.0/10`.
+- `ADMIN_ALLOWED_HOSTS`: comma-separated admin hostnames for the Cloudflare surface, for example `admin-api.neostride.run`.
+- `ADMIN_TRUSTED_PROXY_CIDRS`: comma-separated proxy IPs or CIDRs whose `X-Forwarded-For` headers may be trusted, defaulting through the existing admin/rate-limit trusted proxy settings.
+- `ADMIN_REQUIRE_CLOUDFLARE_ACCESS`: requires a Cloudflare Access assertion on the Cloudflare surface. Keep this `false` for the Tailscale-only MVP.
+
+Legacy `ADMIN_CONSOLE_ENABLED`, `ADMIN_CONSOLE_ALLOWED_IP_RANGES`, `ADMIN_CONSOLE_REQUIRE_ALLOWLIST`, and `ADMIN_CONSOLE_TRUSTED_PROXY_ADDRESSES` values remain supported as migration aliases.
+
+Tailscale MVP example:
+
+```bash
+SPRING_PROFILES_ACTIVE=prod
+ADMIN_EXPOSURE_ENABLED=true
+ADMIN_ALLOWED_SURFACES=tailscale
+ADMIN_ALLOWED_CIDRS=100.64.0.0/10
+ADMIN_TRUSTED_PROXY_CIDRS=127.0.0.1,::1
+ADMIN_REQUIRE_CLOUDFLARE_ACCESS=false
+```
+
+## Admin / Developer Access
+
+Neo-Stride separates API exposure from application authorization:
+
+| Status | Meaning | Operator action |
+| --- | --- | --- |
+| `404` | The admin API is hidden on the current access surface. | Connect through Tailscale and verify the admin API base URL. |
+| `401` | The request reached the admin surface, but no valid operator session was provided. | Log in again. |
+| `403` | The operator session is valid, but the permission is missing. | Check the operator role and permission catalog. |
+| `2xx` | Surface, authentication, and permission checks passed. | Normal operation. |
+
+For the MVP, administrators and developers should access `/api/admin/**`, `/api/ops/**`, and `/api/dev/**` through the Tailscale tailnet only. Public ingress should expose user API routes only; admin, ops, and dev console prefixes should remain indistinguishable from missing routes on the public surface.
+
+Onboarding flow:
+
+1. Invite the person to the team tailnet and assign the appropriate Tailscale ACL group.
+2. Create or update their operator account in the admin console.
+3. Verify the user's device appears in `tailscale status` and can reach the backend tailnet hostname.
+4. Point Adminpage `VITE_API_BASE_URL` at the tailnet backend URL.
+5. Confirm `404`, `401`, `403`, and `2xx` behavior from the intended surface before granting broader permissions.
+
+OCI Bastion is a break-glass recovery path for Tailscale or ingress failure. Do not use it as the normal admin path, and never commit bastion hosts, private keys, tokens, or one-time recovery details to this repository.
+
 ## MySQL Configuration
 
 The application uses:
@@ -161,4 +206,5 @@ docker run --rm -u "$(id -u):$(id -g)" \
 - Run the backend with a least-privilege DB user such as `neostride_app`; keep MySQL root for database administration and migrations only.
 - Run database migrations before deploying a new image, then run `deploy/mysql/apply-migrations.sh --verify`.
 - Run production with `SPRING_PROFILES_ACTIVE=prod` unless Swagger/OpenAPI must be exposed for a controlled review.
+- Expose public ingress for user API routes only. Admin, ops, and dev console routes should be reachable only through the approved admin surface and should return `404` elsewhere.
 - Verify the deployed app with `/actuator/health` after startup.

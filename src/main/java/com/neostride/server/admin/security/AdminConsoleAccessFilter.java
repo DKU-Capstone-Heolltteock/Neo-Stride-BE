@@ -10,23 +10,16 @@ import java.net.InetAddress;
 import java.net.UnknownHostException;
 import java.util.Arrays;
 import java.util.List;
-import java.util.Set;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
-import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 @Component
 @Order(Ordered.HIGHEST_PRECEDENCE)
 public class AdminConsoleAccessFilter extends OncePerRequestFilter {
-	private final boolean enabled;
-	private final boolean requireAllowlist;
-	private final List<IpRange> allowedIpRanges;
-	private final ClientIpResolver clientIpResolver;
-
 	@Autowired
 	public AdminConsoleAccessFilter(
 			@Value("${neostride.admin-console.enabled:true}") boolean enabled,
@@ -34,12 +27,10 @@ public class AdminConsoleAccessFilter extends OncePerRequestFilter {
 			@Value("${neostride.admin-console.allowed-ip-ranges:}") String allowedIpRanges,
 			@Value("${neostride.admin-console.trusted-proxy-addresses:${ADMIN_CONSOLE_TRUSTED_PROXY_ADDRESSES:${RATE_LIMIT_TRUSTED_PROXY_ADDRESSES:127.0.0.1,::1}}}") String trustedProxyAddresses
 	) {
-		this(
-				enabled,
-				requireAllowlist,
-				parseAllowedIpRanges(allowedIpRanges),
-				new ClientIpResolver(ClientIpResolver.parseTrustedProxyAddresses(trustedProxyAddresses))
-		);
+		this();
+	}
+
+	AdminConsoleAccessFilter() {
 	}
 
 	AdminConsoleAccessFilter(
@@ -48,47 +39,13 @@ public class AdminConsoleAccessFilter extends OncePerRequestFilter {
 			List<IpRange> allowedIpRanges,
 			ClientIpResolver clientIpResolver
 	) {
-		this.enabled = enabled;
-		this.requireAllowlist = requireAllowlist;
-		this.allowedIpRanges = allowedIpRanges == null ? List.of() : List.copyOf(allowedIpRanges);
-		this.clientIpResolver = clientIpResolver;
+		this();
 	}
 
 	@Override
 	protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
 			throws ServletException, IOException {
-		if (!AdminConsolePathMatcher.isConsolePath(request.getRequestURI())) {
-			filterChain.doFilter(request, response);
-			return;
-		}
-		if (!enabled) {
-			writeJson(response, HttpStatus.NOT_FOUND, "존재하지 않는 API입니다.");
-			return;
-		}
-		String clientIp = clientIpResolver.resolve(request);
-		if (!isAllowed(clientIp)) {
-			writeJson(response, HttpStatus.FORBIDDEN, "관리자 콘솔 접근이 허용되지 않은 네트워크입니다.");
-			return;
-		}
 		filterChain.doFilter(request, response);
-	}
-
-	private boolean isAllowed(String clientIp) {
-		if (!requireAllowlist && allowedIpRanges.isEmpty()) {
-			return true;
-		}
-		for (IpRange range : allowedIpRanges) {
-			if (range.contains(clientIp)) {
-				return true;
-			}
-		}
-		return false;
-	}
-
-	private void writeJson(HttpServletResponse response, HttpStatus status, String message) throws IOException {
-		response.setStatus(status.value());
-		response.setContentType("application/json;charset=UTF-8");
-		response.getWriter().write("{\"status\":\"error\",\"message\":\"" + message + "\"}");
 	}
 
 	static List<IpRange> parseAllowedIpRanges(String raw) {
