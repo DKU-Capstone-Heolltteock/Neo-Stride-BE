@@ -7,12 +7,14 @@ import com.neostride.server.running.dto.RunningRecordRequest;
 import com.neostride.server.running.repository.RunningRecordRepository;
 import com.neostride.server.running.service.RunningRecordService.DeleteResult;
 import org.junit.jupiter.api.Test;
+import org.mockito.InOrder;
 
 import java.math.BigDecimal;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -131,8 +133,30 @@ class RunningRecordServiceTest {
 		DeleteResult result = coachingAwareService.deleteByRecordIdForUser(7L, 10L);
 
 		assertThat(result).isEqualTo(DeleteResult.DELETED);
-		verify(repository).deleteByRecordIdForUser(7L, 10L);
-		verify(coachingPlanProgressPort).restorePlanToPendingAfterRunningRecordDeleted(7L, 20L);
+		InOrder inOrder = inOrder(repository, coachingPlanProgressPort);
+		inOrder.verify(coachingPlanProgressPort).lockPlanForRunningRecordDeletion(7L, 20L);
+		inOrder.verify(repository).deleteByRecordIdForUser(7L, 10L);
+		inOrder.verify(repository).hasRecordsForPlanIdForUser(7L, 20L);
+		inOrder.verify(coachingPlanProgressPort).restorePlanToPendingAfterRunningRecordDeleted(7L, 20L);
+	}
+
+	@Test
+	void deleteByRecordIdForUserDoesNotRestoreCoachingPlanWhenOtherRecordsRemainLinked() {
+		CoachingPlanProgressPort coachingPlanProgressPort = mock(CoachingPlanProgressPort.class);
+		RunningRecordService coachingAwareService = new RunningRecordService(repository, coachingPlanProgressPort);
+		when(repository.findOwnerUserId(10L)).thenReturn(7L);
+		when(repository.findPlanIdByRecordIdForUser(7L, 10L)).thenReturn(20L);
+		when(repository.deleteByRecordIdForUser(7L, 10L)).thenReturn(1);
+		when(repository.hasRecordsForPlanIdForUser(7L, 20L)).thenReturn(true);
+
+		DeleteResult result = coachingAwareService.deleteByRecordIdForUser(7L, 10L);
+
+		assertThat(result).isEqualTo(DeleteResult.DELETED);
+		InOrder inOrder = inOrder(repository, coachingPlanProgressPort);
+		inOrder.verify(coachingPlanProgressPort).lockPlanForRunningRecordDeletion(7L, 20L);
+		inOrder.verify(repository).deleteByRecordIdForUser(7L, 10L);
+		inOrder.verify(repository).hasRecordsForPlanIdForUser(7L, 20L);
+		verify(coachingPlanProgressPort, never()).restorePlanToPendingAfterRunningRecordDeleted(7L, 20L);
 	}
 
 	@Test

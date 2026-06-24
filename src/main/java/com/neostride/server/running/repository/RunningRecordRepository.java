@@ -187,6 +187,15 @@ public class RunningRecordRepository {
 		return planIds.isEmpty() ? null : planIds.getFirst();
 	}
 
+	public boolean hasRecordsForPlanIdForUser(long userId, long planId) {
+		Integer count = jdbcTemplate.queryForObject("""
+				SELECT COUNT(*)
+				FROM running_records
+				WHERE user_id = ? AND plan_id = ?
+				""", Integer.class, userId, planId);
+		return count != null && count > 0;
+	}
+
 	public int deleteByRecordIdForUser(long userId, long recordId) {
 		return jdbcTemplate.update("DELETE FROM running_records WHERE user_id = ? AND run_record_id = ?", userId, recordId);
 	}

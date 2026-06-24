@@ -155,6 +155,15 @@ public class CoachingService {
 	}
 
 	@Transactional
+	public void lockPlanForRunningRecordDeletion(long userId, long planDayId) {
+		validatePositive(userId, "user_id");
+		validatePositive(planDayId, "plan_day_id");
+		if (coachingRepository.findPlanDayByIdForUser(planDayId, userId) == null) {
+			throw new IllegalArgumentException("plan_day_id에 해당하는 플랜이 없습니다.");
+		}
+	}
+
+	@Transactional
 	public void restorePlanToPendingAfterRunningRecordDeleted(long userId, long planDayId) {
 		validatePositive(userId, "user_id");
 		validatePositive(planDayId, "plan_day_id");

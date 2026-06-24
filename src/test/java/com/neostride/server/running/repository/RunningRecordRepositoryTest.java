@@ -172,6 +172,31 @@ class RunningRecordRepositoryTest {
 	}
 
 	@Test
+	void hasRecordsForPlanIdForUserReturnsTrueWhenLinkedRecordsRemain() {
+		JdbcTemplate jdbcTemplate = mock(JdbcTemplate.class);
+		when(jdbcTemplate.queryForObject(anyString(), eq(Integer.class), eq(7L), eq(20L))).thenReturn(1);
+		RunningRecordRepository repository = new RunningRecordRepository(jdbcTemplate);
+
+		boolean hasRecords = repository.hasRecordsForPlanIdForUser(7L, 20L);
+
+		var sqlCaptor = org.mockito.ArgumentCaptor.forClass(String.class);
+		verify(jdbcTemplate).queryForObject(sqlCaptor.capture(), eq(Integer.class), eq(7L), eq(20L));
+		assertThat(hasRecords).isTrue();
+		assertThat(sqlCaptor.getValue())
+				.contains("SELECT COUNT(*)")
+				.contains("WHERE user_id = ? AND plan_id = ?");
+	}
+
+	@Test
+	void hasRecordsForPlanIdForUserReturnsFalseWhenNoLinkedRecordsRemain() {
+		JdbcTemplate jdbcTemplate = mock(JdbcTemplate.class);
+		when(jdbcTemplate.queryForObject(anyString(), eq(Integer.class), eq(7L), eq(20L))).thenReturn(0);
+		RunningRecordRepository repository = new RunningRecordRepository(jdbcTemplate);
+
+		assertThat(repository.hasRecordsForPlanIdForUser(7L, 20L)).isFalse();
+	}
+
+	@Test
 	@SuppressWarnings({"unchecked", "rawtypes"})
 	void insertGpsTracesPersistsNullableHeartRateAndCadenceColumns() throws Exception {
 		JdbcTemplate jdbcTemplate = mock(JdbcTemplate.class);
