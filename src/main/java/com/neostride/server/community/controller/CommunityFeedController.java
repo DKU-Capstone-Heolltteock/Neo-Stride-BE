@@ -235,6 +235,7 @@ public class CommunityFeedController {
 			@RequestPart(value = "routeMapImage", required = false) MultipartFile routeMapImage,
 			@RequestPart(value = "route_map_image", required = false) MultipartFile routeMapImageSnake
 	) {
+		long userId = userContext.authenticatedUserId(authorization, headerUserId);
 		FeedUploadRequest request = new FeedUploadRequest(
 				fields.get("title"), fields.get("content"), fields.get("privacy"),
 				CommunityMultipartSupport.bool(fields.get("mapVisible"), fields.get("map_visible")),
@@ -247,7 +248,7 @@ public class CommunityFeedController {
 				CommunityMultipartSupport.parseInt(fields, "tagCount", "tag_count"),
 				CommunityMultipartSupport.firstLong(fields, "running_record_id", "run_record_id", "runningRecordId", "runRecordId")
 		);
-		return ResponseEntity.status(HttpStatus.CREATED).body(service.uploadFeed(userContext.authenticatedUserId(authorization, headerUserId), request));
+		return ResponseEntity.status(HttpStatus.CREATED).body(service.uploadFeed(userId, request));
 	}
 
 	@GetMapping("/feeds")

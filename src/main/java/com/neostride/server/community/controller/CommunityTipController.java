@@ -78,6 +78,7 @@ public class CommunityTipController {
 			@RequestPart(value = "route_image", required = false) MultipartFile routeImage,
 			@RequestPart(value = "routeMapImage", required = false) MultipartFile routeMapImage
 	) {
+		long userId = userContext.authenticatedUserId(authorization, headerUserId);
 		TipUploadRequest request = new TipUploadRequest(
 				fields.get("category"),
 				fields.get("title"),
@@ -87,7 +88,7 @@ public class CommunityTipController {
 				CommunityMultipartSupport.first(fields, "courseAddress", "course_address"),
 				uploadSupport.storedImageUris(images)
 		);
-		return ResponseEntity.status(HttpStatus.CREATED).body(service.uploadTip(userContext.authenticatedUserId(authorization, headerUserId), request));
+		return ResponseEntity.status(HttpStatus.CREATED).body(service.uploadTip(userId, request));
 	}
 
 	@GetMapping("/api/community/tips")

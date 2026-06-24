@@ -28,6 +28,7 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 class CommunityControllerTest {
@@ -144,6 +145,19 @@ class CommunityControllerTest {
 	}
 
 	@Test
+	void updateProfileImage_authenticatesBeforeStoringMultipartImage() {
+		MockMultipartFile image = new MockMultipartFile("image", "profile.png", "image/png", new byte[] {(byte) 0x89, 'P', 'N', 'G'});
+		when(authenticatedUserService.requireUserId(null)).thenThrow(new IllegalArgumentException("Authorization Bearer token이 필요합니다."));
+
+		assertThatThrownBy(() -> profileController.updateProfileImage(null, null, null, image, null))
+				.isInstanceOf(IllegalArgumentException.class)
+				.hasMessageContaining("Authorization Bearer token");
+
+		verifyNoInteractions(storageService);
+		verify(service, never()).updateProfileImage(anyLong(), any());
+	}
+
+	@Test
 	void updateProfileImage_storesMultipartImageUrl() {
 		MockMultipartFile image = new MockMultipartFile("image", "profile.png", "image/png", new byte[] {(byte) 0x89, 'P', 'N', 'G'});
 		authenticate();
@@ -176,6 +190,20 @@ class CommunityControllerTest {
 
 		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
 		verify(service).deleteProfileImage(1L);
+	}
+
+	@Test
+	void uploadFeedMultipart_authenticatesBeforeStoringImages() {
+		MockMultipartFile image = new MockMultipartFile("images", "feed.jpg", "image/jpeg", new byte[] {(byte) 0xff, (byte) 0xd8, (byte) 0xff});
+		MockMultipartFile route = new MockMultipartFile("route_image", "route.webp", "image/webp", new byte[] {'R', 'I', 'F', 'F', 0, 0, 0, 0, 'W', 'E', 'B', 'P'});
+		when(authenticatedUserService.requireUserId(null)).thenThrow(new IllegalArgumentException("Authorization Bearer token이 필요합니다."));
+
+		assertThatThrownBy(() -> feedController.uploadFeedMultipart(null, null, Map.of("title", "title"), List.of(image), route, null, null))
+				.isInstanceOf(IllegalArgumentException.class)
+				.hasMessageContaining("Authorization Bearer token");
+
+		verifyNoInteractions(storageService);
+		verify(service, never()).uploadFeed(anyLong(), any());
 	}
 
 	@Test
@@ -402,6 +430,20 @@ class CommunityControllerTest {
 		assertThat(feedController.deleteFeedComment(AUTHORIZATION, 1L, 99L, 5L).getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
 		assertThat(feedController.deleteFeed(AUTHORIZATION, 1L, 99L).getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
 		assertThat(feedController.getTaggedUsers(AUTHORIZATION, 1L, 99L).getBody()).containsExactlyElementsOf(tagged);
+	}
+
+	@Test
+	void uploadTipMultipart_authenticatesBeforeStoringImages() {
+		MockMultipartFile image = new MockMultipartFile("images", "tip.jpg", "image/jpeg", new byte[] {(byte) 0xff, (byte) 0xd8, (byte) 0xff});
+		MockMultipartFile route = new MockMultipartFile("route_image", "route.png", "image/png", new byte[] {(byte) 0x89, 'P', 'N', 'G'});
+		when(authenticatedUserService.requireUserId(null)).thenThrow(new IllegalArgumentException("Authorization Bearer token이 필요합니다."));
+
+		assertThatThrownBy(() -> tipController.uploadTipMultipart(null, null, Map.of("title", "title"), List.of(image), route, null))
+				.isInstanceOf(IllegalArgumentException.class)
+				.hasMessageContaining("Authorization Bearer token");
+
+		verifyNoInteractions(storageService);
+		verify(service, never()).uploadTip(anyLong(), any());
 	}
 
 	@Test
