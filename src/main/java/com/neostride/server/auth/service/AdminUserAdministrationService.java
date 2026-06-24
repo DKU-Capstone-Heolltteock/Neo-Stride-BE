@@ -108,13 +108,14 @@ public class AdminUserAdministrationService implements UserAdministrationPort {
 
 	@Override
 	public List<Long> activeUserIds(int limit) {
+		int cappedLimit = Math.max(1, limit);
 		return jdbcTemplate.query("""
 				SELECT user_id
 				FROM users
 				WHERE account_status = 'ACTIVE'
 				ORDER BY user_id
 				LIMIT ?
-				""", (rs, rowNum) -> rs.getLong("user_id"), CursorSupport.cappedLimit(limit));
+				""", (rs, rowNum) -> rs.getLong("user_id"), cappedLimit);
 	}
 
 	@Override

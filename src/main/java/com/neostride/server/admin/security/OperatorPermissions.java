@@ -79,7 +79,7 @@ public final class OperatorPermissions {
 		));
 		defaults.put("MODERATOR", List.of(ACCOUNT_READ, ACCOUNT_SUSPEND, REPORT_READ, REPORT_RESOLVE));
 		defaults.put("SUPPORT", List.of(ACCOUNT_READ, REPORT_READ, NOTIFICATION_SEND));
-		defaults.put("DEVELOPER", List.of(METRICS_READ, LOGS_READ, BUG_REPORT_WRITE));
+		defaults.put("DEVELOPER", List.of(METRICS_READ, LOGS_READ));
 		defaults.put("AUDITOR", List.of(ACCOUNT_READ, REPORT_READ, METRICS_READ, LOGS_READ, AUDIT_READ));
 		return Collections.unmodifiableMap(defaults);
 	}

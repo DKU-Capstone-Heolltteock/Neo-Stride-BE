@@ -44,6 +44,7 @@ public class AdminNotificationService {
 		validateBroadcast(request);
 		String targetType = normalizeTargetType(request.targetType());
 		List<Long> recipients = recipients(targetType, request.targetUserId());
+		long expectedRecipients = expectedRecipients(targetType, recipients.size());
 		int sent = 0;
 		for (Long userId : recipients) {
 			notificationSender.send(userId, "OPERATOR_BROADCAST", request.message().trim(), "/notifications");
@@ -52,7 +53,7 @@ public class AdminNotificationService {
 		DiscordWebhookClient.DiscordWebhookResult discordResult = discordWebhookClient.send(
 				"[Neo-Stride 운영자 알림] " + request.title().trim() + "\n" + request.message().trim()
 		);
-		String status = sent == recipients.size() ? "SENT" : "PARTIAL";
+		String status = sent == expectedRecipients ? "SENT" : "PARTIAL";
 		BroadcastResponse response = broadcastRepository.insert(
 				actor.operatorAccountId(),
 				request.title().trim(),
@@ -102,6 +103,13 @@ public class AdminNotificationService {
 			return List.of(targetUserId);
 		}
 		return userAdministrationPort.activeUserIds(maxBroadcastRecipients);
+	}
+
+	private long expectedRecipients(String targetType, int selectedRecipients) {
+		if ("ALL".equals(targetType)) {
+			return userAdministrationPort.countAccounts("ACTIVE");
+		}
+		return selectedRecipients;
 	}
 
 	private String normalizeTargetType(String value) {

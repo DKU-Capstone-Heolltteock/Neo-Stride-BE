@@ -11,10 +11,13 @@ class AdminConsolePathMatcherTest {
 			"/api/admin",
 			"/api/admin/",
 			"/api/admin/auth/login",
+			"/api;v=1/admin/auth/login",
 			"/api/admin;anything",
 			"/api/admin;anything/auth/login",
+			"/api;v=1/ops/metrics/usage",
 			"/api/ops;anything",
 			"/api/ops;anything/metrics/usage",
+			"/api;v=1/dev/logs/errors",
 			"/api/dev;anything",
 			"/api/dev;anything/logs/errors"
 	})
