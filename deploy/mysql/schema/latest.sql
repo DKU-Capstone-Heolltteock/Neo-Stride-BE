@@ -66,6 +66,7 @@ CREATE TABLE `community_contents` (
   KEY `idx_cc_author_type_created` (`author_user_id`,`content_type`,`created_at` DESC,`content_id` DESC),
   KEY `idx_cc_type_created` (`content_type`,`created_at` DESC,`content_id` DESC),
   FULLTEXT KEY `ft_cc_content_search` (`title`,`body_text`,`content_text`),
+  FULLTEXT KEY `ft_cc_feed_text_search` (`title`,`body_text`),
   CONSTRAINT `fk_community_contents_author` FOREIGN KEY (`author_user_id`) REFERENCES `users` (`user_id`) ON DELETE CASCADE,
   CONSTRAINT `fk_community_contents_running_record` FOREIGN KEY (`running_record_id`) REFERENCES `running_records` (`run_record_id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

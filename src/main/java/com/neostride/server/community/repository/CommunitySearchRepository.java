@@ -40,7 +40,7 @@ final class CommunitySearchRepository {
 			args.add(viewerUserId);
 		}
 		if (!blank(keyword)) {
-			predicate += " AND MATCH(cc.title, cc.body_text, cc.content_text) AGAINST (? IN NATURAL LANGUAGE MODE)";
+			predicate += " AND MATCH(cc.title, cc.body_text) AGAINST (? IN NATURAL LANGUAGE MODE)";
 			args.add(searchTerm(keyword));
 		}
 		if (viewerUserId == null) {
@@ -216,7 +216,11 @@ final class CommunitySearchRepository {
 		DecodedFeedContent parts = CommunityContentCodec.decodeFeedContent(rs);
 		long writerId = rs.getLong("author_user_id");
 		String badge = rs.getString("badge");
-		return new FeedUploadResponse(rs.getLong("content_id"), rs.getString("profile_image_url"), rs.getString("nickname"), badgeOwned(badge), badge, rs.getTimestamp("created_at").toLocalDateTime().format(ISO), parts.title(), parts.content(), rs.getInt("tagged_count"), rs.getInt("like_count"), rs.getInt("comment_count"), CommunityContentCodec.feedDistance(rs, parts), CommunityContentCodec.feedDuration(rs, parts), CommunityContentCodec.feedPace(rs, parts), rs.getBoolean("include_route_detail"), parts.routeMapImageUri(), CommunityContentCodec.decodeImages(CommunityContentCodec.imageUrls(rs)), rs.getBoolean("liked"), rs.getBoolean("bookmarked"), rs.getBoolean("commented"), rs.getBoolean("tagged"), rs.getBoolean("mine"), writerId);
+		return new FeedUploadResponse(rs.getLong("content_id"), rs.getString("profile_image_url"), rs.getString("nickname"), badgeOwned(badge), badge, rs.getTimestamp("created_at").toLocalDateTime().format(ISO), parts.title(), parts.content(), rs.getInt("tagged_count"), rs.getInt("like_count"), rs.getInt("comment_count"), CommunityContentCodec.feedDistance(rs, parts), CommunityContentCodec.feedDuration(rs, parts), CommunityContentCodec.feedPace(rs, parts), rs.getBoolean("include_route_detail"), routeMapImageUri(rs, parts), CommunityContentCodec.decodeImages(CommunityContentCodec.imageUrls(rs)), rs.getBoolean("liked"), rs.getBoolean("bookmarked"), rs.getBoolean("commented"), rs.getBoolean("tagged"), rs.getBoolean("mine"), writerId);
+	}
+
+	private String routeMapImageUri(ResultSet rs, DecodedFeedContent parts) throws SQLException {
+		return rs.getBoolean("include_route_detail") ? parts.routeMapImageUri() : null;
 	}
 
 	private TipUploadResponse mapTip(java.sql.ResultSet rs, int n) throws java.sql.SQLException {

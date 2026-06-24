@@ -166,7 +166,7 @@ final class CommunityFeedRepository {
 			DecodedFeedContent parts = CommunityContentCodec.decodeFeedContent(rs);
 			String badge = rs.getString("badge");
 			long contentId = rs.getLong("content_id");
-			return new FeedDetailResponse(contentId, rs.getLong("author_user_id"), rs.getString("profile_image_url"), rs.getString("nickname"), badgeOwned(badge), badge, rs.getTimestamp("created_at").toLocalDateTime().format(ISO), parts.title(), parts.content(), rs.getInt("tagged_count"), rs.getInt("like_count"), rs.getInt("comment_count"), rs.getBoolean("liked"), rs.getBoolean("bookmarked"), rs.getLong("author_user_id") == userId, CommunityContentCodec.feedDistance(rs, parts), CommunityContentCodec.feedDuration(rs, parts), CommunityContentCodec.feedPace(rs, parts), rs.getBoolean("include_route_detail"), parts.routeMapImageUri(), CommunityContentCodec.decodeImages(CommunityContentCodec.imageUrls(rs)), interactionRepository.commentsForContent(userId, contentId, null, null, normalizedLimit(commentLimit)));
+			return new FeedDetailResponse(contentId, rs.getLong("author_user_id"), rs.getString("profile_image_url"), rs.getString("nickname"), badgeOwned(badge), badge, rs.getTimestamp("created_at").toLocalDateTime().format(ISO), parts.title(), parts.content(), rs.getInt("tagged_count"), rs.getInt("like_count"), rs.getInt("comment_count"), rs.getBoolean("liked"), rs.getBoolean("bookmarked"), rs.getLong("author_user_id") == userId, CommunityContentCodec.feedDistance(rs, parts), CommunityContentCodec.feedDuration(rs, parts), CommunityContentCodec.feedPace(rs, parts), rs.getBoolean("include_route_detail"), routeMapImageUri(rs, parts), CommunityContentCodec.decodeImages(CommunityContentCodec.imageUrls(rs)), interactionRepository.commentsForContent(userId, contentId, null, null, normalizedLimit(commentLimit)));
 		}, userId, userId, feedId, userId, userId, userId, userId, userId).stream().findFirst().orElse(null);
 	}
 
@@ -354,7 +354,11 @@ final class CommunityFeedRepository {
 		DecodedFeedContent parts = CommunityContentCodec.decodeFeedContent(rs);
 		long writerId = rs.getLong("author_user_id");
 		String badge = rs.getString("badge");
-		return new FeedUploadResponse(rs.getLong("content_id"), rs.getString("profile_image_url"), rs.getString("nickname"), badgeOwned(badge), badge, rs.getTimestamp("created_at").toLocalDateTime().format(ISO), parts.title(), parts.content(), rs.getInt("tagged_count"), rs.getInt("like_count"), rs.getInt("comment_count"), CommunityContentCodec.feedDistance(rs, parts), CommunityContentCodec.feedDuration(rs, parts), CommunityContentCodec.feedPace(rs, parts), rs.getBoolean("include_route_detail"), parts.routeMapImageUri(), CommunityContentCodec.decodeImages(CommunityContentCodec.imageUrls(rs)), rs.getBoolean("liked"), rs.getBoolean("bookmarked"), rs.getBoolean("commented"), rs.getBoolean("tagged"), rs.getBoolean("mine"), writerId);
+		return new FeedUploadResponse(rs.getLong("content_id"), rs.getString("profile_image_url"), rs.getString("nickname"), badgeOwned(badge), badge, rs.getTimestamp("created_at").toLocalDateTime().format(ISO), parts.title(), parts.content(), rs.getInt("tagged_count"), rs.getInt("like_count"), rs.getInt("comment_count"), CommunityContentCodec.feedDistance(rs, parts), CommunityContentCodec.feedDuration(rs, parts), CommunityContentCodec.feedPace(rs, parts), rs.getBoolean("include_route_detail"), routeMapImageUri(rs, parts), CommunityContentCodec.decodeImages(CommunityContentCodec.imageUrls(rs)), rs.getBoolean("liked"), rs.getBoolean("bookmarked"), rs.getBoolean("commented"), rs.getBoolean("tagged"), rs.getBoolean("mine"), writerId);
+	}
+
+	private String routeMapImageUri(ResultSet rs, DecodedFeedContent parts) throws SQLException {
+		return rs.getBoolean("include_route_detail") ? parts.routeMapImageUri() : null;
 	}
 
 	private void notifyTaggedUser(long senderUserId, long contentId, long taggedUserId) {
