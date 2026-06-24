@@ -99,7 +99,7 @@ final class CommunityCommentActivityRepository {
 			DecodedFeedContent decoded = CommunityContentCodec.decodeFeedContent(rs);
 			title = decoded.title();
 			content = decoded.content();
-			routeMapUrl = decoded.routeMapImageUri();
+			routeMapUrl = routeMapImageUri(rs, decoded);
 			totalDistance = CommunityContentCodec.communityDistance(rs, decoded);
 			duration = CommunityContentCodec.communityDuration(rs, decoded);
 			pace = CommunityContentCodec.communityPace(rs, decoded);
@@ -145,6 +145,10 @@ final class CommunityCommentActivityRepository {
 
 	private static boolean badgeOwned(String badge) {
 		return badge != null && !"NONE".equalsIgnoreCase(badge);
+	}
+
+	private static String routeMapImageUri(ResultSet rs, DecodedFeedContent decoded) throws SQLException {
+		return rs.getBoolean("include_route_detail") ? decoded.routeMapImageUri() : null;
 	}
 
 	private static String iso(Timestamp timestamp) {

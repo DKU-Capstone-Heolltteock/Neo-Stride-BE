@@ -259,7 +259,7 @@ final class CommunityFeedRepository {
 					rs.getBoolean("commented"),
 					rs.getBoolean("tagged"),
 					rs.getString("badge_tier"),
-					decoded.routeMapImageUri()
+					routeMapImageUri(rs, decoded)
 			);
 		}, args.toArray());
 	}

@@ -206,23 +206,23 @@ class StorageServiceTest {
 	}
 
 	@Test
-	void storeImage_acceptsIphoneHeicImage() {
+	void storeImage_rejectsHeicWhenImageCannotBeDecoded() {
 		StorageService storageService = new StorageService(tempDir, "/uploads");
 		MockMultipartFile file = new MockMultipartFile("images", "IMG_0001.HEIC", "image/heic", isoBaseMediaFile("heic"));
 
-		String stored = storageService.storeImage(file, "community");
-
-		assertThat(stored).startsWith("/uploads/community/").endsWith(".heic");
+		assertThatThrownBy(() -> storageService.storeImage(file, "community"))
+				.isInstanceOf(IllegalArgumentException.class)
+				.hasMessageContaining("이미지 파일을 읽을 수 없습니다");
 	}
 
 	@Test
-	void storeImage_acceptsHeifImageWithOctetStreamMime() {
+	void storeImage_rejectsHeifWithOctetStreamMimeWhenImageCannotBeDecoded() {
 		StorageService storageService = new StorageService(tempDir, "/uploads");
 		MockMultipartFile file = new MockMultipartFile("images", "IMG_0002", "application/octet-stream", isoBaseMediaFile("mif1"));
 
-		String stored = storageService.storeImage(file, "community");
-
-		assertThat(stored).startsWith("/uploads/community/").endsWith(".heif");
+		assertThatThrownBy(() -> storageService.storeImage(file, "community"))
+				.isInstanceOf(IllegalArgumentException.class)
+				.hasMessageContaining("이미지 파일을 읽을 수 없습니다");
 	}
 
 	@Test

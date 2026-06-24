@@ -113,7 +113,6 @@ class RunningRecordServiceTest {
 
 	@Test
 	void deleteByRecordIdForUserDeletesOwnedRecord() {
-		when(repository.findOwnerUserId(10L)).thenReturn(7L);
 		when(repository.deleteByRecordIdForUser(7L, 10L)).thenReturn(1);
 
 		DeleteResult result = service.deleteByRecordIdForUser(7L, 10L);
@@ -126,7 +125,6 @@ class RunningRecordServiceTest {
 	void deleteByRecordIdForUserRestoresCoachingPlanToPendingWhenDeletedRecordHasPlanId() {
 		CoachingPlanProgressPort coachingPlanProgressPort = mock(CoachingPlanProgressPort.class);
 		RunningRecordService coachingAwareService = new RunningRecordService(repository, coachingPlanProgressPort);
-		when(repository.findOwnerUserId(10L)).thenReturn(7L);
 		when(repository.findPlanIdByRecordIdForUser(7L, 10L)).thenReturn(20L);
 		when(repository.deleteByRecordIdForUser(7L, 10L)).thenReturn(1);
 
@@ -144,7 +142,6 @@ class RunningRecordServiceTest {
 	void deleteByRecordIdForUserDoesNotRestoreCoachingPlanWhenOtherRecordsRemainLinked() {
 		CoachingPlanProgressPort coachingPlanProgressPort = mock(CoachingPlanProgressPort.class);
 		RunningRecordService coachingAwareService = new RunningRecordService(repository, coachingPlanProgressPort);
-		when(repository.findOwnerUserId(10L)).thenReturn(7L);
 		when(repository.findPlanIdByRecordIdForUser(7L, 10L)).thenReturn(20L);
 		when(repository.deleteByRecordIdForUser(7L, 10L)).thenReturn(1);
 		when(repository.hasRecordsForPlanIdForUser(7L, 20L)).thenReturn(true);
@@ -160,28 +157,18 @@ class RunningRecordServiceTest {
 	}
 
 	@Test
-	void deleteByRecordIdForUserReturnsNotFoundWhenRecordDoesNotExist() {
-		when(repository.findOwnerUserId(10L)).thenReturn(null);
+	void deleteByRecordIdForUserReturnsNotFoundWithoutProbingRecordOwner() {
+		when(repository.deleteByRecordIdForUser(7L, 10L)).thenReturn(0);
 
 		DeleteResult result = service.deleteByRecordIdForUser(7L, 10L);
 
 		assertThat(result).isEqualTo(DeleteResult.NOT_FOUND);
-		verify(repository, never()).deleteByRecordIdForUser(7L, 10L);
-	}
-
-	@Test
-	void deleteByRecordIdForUserReturnsForbiddenWhenRecordBelongsToAnotherUser() {
-		when(repository.findOwnerUserId(10L)).thenReturn(8L);
-
-		DeleteResult result = service.deleteByRecordIdForUser(7L, 10L);
-
-		assertThat(result).isEqualTo(DeleteResult.FORBIDDEN);
-		verify(repository, never()).deleteByRecordIdForUser(7L, 10L);
+		verify(repository, never()).findOwnerUserId(10L);
+		verify(repository).deleteByRecordIdForUser(7L, 10L);
 	}
 
 	@Test
 	void deleteByRecordIdForUserReturnsNotFoundWhenDeleteFindsNoRows() {
-		when(repository.findOwnerUserId(10L)).thenReturn(7L);
 		when(repository.deleteByRecordIdForUser(7L, 10L)).thenReturn(0);
 
 		DeleteResult result = service.deleteByRecordIdForUser(7L, 10L);

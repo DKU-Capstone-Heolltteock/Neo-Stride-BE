@@ -146,7 +146,6 @@ public class RunningRecordController {
 	@Operation(summary = "러닝 기록 삭제", description = "인증된 사용자의 러닝 기록을 삭제합니다.")
 	@ApiResponses({
 			@ApiResponse(responseCode = "204", description = "삭제 성공", content = @Content),
-			@ApiResponse(responseCode = "403", description = "타인 기록 접근", content = @Content),
 			@ApiResponse(responseCode = "404", description = "러닝 기록 없음", content = @Content)
 	})
 	@DeleteMapping("/{record_id}")
@@ -158,7 +157,6 @@ public class RunningRecordController {
 		return switch (runningRecordService.deleteByRecordIdForUser(authenticatedUserId, recordId)) {
 			case DELETED -> ResponseEntity.noContent().build();
 			case NOT_FOUND -> ResponseEntity.notFound().build();
-			case FORBIDDEN -> ResponseEntity.status(HttpStatus.FORBIDDEN).build();
 		};
 	}
 }

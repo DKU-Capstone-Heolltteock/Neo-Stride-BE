@@ -21,8 +21,7 @@ public class RunningRecordService {
 
 	public enum DeleteResult {
 		DELETED,
-		NOT_FOUND,
-		FORBIDDEN
+		NOT_FOUND
 	}
 
 	private static final DateTimeFormatter TRACE_TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
@@ -103,13 +102,6 @@ public class RunningRecordService {
 	public DeleteResult deleteByRecordIdForUser(long userId, long recordId) {
 		requirePositiveUserId(userId);
 		requirePositiveRecordId(recordId);
-		Long ownerUserId = runningRecordRepository.findOwnerUserId(recordId);
-		if (ownerUserId == null) {
-			return DeleteResult.NOT_FOUND;
-		}
-		if (ownerUserId.longValue() != userId) {
-			return DeleteResult.FORBIDDEN;
-		}
 		Long planId = runningRecordRepository.findPlanIdByRecordIdForUser(userId, recordId);
 		if (planId != null && coachingPlanProgressPort != null) {
 			coachingPlanProgressPort.lockPlanForRunningRecordDeletion(userId, planId);

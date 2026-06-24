@@ -279,6 +279,18 @@ class CommunityRepositoryTest {
 	}
 
 	@Test
+	void myFeedsHidesRouteMapUrlWhenRouteDetailIsPrivate() throws Exception {
+		when(jdbcTemplate.query(anyString(), any(RowMapper.class), any(Object[].class))).thenAnswer(invocation -> {
+			RowMapper<CommunityContentResponse> mapper = invocation.getArgument(1);
+			return List.of(mapper.mapRow(contentRowWithPrivateRouteMap(), 0));
+		});
+
+		CommunityContentResponse content = repository.myFeeds(1L).getFirst();
+
+		assertThat(content.routeMapUrl()).isNull();
+	}
+
+	@Test
 	void createComment_persistsCommentTextInsteadOfOnlyCountingInteraction() throws Exception {
 		when(jdbcTemplate.queryForObject(anyString(), eq(Integer.class), eq(10L), eq(1L), eq(1L), eq(1L), eq(1L), eq(1L))).thenReturn(1);
 		when(jdbcTemplate.query(anyString(), any(RowMapper.class), eq(99L))).thenReturn(List.of(commentRow(99L, 1L, "좋은 팁입니다")));
@@ -858,6 +870,19 @@ class CommunityRepositoryTest {
 		ResultSet rs = contentRowWithRunningRecord();
 		when(rs.getString("profile_image_url")).thenReturn("/uploads/profile/me.jpg");
 		when(rs.getString("image")).thenReturn("/uploads/feed/body.jpg");
+		return rs;
+	}
+
+	private ResultSet contentRowWithPrivateRouteMap() throws Exception {
+		ResultSet rs = contentRowWithRunningRecord();
+		when(rs.getString("content_text")).thenReturn("""
+				title
+				---NEOSTRIDE-FEED---
+				body
+				---NEOSTRIDE-ROUTE---
+				route.png
+				""");
+		when(rs.getBoolean("include_route_detail")).thenReturn(false);
 		return rs;
 	}
 

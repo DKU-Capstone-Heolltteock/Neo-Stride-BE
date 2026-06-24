@@ -67,6 +67,19 @@ class CommunityCommentActivityRepositoryTest {
 	}
 
 	@Test
+	void myCommentActivities_hidesFeedRouteMapUrlWhenRouteDetailIsPrivate() throws Exception {
+		when(jdbcTemplate.query(anyString(), any(RowMapper.class), any(Object[].class))).thenAnswer(invocation -> {
+			RowMapper<MyCommentActivityResponse> mapper = invocation.getArgument(1);
+			return List.of(mapper.mapRow(privateFeedCommentActivityRow(), 0));
+		});
+
+		MyCommentActivityResponse feed = repository.myCommentActivities(1L, null, null, 21).getFirst();
+
+		assertThat(feed.gpsVisible()).isFalse();
+		assertThat(feed.routeMapUrl()).isNull();
+	}
+
+	@Test
 	void myCommentActivities_omitsCursorPredicateWhenCursorIsAbsentButKeepsLimit() {
 		when(jdbcTemplate.query(anyString(), any(RowMapper.class), any(Object[].class))).thenReturn(List.of());
 
@@ -94,6 +107,12 @@ class CommunityCommentActivityRepositoryTest {
 		when(rs.getBoolean("include_route_detail")).thenReturn(true);
 		when(rs.getInt("tagged_count")).thenReturn(1);
 		when(rs.getBoolean("tagged")).thenReturn(true);
+		return rs;
+	}
+
+	private ResultSet privateFeedCommentActivityRow() throws Exception {
+		ResultSet rs = feedCommentActivityRow();
+		when(rs.getBoolean("include_route_detail")).thenReturn(false);
 		return rs;
 	}
 

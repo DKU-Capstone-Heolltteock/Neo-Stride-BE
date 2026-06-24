@@ -159,7 +159,8 @@ public class StorageService {
 	}
 
 	private static BufferedImage validateDecodableRaster(byte[] bytes, String contentType) {
-		if (!"image/jpeg".equals(contentType) && !"image/png".equals(contentType)) {
+		if (!"image/jpeg".equals(contentType) && !"image/png".equals(contentType)
+				&& !"image/heic".equals(contentType) && !"image/heif".equals(contentType)) {
 			return null;
 		}
 		validateImageDimensions(bytes, contentType);

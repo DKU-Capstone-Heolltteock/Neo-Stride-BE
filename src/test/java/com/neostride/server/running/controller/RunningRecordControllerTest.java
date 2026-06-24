@@ -120,15 +120,6 @@ class RunningRecordControllerTest {
 		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
 	}
 
-	@Test
-	void deleteRecord_returnsForbiddenWhenRecordBelongsToAnotherUser() {
-		authenticate();
-		when(service.deleteByRecordIdForUser(1L, 20L)).thenReturn(DeleteResult.FORBIDDEN);
-
-		var response = controller.deleteRecord(AUTHORIZATION, 20L);
-
-		assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
-	}
 
 	private void authenticate() {
 		when(authenticatedUserService.requireUserId(AUTHORIZATION)).thenReturn(1L);
