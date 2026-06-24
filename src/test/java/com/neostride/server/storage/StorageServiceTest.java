@@ -172,9 +172,9 @@ class StorageServiceTest {
 	}
 
 	@Test
-	void storeImage_rejectsImageAbovePixelLimitBeforeSaving() {
+	void storeImage_rejectsPngDimensionsBeforeDecodingRaster() {
 		StorageService storageService = new StorageService(tempDir, "/uploads");
-		MockMultipartFile file = new MockMultipartFile("images", "huge.png", "image/png", pngHeaderOnly(4_001, 4_001));
+		MockMultipartFile file = new MockMultipartFile("images", "huge.png", "image/png", pngHeaderOnly(9000, 9000));
 
 		assertThatThrownBy(() -> storageService.storeImage(file, "community"))
 				.isInstanceOf(IllegalArgumentException.class)
