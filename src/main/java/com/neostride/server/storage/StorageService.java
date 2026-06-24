@@ -597,13 +597,17 @@ public class StorageService {
 	}
 
 	private static boolean hasIsoBaseMediaBrand(byte[] bytes, Set<String> brands) {
-		if (bytes.length < 12 || bytes[4] != 'f' || bytes[5] != 't' || bytes[6] != 'y' || bytes[7] != 'p') {
+		if (bytes.length < 16 || bytes[4] != 'f' || bytes[5] != 't' || bytes[6] != 'y' || bytes[7] != 'p') {
+			return false;
+		}
+		long boxSize = readUnsignedInt(bytes, 0, false);
+		if (boxSize < 16 || boxSize > bytes.length || boxSize % 4 != 0) {
 			return false;
 		}
 		if (hasBrandAt(bytes, 8, brands)) {
 			return true;
 		}
-		for (int offset = 16; offset + 3 < bytes.length; offset += 4) {
+		for (int offset = 16; offset + 3 < boxSize; offset += 4) {
 			if (hasBrandAt(bytes, offset, brands)) {
 				return true;
 			}
