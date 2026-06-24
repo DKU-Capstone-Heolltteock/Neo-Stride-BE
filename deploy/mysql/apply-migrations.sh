@@ -72,7 +72,7 @@ run_mysql() {
 }
 
 sql_escape() {
-	printf "%s" "$1" | sed "s/'/''/g"
+	printf "%s" "$1" | sed -e 's/\\/\\\\/g' -e "s/'/''/g"
 }
 
 checksum_file() {
