@@ -49,21 +49,16 @@ public class AuthService {
 
 	@Transactional
 	public SignupResponse signup(SignupRequest request, String profilePhotoUrl) {
-		validateSignup(request);
-		String email = normalizeEmail(request.email());
-		String name = request.name().trim();
-		if (userRepository.existsByEmail(email)) {
-			throw DuplicateUserFieldException.email();
-		}
-		if (userRepository.existsByName(name)) {
-			throw DuplicateUserFieldException.name();
-		}
-		if (userRepository.existsByCommunityProfileName(name)) {
-			throw DuplicateUserFieldException.nickname();
-		}
+		ValidatedSignup validatedSignup = validateSignupAvailable(request);
+		String email = validatedSignup.email();
+		String name = validatedSignup.name();
 		String hashedPassword = passwordHashService.hash(request.password());
 		long userId = userRepository.insertUser(email, hashedPassword, name, normalizeOptionalUrl(profilePhotoUrl));
 		return SignupResponse.success(userId, email, name);
+	}
+
+	public void validateSignupRequestAvailable(SignupRequest request) {
+		validateSignupAvailable(request);
 	}
 
 	@Transactional
@@ -127,6 +122,22 @@ public class AuthService {
 		refreshTokenRepository.save(userId, claims.tokenId(), claims.expiresAt());
 	}
 
+	private ValidatedSignup validateSignupAvailable(SignupRequest request) {
+		validateSignup(request);
+		String email = normalizeEmail(request.email());
+		String name = request.name().trim();
+		if (userRepository.existsByEmail(email)) {
+			throw DuplicateUserFieldException.email();
+		}
+		if (userRepository.existsByName(name)) {
+			throw DuplicateUserFieldException.name();
+		}
+		if (userRepository.existsByCommunityProfileName(name)) {
+			throw DuplicateUserFieldException.nickname();
+		}
+		return new ValidatedSignup(email, name);
+	}
+
 	private void validateSignup(SignupRequest request) {
 		if (request == null) {
 			throw new IllegalArgumentException("요청 본문이 필요합니다.");
@@ -167,5 +178,8 @@ public class AuthService {
 
 	private String normalizeOptionalUrl(String value) {
 		return value == null || value.isBlank() ? null : value.trim();
+	}
+
+	private record ValidatedSignup(String email, String name) {
 	}
 }

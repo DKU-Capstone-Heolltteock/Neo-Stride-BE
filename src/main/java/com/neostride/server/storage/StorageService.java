@@ -125,6 +125,39 @@ public class StorageService {
 		return publicPrefix + "/" + safeDirectory + "/" + filename;
 	}
 
+	public void deleteStoredImage(String publicUrl) {
+		if (publicUrl == null || publicUrl.isBlank()) {
+			return;
+		}
+		String normalizedUrl = publicUrl.trim();
+		String expectedPrefix = publicPrefix + "/";
+		if (!normalizedUrl.startsWith(expectedPrefix)) {
+			return;
+		}
+		Path target = baseDir.resolve(normalizedUrl.substring(expectedPrefix.length())).normalize();
+		if (!target.startsWith(baseDir)) {
+			return;
+		}
+		try {
+			Files.deleteIfExists(target);
+			deleteThumbnailIfExists(target);
+		} catch (IOException exception) {
+			log.warn("Failed to delete stored image {}", publicUrl, exception);
+		}
+	}
+
+	private static void deleteThumbnailIfExists(Path target) throws IOException {
+		Path filename = target.getFileName();
+		Path parent = target.getParent();
+		if (filename == null || parent == null) {
+			return;
+		}
+		Path thumbnailDirectory = parent.resolve(THUMBNAIL_DIRECTORY);
+		String filenameText = filename.toString();
+		Files.deleteIfExists(thumbnailDirectory.resolve(thumbnailFilename(filenameText)));
+		Files.deleteIfExists(thumbnailDirectory.resolve(thumbnailWebpFilename(filenameText)));
+	}
+
 	private static BufferedImage validateDecodableRaster(byte[] bytes, String contentType) {
 		if (!"image/jpeg".equals(contentType) && !"image/png".equals(contentType)) {
 			return null;
@@ -375,17 +408,34 @@ public class StorageService {
 	private static void writeThumbnailIfPossible(Path source) {
 		String filename = source.getFileName().toString();
 		try {
+			if (Files.notExists(source)) {
+				return;
+			}
 			validateImageDimensions(source);
+			if (Files.notExists(source)) {
+				return;
+			}
 			BufferedImage image = ImageIO.read(source.toFile());
 			if (image == null) {
 				throw new IOException("Image file is not decodable");
 			}
 			validatePixelCount(image.getWidth(), image.getHeight());
+			BufferedImage thumbnail = resize(image, THUMBNAIL_MAX_DIMENSION);
+			if (Files.notExists(source)) {
+				return;
+			}
 			Path thumbnailDirectory = source.getParent().resolve(THUMBNAIL_DIRECTORY);
 			Files.createDirectories(thumbnailDirectory);
 			Path jpegThumbnail = thumbnailDirectory.resolve(thumbnailFilename(filename));
-			writeJpeg(resize(image, THUMBNAIL_MAX_DIMENSION), jpegThumbnail);
+			writeJpeg(thumbnail, jpegThumbnail);
+			if (Files.notExists(source)) {
+				deleteThumbnailIfExists(source);
+				return;
+			}
 			writeWebpIfAvailable(jpegThumbnail, thumbnailDirectory.resolve(thumbnailWebpFilename(filename)));
+			if (Files.notExists(source)) {
+				deleteThumbnailIfExists(source);
+			}
 		} catch (IOException | RuntimeException exception) {
 			log.warn("Failed to create image thumbnail for {}", filename, exception);
 		}
