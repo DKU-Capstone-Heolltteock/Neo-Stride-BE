@@ -146,6 +146,16 @@ class StorageServiceTest {
 	}
 
 	@Test
+	void storeImage_rejectsImageDimensionsThatWouldExhaustProcessing() {
+		StorageService storageService = new StorageService(tempDir, "/uploads");
+		MockMultipartFile file = new MockMultipartFile("image", "huge.png", "image/png", pngHeaderOnly(25_001, 1_000));
+
+		assertThatThrownBy(() -> storageService.storeImage(file, "profile"))
+				.isInstanceOf(IllegalArgumentException.class)
+				.hasMessageContaining("이미지 크기");
+	}
+
+	@Test
 	void storeImage_rejectsPngThatHasOnlyHeaderChunks() {
 		StorageService storageService = new StorageService(tempDir, "/uploads");
 		byte[] truncatedPng = new byte[] {

@@ -9,6 +9,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Iterator;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
@@ -162,7 +163,9 @@ public class StorageService {
 		if (imageInput == null) {
 			throw new IllegalArgumentException("이미지 파일을 읽을 수 없습니다.");
 		}
-		var readers = contentType == null ? ImageIO.getImageReaders(imageInput) : ImageIO.getImageReadersByMIMEType(contentType);
+		Iterator<ImageReader> readers = contentType == null
+				? ImageIO.getImageReaders(imageInput)
+				: ImageIO.getImageReadersByMIMEType(contentType);
 		if (!readers.hasNext()) {
 			throw new IllegalArgumentException("이미지 파일을 읽을 수 없습니다.");
 		}
@@ -170,6 +173,8 @@ public class StorageService {
 		try {
 			reader.setInput(imageInput, true, true);
 			validatePixelCount(reader.getWidth(0), reader.getHeight(0));
+		} catch (IndexOutOfBoundsException exception) {
+			throw new IllegalArgumentException("이미지 파일을 읽을 수 없습니다.", exception);
 		} finally {
 			reader.dispose();
 		}
