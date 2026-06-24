@@ -99,7 +99,11 @@ final class CommunityTipRepository {
 			String[] parts = CommunityContentCodec.decodeTipContent(rs);
 			String badge = rs.getString("badge");
 			long contentId = rs.getLong("content_id");
-			return new TipDetailResponse(contentId, rs.getLong("author_user_id"), rs.getString("nickname"), rs.getString("profile_image_url"), badgeOwned(badge), badge, fromTipType(rs.getString("tip_type")), parts[0], parts[1], rs.getBoolean("include_route_detail"), parts[2], parts[3], CommunityContentCodec.decodeImages(CommunityContentCodec.imageUrls(rs)), rs.getInt("like_count"), rs.getInt("comment_count"), rs.getBoolean("liked"), rs.getBoolean("bookmarked"), rs.getLong("author_user_id") == userId, rs.getTimestamp("created_at").toLocalDateTime().format(ISO), interactionRepository.commentsForContent(userId, contentId, null, null, normalizedLimit(commentLimit)));
+			long authorUserId = rs.getLong("author_user_id");
+			boolean mine = authorUserId == userId;
+			boolean includeRouteDetail = rs.getBoolean("include_route_detail");
+			boolean showRouteDetail = includeRouteDetail || mine;
+			return new TipDetailResponse(contentId, authorUserId, rs.getString("nickname"), rs.getString("profile_image_url"), badgeOwned(badge), badge, fromTipType(rs.getString("tip_type")), parts[0], parts[1], includeRouteDetail, showRouteDetail ? parts[2] : null, showRouteDetail ? parts[3] : null, CommunityContentCodec.decodeImages(CommunityContentCodec.imageUrls(rs)), rs.getInt("like_count"), rs.getInt("comment_count"), rs.getBoolean("liked"), rs.getBoolean("bookmarked"), mine, rs.getTimestamp("created_at").toLocalDateTime().format(ISO), interactionRepository.commentsForContent(userId, contentId, null, null, normalizedLimit(commentLimit)));
 		}, userId, userId, tipId).stream().findFirst().orElse(null);
 	}
 
