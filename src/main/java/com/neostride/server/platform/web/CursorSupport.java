@@ -68,6 +68,16 @@ public final class CursorSupport {
 		return cappedLimit(limit) + 1;
 	}
 
+	public static int cappedFetchLimit(int limit) {
+		if (limit <= 0) {
+			return DEFAULT_LIMIT;
+		}
+		if (limit == MAX_LIMIT + 1) {
+			return limit;
+		}
+		return cappedLimit(limit);
+	}
+
 	public static <T> CursorPage<T> page(List<T> rows, int limit, Function<T, LocalDateTime> createdAt, ToLongFunction<T> id) {
 		int cappedLimit = cappedLimit(limit);
 		boolean hasMore = rows.size() > cappedLimit;

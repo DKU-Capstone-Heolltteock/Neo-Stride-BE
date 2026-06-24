@@ -38,6 +38,20 @@ class AuditLogRepositoryTest {
 	}
 
 	@Test
+	void searchPreservesMaxFetchLimitForCursorPagination() {
+		JdbcTemplate jdbcTemplate = mock(JdbcTemplate.class);
+		when(jdbcTemplate.query(anyString(), any(RowMapper.class), any(Object[].class))).thenReturn(List.of());
+		AuditLogRepository repository = new AuditLogRepository(jdbcTemplate);
+
+		repository.search(null, null, null, null, null, null, null, 201);
+
+		ArgumentCaptor<Object[]> argsCaptor = ArgumentCaptor.forClass(Object[].class);
+		verify(jdbcTemplate).query(anyString(), any(RowMapper.class), argsCaptor.capture());
+
+		assertThat(argsCaptor.getValue()).containsExactly(201);
+	}
+
+	@Test
 	void findQueriesByPrimaryKey() {
 		JdbcTemplate jdbcTemplate = mock(JdbcTemplate.class);
 		when(jdbcTemplate.query(anyString(), any(RowMapper.class), eq(10L))).thenReturn(List.<AuditLogResponse>of());
