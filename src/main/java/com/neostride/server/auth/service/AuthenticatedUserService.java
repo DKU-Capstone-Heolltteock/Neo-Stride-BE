@@ -2,6 +2,8 @@ package com.neostride.server.auth.service;
 
 import com.neostride.server.auth.exception.AuthenticationRequiredException;
 import com.neostride.server.auth.exception.ForbiddenException;
+import com.neostride.server.auth.repository.UserRepository;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 @Component
@@ -10,9 +12,16 @@ public class AuthenticatedUserService {
 	private static final String BEARER_PREFIX = "Bearer ";
 
 	private final JwtTokenService jwtTokenService;
+	private final UserRepository userRepository;
 
-	public AuthenticatedUserService(JwtTokenService jwtTokenService) {
+	@Autowired
+	public AuthenticatedUserService(JwtTokenService jwtTokenService, UserRepository userRepository) {
 		this.jwtTokenService = jwtTokenService;
+		this.userRepository = userRepository;
+	}
+
+	AuthenticatedUserService(JwtTokenService jwtTokenService) {
+		this(jwtTokenService, null);
 	}
 
 	public long requireUserId(String authorizationHeader) {
@@ -25,6 +34,9 @@ public class AuthenticatedUserService {
 		}
 		if (!"access".equals(claims.type())) {
 			throw new AuthenticationRequiredException("access token이 필요합니다.");
+		}
+		if (userRepository != null && !userRepository.existsActiveById(claims.userId())) {
+			throw new AuthenticationRequiredException("유효한 access token이 필요합니다.");
 		}
 		return claims.userId();
 	}

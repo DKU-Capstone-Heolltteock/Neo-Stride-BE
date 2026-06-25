@@ -738,6 +738,9 @@ CREATE TABLE `users` (
   `suspended_until` datetime DEFAULT NULL,
   `suspended_reason` varchar(1000) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `suspended_by_operator_id` bigint DEFAULT NULL,
+  `deleted_at` datetime DEFAULT NULL,
+  `deleted_reason` varchar(1000) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `deleted_by_operator_id` bigint DEFAULT NULL,
   `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`user_id`),
@@ -748,6 +751,9 @@ CREATE TABLE `users` (
   KEY `idx_users_account_status_created` (`account_status`,`created_at`),
   KEY `idx_users_created_cursor` (`created_at` DESC,`user_id` DESC),
   KEY `idx_users_suspended_by_operator` (`suspended_by_operator_id`),
+  KEY `idx_users_deleted_at` (`deleted_at`),
+  KEY `idx_users_deleted_by_operator` (`deleted_by_operator_id`),
+  CONSTRAINT `fk_users_deleted_by_operator` FOREIGN KEY (`deleted_by_operator_id`) REFERENCES `operator_accounts` (`operator_account_id`) ON DELETE SET NULL,
   CONSTRAINT `fk_users_suspended_by_operator` FOREIGN KEY (`suspended_by_operator_id`) REFERENCES `operator_accounts` (`operator_account_id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;

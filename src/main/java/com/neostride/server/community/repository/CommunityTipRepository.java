@@ -85,8 +85,8 @@ final class CommunityTipRepository {
 
 	TipDetailResponse findTipDetail(long userId, long tipId, Integer commentLimit) {
 		return jdbcTemplate.query("""
-			SELECT cc.content_id, cc.author_user_id, COALESCE(cu.community_profile_name, u.community_profile_name, u.name) AS nickname,
-			       COALESCE(cu.profile_photo, u.profile_photo) AS profile_image_url, COALESCE(cu.badge, 'NONE') AS badge,
+			SELECT cc.content_id, cc.author_user_id, CASE WHEN u.deleted_at IS NULL THEN COALESCE(cu.community_profile_name, u.community_profile_name, u.name) ELSE '탈퇴한 사용자' END AS nickname,
+			       CASE WHEN u.deleted_at IS NULL THEN COALESCE(cu.profile_photo, u.profile_photo) ELSE NULL END AS profile_image_url, CASE WHEN u.deleted_at IS NULL THEN COALESCE(cu.badge, 'NONE') ELSE 'NONE' END AS badge,
 			       cc.tip_type, cc.content_text, cc.title, cc.body_text, cc.route_map_image_url, cc.course_address, cc.distance_km, cc.running_time_text, cc.pace_text, cc.include_route_detail, COALESCE((SELECT GROUP_CONCAT(cci.image_url ORDER BY cci.image_order SEPARATOR '\n---NEOSTRIDE-IMAGE---\n') FROM community_content_images cci WHERE cci.content_id = cc.content_id), cc.image) AS image_urls, cc.created_at,
 			       COALESCE(stats.like_count, 0) AS like_count,
 			       COALESCE(stats.comment_count, 0) AS comment_count,
@@ -116,8 +116,8 @@ final class CommunityTipRepository {
 
 	private List<TipUploadResponse> tipQuery(String predicate, Object... args) {
 		return jdbcTemplate.query("""
-			SELECT cc.content_id, cc.author_user_id, COALESCE(cu.community_profile_name, u.community_profile_name, u.name) AS nickname,
-			       COALESCE(cu.profile_photo, u.profile_photo) AS profile_image_url, COALESCE(cu.badge, 'NONE') AS badge,
+			SELECT cc.content_id, cc.author_user_id, CASE WHEN u.deleted_at IS NULL THEN COALESCE(cu.community_profile_name, u.community_profile_name, u.name) ELSE '탈퇴한 사용자' END AS nickname,
+			       CASE WHEN u.deleted_at IS NULL THEN COALESCE(cu.profile_photo, u.profile_photo) ELSE NULL END AS profile_image_url, CASE WHEN u.deleted_at IS NULL THEN COALESCE(cu.badge, 'NONE') ELSE 'NONE' END AS badge,
 			       cc.tip_type, cc.content_text, cc.title, cc.body_text, cc.route_map_image_url, cc.course_address, cc.distance_km, cc.running_time_text, cc.pace_text, cc.include_route_detail, COALESCE((SELECT GROUP_CONCAT(cci.image_url ORDER BY cci.image_order SEPARATOR '\n---NEOSTRIDE-IMAGE---\n') FROM community_content_images cci WHERE cci.content_id = cc.content_id), cc.image) AS image_urls, cc.created_at,
 			       COALESCE(stats.like_count, 0) AS like_count,
 			       COALESCE(stats.comment_count, 0) AS comment_count,
@@ -130,8 +130,8 @@ final class CommunityTipRepository {
 
 	private List<TipUploadResponse> tipQueryForViewer(String predicate, Object... args) {
 		return jdbcTemplate.query("""
-			SELECT cc.content_id, cc.author_user_id, COALESCE(cu.community_profile_name, u.community_profile_name, u.name) AS nickname,
-			       COALESCE(cu.profile_photo, u.profile_photo) AS profile_image_url, COALESCE(cu.badge, 'NONE') AS badge,
+			SELECT cc.content_id, cc.author_user_id, CASE WHEN u.deleted_at IS NULL THEN COALESCE(cu.community_profile_name, u.community_profile_name, u.name) ELSE '탈퇴한 사용자' END AS nickname,
+			       CASE WHEN u.deleted_at IS NULL THEN COALESCE(cu.profile_photo, u.profile_photo) ELSE NULL END AS profile_image_url, CASE WHEN u.deleted_at IS NULL THEN COALESCE(cu.badge, 'NONE') ELSE 'NONE' END AS badge,
 			       cc.tip_type, cc.content_text, cc.title, cc.body_text, cc.route_map_image_url, cc.course_address, cc.distance_km, cc.running_time_text, cc.pace_text, cc.include_route_detail, COALESCE((SELECT GROUP_CONCAT(cci.image_url ORDER BY cci.image_order SEPARATOR '\n---NEOSTRIDE-IMAGE---\n') FROM community_content_images cci WHERE cci.content_id = cc.content_id), cc.image) AS image_urls, cc.created_at,
 			       COALESCE(stats.like_count, 0) AS like_count,
 			       COALESCE(stats.comment_count, 0) AS comment_count,

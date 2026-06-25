@@ -49,10 +49,10 @@ public class SuspendedAccountAccessFilter extends OncePerRequestFilter {
 			JwtTokenService.TokenClaims claims = jwtTokenService.verify(authorization.substring(BEARER_PREFIX.length()).trim());
 			if ("access".equals(claims.type())) {
 				var account = userAdministrationPort.findAccount(claims.userId());
-				if (account.isPresent() && isActiveSuspension(account.get())) {
+				if (account.isPresent() && isBlockedAccount(account.get())) {
 					response.setStatus(HttpStatus.FORBIDDEN.value());
 					response.setContentType("application/json;charset=UTF-8");
-					response.getWriter().write("{\"status\":\"error\",\"message\":\"정지된 계정입니다.\"}");
+					response.getWriter().write("{\"status\":\"error\",\"message\":\"접근할 수 없는 계정입니다.\"}");
 					return;
 				}
 			}
@@ -61,7 +61,10 @@ public class SuspendedAccountAccessFilter extends OncePerRequestFilter {
 		filterChain.doFilter(request, response);
 	}
 
-	private boolean isActiveSuspension(AdminUserAccount account) {
+	private boolean isBlockedAccount(AdminUserAccount account) {
+		if ("DELETED".equals(account.status())) {
+			return true;
+		}
 		if (!"SUSPENDED".equals(account.status())) {
 			return false;
 		}

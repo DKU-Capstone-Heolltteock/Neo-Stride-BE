@@ -92,10 +92,10 @@ final class CommunitySearchRepository {
 	}
 
 	List<SearchUserResponse> searchProfiles(Long viewerUserId, String keyword, int page, int size) {
-		String predicate = "1=1";
+		String predicate = "u.deleted_at IS NULL";
 		java.util.List<Object> args = new java.util.ArrayList<>();
 		if (!blank(keyword)) {
-			predicate = "(MATCH(u.name, u.community_profile_name) AGAINST (? IN NATURAL LANGUAGE MODE) OR MATCH(cu.community_profile_name, cu.status_message) AGAINST (? IN NATURAL LANGUAGE MODE))";
+			predicate += " AND (MATCH(u.name, u.community_profile_name) AGAINST (? IN NATURAL LANGUAGE MODE) OR MATCH(cu.community_profile_name, cu.status_message) AGAINST (? IN NATURAL LANGUAGE MODE))";
 			args.add(searchTerm(keyword));
 			args.add(searchTerm(keyword));
 		}
@@ -111,7 +111,7 @@ final class CommunitySearchRepository {
 	}
 
 	List<SearchUserResponse> searchFriends(long userId, String keyword) {
-		String predicate = "EXISTS (SELECT 1 FROM relationships r WHERE (r.user1_id = ? AND r.user2_id = u.user_id OR r.user2_id = ? AND r.user1_id = u.user_id) AND r.status = 'ACCEPTED')";
+		String predicate = "u.deleted_at IS NULL AND EXISTS (SELECT 1 FROM relationships r WHERE (r.user1_id = ? AND r.user2_id = u.user_id OR r.user2_id = ? AND r.user1_id = u.user_id) AND r.status = 'ACCEPTED')";
 		List<Object> args = new java.util.ArrayList<>(List.of(userId, userId));
 		if (!blank(keyword)) {
 			predicate += " AND (MATCH(u.name, u.community_profile_name) AGAINST (? IN NATURAL LANGUAGE MODE) OR MATCH(cu.community_profile_name, cu.status_message) AGAINST (? IN NATURAL LANGUAGE MODE))";
@@ -129,9 +129,9 @@ final class CommunitySearchRepository {
 
 	List<SearchUserResponse> getTopProfiles(Long viewerUserId, int page, int size) {
 		if (viewerUserId == null) {
-			return userSearchQuery("1=1", PROFILE_ORDER, pageArgs(page, size));
+			return userSearchQuery("u.deleted_at IS NULL", PROFILE_ORDER, pageArgs(page, size));
 		}
-		return userSearchQueryForViewer("1=1 AND " + blockedUserPredicate(), PROFILE_ORDER, new Object[]{viewerUserId, viewerUserId, size, offset(page, size)}, viewerUserId);
+		return userSearchQueryForViewer("u.deleted_at IS NULL AND " + blockedUserPredicate(), PROFILE_ORDER, new Object[]{viewerUserId, viewerUserId, size, offset(page, size)}, viewerUserId);
 	}
 
 	List<SearchUserResponse> getMyFriends(long userId) {
@@ -140,9 +140,9 @@ final class CommunitySearchRepository {
 
 	private List<FeedUploadResponse> feedQueryPaged(String predicate, Object[] args) {
 		return jdbcTemplate.query("""
-			SELECT cc.content_id, cc.author_user_id, FALSE AS mine, COALESCE(cu.profile_photo, u.profile_photo) AS profile_image_url,
-			       COALESCE(cu.community_profile_name, u.community_profile_name, u.name) AS nickname,
-			       COALESCE(cu.badge, 'NONE') AS badge, cc.created_at,
+			SELECT cc.content_id, cc.author_user_id, FALSE AS mine, CASE WHEN u.deleted_at IS NULL THEN COALESCE(cu.profile_photo, u.profile_photo) ELSE NULL END AS profile_image_url,
+			       CASE WHEN u.deleted_at IS NULL THEN COALESCE(cu.community_profile_name, u.community_profile_name, u.name) ELSE '탈퇴한 사용자' END AS nickname,
+			       CASE WHEN u.deleted_at IS NULL THEN COALESCE(cu.badge, 'NONE') ELSE 'NONE' END AS badge, cc.created_at,
 			       cc.content_text, cc.title, cc.body_text, cc.route_map_image_url, cc.course_address, cc.distance_km, cc.running_time_text, cc.pace_text, cc.include_route_detail, COALESCE((SELECT GROUP_CONCAT(cci.image_url ORDER BY cci.image_order SEPARATOR '\n---NEOSTRIDE-IMAGE---\n') FROM community_content_images cci WHERE cci.content_id = cc.content_id), cc.image) AS image_urls,
 			       rr.run_record_id AS joined_running_record_id, COALESCE(rr.total_distance, 0) AS total_distance, rr.duration, rr.pace,
 			       COALESCE(stats.tagged_count, 0) AS tagged_count,
@@ -160,8 +160,8 @@ final class CommunitySearchRepository {
 
 	private List<TipUploadResponse> tipQueryPaged(String predicate, Object[] args) {
 		return jdbcTemplate.query("""
-			SELECT cc.content_id, cc.author_user_id, COALESCE(cu.community_profile_name, u.community_profile_name, u.name) AS nickname,
-			       COALESCE(cu.profile_photo, u.profile_photo) AS profile_image_url, COALESCE(cu.badge, 'NONE') AS badge,
+			SELECT cc.content_id, cc.author_user_id, CASE WHEN u.deleted_at IS NULL THEN COALESCE(cu.community_profile_name, u.community_profile_name, u.name) ELSE '탈퇴한 사용자' END AS nickname,
+			       CASE WHEN u.deleted_at IS NULL THEN COALESCE(cu.profile_photo, u.profile_photo) ELSE NULL END AS profile_image_url, CASE WHEN u.deleted_at IS NULL THEN COALESCE(cu.badge, 'NONE') ELSE 'NONE' END AS badge,
 			       cc.tip_type, cc.content_text, cc.title, cc.body_text, cc.route_map_image_url, cc.course_address, cc.distance_km, cc.running_time_text, cc.pace_text, cc.include_route_detail, COALESCE((SELECT GROUP_CONCAT(cci.image_url ORDER BY cci.image_order SEPARATOR '\n---NEOSTRIDE-IMAGE---\n') FROM community_content_images cci WHERE cci.content_id = cc.content_id), cc.image) AS image_urls, cc.created_at,
 			       COALESCE(stats.like_count, 0) AS like_count,
 			       COALESCE(stats.comment_count, 0) AS comment_count,
@@ -174,9 +174,9 @@ final class CommunitySearchRepository {
 
 	private List<FeedUploadResponse> feedQueryPagedForViewer(String predicate, Object[] args) {
 		return jdbcTemplate.query("""
-			SELECT cc.content_id, cc.author_user_id, (cc.author_user_id = ?) AS mine, COALESCE(cu.profile_photo, u.profile_photo) AS profile_image_url,
-			       COALESCE(cu.community_profile_name, u.community_profile_name, u.name) AS nickname,
-			       COALESCE(cu.badge, 'NONE') AS badge, cc.created_at,
+			SELECT cc.content_id, cc.author_user_id, (cc.author_user_id = ?) AS mine, CASE WHEN u.deleted_at IS NULL THEN COALESCE(cu.profile_photo, u.profile_photo) ELSE NULL END AS profile_image_url,
+			       CASE WHEN u.deleted_at IS NULL THEN COALESCE(cu.community_profile_name, u.community_profile_name, u.name) ELSE '탈퇴한 사용자' END AS nickname,
+			       CASE WHEN u.deleted_at IS NULL THEN COALESCE(cu.badge, 'NONE') ELSE 'NONE' END AS badge, cc.created_at,
 			       cc.content_text, cc.title, cc.body_text, cc.route_map_image_url, cc.course_address, cc.distance_km, cc.running_time_text, cc.pace_text, cc.include_route_detail, COALESCE((SELECT GROUP_CONCAT(cci.image_url ORDER BY cci.image_order SEPARATOR '\n---NEOSTRIDE-IMAGE---\n') FROM community_content_images cci WHERE cci.content_id = cc.content_id), cc.image) AS image_urls,
 			       rr.run_record_id AS joined_running_record_id, COALESCE(rr.total_distance, 0) AS total_distance, rr.duration, rr.pace,
 			       COALESCE(stats.tagged_count, 0) AS tagged_count,
@@ -197,8 +197,8 @@ final class CommunitySearchRepository {
 
 	private List<TipUploadResponse> tipQueryPagedForViewer(String predicate, Object[] args) {
 		return jdbcTemplate.query("""
-			SELECT cc.content_id, cc.author_user_id, COALESCE(cu.community_profile_name, u.community_profile_name, u.name) AS nickname,
-			       COALESCE(cu.profile_photo, u.profile_photo) AS profile_image_url, COALESCE(cu.badge, 'NONE') AS badge,
+			SELECT cc.content_id, cc.author_user_id, CASE WHEN u.deleted_at IS NULL THEN COALESCE(cu.community_profile_name, u.community_profile_name, u.name) ELSE '탈퇴한 사용자' END AS nickname,
+			       CASE WHEN u.deleted_at IS NULL THEN COALESCE(cu.profile_photo, u.profile_photo) ELSE NULL END AS profile_image_url, CASE WHEN u.deleted_at IS NULL THEN COALESCE(cu.badge, 'NONE') ELSE 'NONE' END AS badge,
 			       cc.tip_type, cc.content_text, cc.title, cc.body_text, cc.route_map_image_url, cc.course_address, cc.distance_km, cc.running_time_text, cc.pace_text, cc.include_route_detail, COALESCE((SELECT GROUP_CONCAT(cci.image_url ORDER BY cci.image_order SEPARATOR '\n---NEOSTRIDE-IMAGE---\n') FROM community_content_images cci WHERE cci.content_id = cc.content_id), cc.image) AS image_urls, cc.created_at,
 			       COALESCE(stats.like_count, 0) AS like_count,
 			       COALESCE(stats.comment_count, 0) AS comment_count,
@@ -238,10 +238,10 @@ final class CommunitySearchRepository {
 	private List<SearchUserResponse> userSearchQueryForViewer(String predicate, String orderBy, Object[] args, long viewerUserId) {
 		Object[] queryArgs = prependArgs(args, viewerUserId, viewerUserId, viewerUserId, viewerUserId, viewerUserId);
 		return jdbcTemplate.query("""
-			SELECT u.user_id, COALESCE(cu.community_profile_name, u.community_profile_name, u.name) AS nickname,
-			       COALESCE(cu.profile_photo, u.profile_photo) AS profile_image_url,
+			SELECT u.user_id, CASE WHEN u.deleted_at IS NULL THEN COALESCE(cu.community_profile_name, u.community_profile_name, u.name) ELSE '탈퇴한 사용자' END AS nickname,
+			       CASE WHEN u.deleted_at IS NULL THEN COALESCE(cu.profile_photo, u.profile_photo) ELSE NULL END AS profile_image_url,
 			       cu.status_message,
-			       COALESCE(cu.badge, 'NONE') AS badge_tier,
+			       CASE WHEN u.deleted_at IS NULL THEN COALESCE(cu.badge, 'NONE') ELSE 'NONE' END AS badge_tier,
 			       %s AS badge_rank,
 			       (SELECT COUNT(*) FROM relationships rf WHERE (rf.user1_id = u.user_id OR rf.user2_id = u.user_id) AND rf.status='ACCEPTED') AS friend_count,
 			       CASE
@@ -258,10 +258,10 @@ final class CommunitySearchRepository {
 
 	private List<SearchUserResponse> userSearchQuery(String predicate, String orderBy, Object[] args, String status) {
 		return jdbcTemplate.query("""
-			SELECT u.user_id, COALESCE(cu.community_profile_name, u.community_profile_name, u.name) AS nickname,
-			       COALESCE(cu.profile_photo, u.profile_photo) AS profile_image_url,
+			SELECT u.user_id, CASE WHEN u.deleted_at IS NULL THEN COALESCE(cu.community_profile_name, u.community_profile_name, u.name) ELSE '탈퇴한 사용자' END AS nickname,
+			       CASE WHEN u.deleted_at IS NULL THEN COALESCE(cu.profile_photo, u.profile_photo) ELSE NULL END AS profile_image_url,
 			       cu.status_message,
-			       COALESCE(cu.badge, 'NONE') AS badge_tier,
+			       CASE WHEN u.deleted_at IS NULL THEN COALESCE(cu.badge, 'NONE') ELSE 'NONE' END AS badge_tier,
 			       %s AS badge_rank,
 			       (SELECT COUNT(*) FROM relationships rf WHERE (rf.user1_id = u.user_id OR rf.user2_id = u.user_id) AND rf.status='ACCEPTED') AS friend_count
 			FROM users u LEFT JOIN community_users cu ON cu.user_id = u.user_id

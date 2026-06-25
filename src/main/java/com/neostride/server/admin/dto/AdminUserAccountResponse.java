@@ -23,6 +23,8 @@ public record AdminUserAccountResponse(
 		LocalDateTime suspendedUntil,
 		@JsonProperty("suspended_reason")
 		String suspendedReason,
+		@JsonProperty("deleted_at")
+		LocalDateTime deletedAt,
 		@JsonProperty("created_at")
 		LocalDateTime createdAt,
 		@JsonProperty("updated_at")
@@ -39,6 +41,7 @@ public record AdminUserAccountResponse(
 				account.suspendedAt(),
 				account.suspendedUntil(),
 				account.suspendedReason(),
+				account.deletedAt(),
 				account.createdAt(),
 				account.updatedAt()
 		);

@@ -2,10 +2,13 @@ package com.neostride.server.auth.service;
 
 import com.neostride.server.auth.exception.AuthenticationRequiredException;
 import com.neostride.server.auth.exception.ForbiddenException;
+import com.neostride.server.auth.repository.UserRepository;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 class AuthenticatedUserServiceTest {
 
@@ -30,6 +33,17 @@ class AuthenticatedUserServiceTest {
 		String token = jwtTokenService.generateRefreshToken(7L, "runner@example.com", "runner");
 
 		assertThatThrownBy(() -> authenticatedUserService.requireUserId("Bearer " + token))
+				.isInstanceOf(AuthenticationRequiredException.class);
+	}
+
+	@Test
+	void requireUserId_rejectsDeletedUserAccessToken() {
+		UserRepository userRepository = mock(UserRepository.class);
+		AuthenticatedUserService service = new AuthenticatedUserService(jwtTokenService, userRepository);
+		String token = jwtTokenService.generateAccessToken(7L, "runner@example.com", "runner");
+		when(userRepository.existsActiveById(7L)).thenReturn(false);
+
+		assertThatThrownBy(() -> service.requireUserId("Bearer " + token))
 				.isInstanceOf(AuthenticationRequiredException.class);
 	}
 

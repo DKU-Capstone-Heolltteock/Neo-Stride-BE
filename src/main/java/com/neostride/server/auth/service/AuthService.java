@@ -90,6 +90,7 @@ public class AuthService {
 		if (!"refresh".equals(claims.type())) {
 			throw new InvalidCredentialsException(INVALID_REFRESH_TOKEN_MESSAGE);
 		}
+		ensureActiveUser(claims.userId());
 		if (refreshTokenRepository == null) {
 			String accessToken = jwtTokenService.generateAccessToken(claims.userId(), claims.email(), claims.name());
 			String nextRefreshToken = jwtTokenService.generateRefreshToken(claims.userId(), claims.email(), claims.name());
@@ -120,6 +121,12 @@ public class AuthService {
 			throw new InvalidCredentialsException(INVALID_REFRESH_TOKEN_MESSAGE);
 		}
 		refreshTokenRepository.save(userId, claims.tokenId(), claims.expiresAt());
+	}
+
+	private void ensureActiveUser(long userId) {
+		if (!userRepository.existsActiveById(userId)) {
+			throw new InvalidCredentialsException(INVALID_REFRESH_TOKEN_MESSAGE);
+		}
 	}
 
 	private ValidatedSignup validateSignupAvailable(SignupRequest request) {

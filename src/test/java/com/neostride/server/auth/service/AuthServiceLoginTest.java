@@ -86,6 +86,7 @@ class AuthServiceLoginTest {
 	@Test
 	void refresh_withValidRefreshToken_issuesNewTokens() {
 		when(jwtTokenService.verify("refresh-token")).thenReturn(new JwtTokenService.TokenClaims(1L, "runner@example.com", "홍길동", "refresh", 0L));
+		when(userRepository.existsActiveById(1L)).thenReturn(true);
 		when(jwtTokenService.generateAccessToken(1L, "runner@example.com", "홍길동")).thenReturn("new-access-token");
 		when(jwtTokenService.generateRefreshToken(1L, "runner@example.com", "홍길동")).thenReturn("new-refresh-token");
 
@@ -106,6 +107,7 @@ class AuthServiceLoginTest {
 		AtomicBoolean activeToken = new AtomicBoolean(true);
 
 		when(jwtTokenService.verify("refresh-token")).thenReturn(new JwtTokenService.TokenClaims(1L, "runner@example.com", "홍길동", "refresh", "old-id", 123L));
+		when(userRepository.existsActiveById(1L)).thenReturn(true);
 		when(refreshTokenRepository.revokeIfActive(1L, "old-id")).thenAnswer(invocation -> {
 			revokeAttemptsReady.countDown();
 			assertThat(releaseRevokeAttempts.await(2, TimeUnit.SECONDS)).isTrue();
@@ -144,6 +146,7 @@ class AuthServiceLoginTest {
 		AuthService service = new AuthService(userRepository, passwordHashService, jwtTokenService, refreshTokenRepository);
 
 		when(jwtTokenService.verify("refresh-token")).thenReturn(new JwtTokenService.TokenClaims(1L, "runner@example.com", "홍길동", "refresh", "old-id", 123L));
+		when(userRepository.existsActiveById(1L)).thenReturn(true);
 		when(refreshTokenRepository.revokeIfActive(1L, "old-id")).thenReturn(true, false);
 		when(jwtTokenService.generateAccessToken(1L, "runner@example.com", "홍길동")).thenReturn("new-access-token");
 		when(jwtTokenService.generateRefreshToken(1L, "runner@example.com", "홍길동")).thenReturn("new-refresh-token");
@@ -169,6 +172,7 @@ class AuthServiceLoginTest {
 		AuthService service = new AuthService(userRepository, passwordHashService, jwtTokenService, refreshTokenRepository);
 
 		when(jwtTokenService.verify("refresh-token")).thenReturn(new JwtTokenService.TokenClaims(1L, "runner@example.com", "홍길동", "refresh", "old-id", 123L));
+		when(userRepository.existsActiveById(1L)).thenReturn(true);
 		when(refreshTokenRepository.revokeIfActive(1L, "old-id")).thenReturn(true, false);
 		when(jwtTokenService.generateAccessToken(1L, "runner@example.com", "홍길동")).thenReturn("new-access-token");
 		when(jwtTokenService.generateRefreshToken(1L, "runner@example.com", "홍길동")).thenReturn("new-refresh-token");
@@ -192,6 +196,7 @@ class AuthServiceLoginTest {
 		RefreshTokenRepository refreshTokenRepository = mock(RefreshTokenRepository.class);
 		AuthService service = new AuthService(userRepository, passwordHashService, jwtTokenService, refreshTokenRepository);
 		when(jwtTokenService.verify("refresh-token")).thenReturn(new JwtTokenService.TokenClaims(1L, "runner@example.com", "홍길동", "refresh", "old-id", 123L));
+		when(userRepository.existsActiveById(1L)).thenReturn(true);
 		when(refreshTokenRepository.revokeIfActive(1L, "old-id")).thenReturn(false);
 
 		assertThatThrownBy(() -> service.refresh("refresh-token"))
@@ -206,6 +211,17 @@ class AuthServiceLoginTest {
 		} catch (InvalidCredentialsException exception) {
 			return exception;
 		}
+	}
+
+	@Test
+	void refresh_withDeletedUser_throwsInvalidCredentials() {
+		when(jwtTokenService.verify("refresh-token")).thenReturn(new JwtTokenService.TokenClaims(1L, "runner@example.com", "홍길동", "refresh", 0L));
+		when(userRepository.existsActiveById(1L)).thenReturn(false);
+
+		assertThatThrownBy(() -> authService.refresh("refresh-token"))
+				.isInstanceOf(InvalidCredentialsException.class);
+
+		verify(jwtTokenService, never()).generateAccessToken(1L, "runner@example.com", "홍길동");
 	}
 
 	@Test

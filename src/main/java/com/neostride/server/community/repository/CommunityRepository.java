@@ -35,7 +35,6 @@ public class CommunityRepository {
 	public void updateStatusMessage(long userId, String statusMessage) { profileRepository.updateStatusMessage(userId, statusMessage); }
 	public void updateNickname(long userId, String nickname) { profileRepository.updateNickname(userId, nickname); }
 	public boolean existsByCommunityProfileNameExcludingUserId(String nickname, long userId) { return profileRepository.existsByCommunityProfileNameExcludingUserId(nickname, userId); }
-	public void deleteAccount(long userId) { profileRepository.deleteAccount(userId); }
 	public void updateProfileImage(long userId, String profileImageUrl) { profileRepository.updateProfileImage(userId, profileImageUrl); }
 	public void deleteProfileImage(long userId) { profileRepository.deleteProfileImage(userId); }
 

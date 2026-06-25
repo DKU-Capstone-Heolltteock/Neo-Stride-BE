@@ -69,6 +69,14 @@ public class RefreshTokenRepository {
 			""", userId, sha256Hex(tokenId));
 	}
 
+	public void revokeAllForUser(long userId) {
+		jdbcTemplate.update("""
+				UPDATE refresh_tokens
+				SET revoked_at = COALESCE(revoked_at, NOW())
+				WHERE user_id = ? AND revoked_at IS NULL
+				""", userId);
+	}
+
 	private static String sha256Hex(String value) {
 		try {
 			byte[] hash = MessageDigest.getInstance("SHA-256").digest(value.getBytes(StandardCharsets.UTF_8));

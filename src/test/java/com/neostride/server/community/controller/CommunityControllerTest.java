@@ -1,5 +1,6 @@
 package com.neostride.server.community.controller;
 
+import com.neostride.server.auth.api.UserAccountLifecyclePort;
 import com.neostride.server.auth.service.AuthenticatedUserService;
 import com.neostride.server.community.dto.BadgeDetailResponse;
 import com.neostride.server.community.dto.CommentResponse;
@@ -36,11 +37,12 @@ class CommunityControllerTest {
 	private static final String AUTHORIZATION = "Bearer access-token";
 
 	private final CommunityService service = mock(CommunityService.class);
+	private final UserAccountLifecyclePort accountLifecyclePort = mock(UserAccountLifecyclePort.class);
 	private final AuthenticatedUserService authenticatedUserService = mock(AuthenticatedUserService.class);
 	private final CommunityUserContext userContext = new CommunityUserContext(authenticatedUserService);
 	private final StorageService storageService = mock(StorageService.class);
 	private final CommunityMultipartSupport uploadSupport = new CommunityMultipartSupport(storageService);
-	private final CommunityProfileController profileController = new CommunityProfileController(service, userContext, uploadSupport);
+	private final CommunityProfileController profileController = new CommunityProfileController(service, userContext, uploadSupport, accountLifecyclePort);
 	private final CommunityRelationshipController relationshipController = new CommunityRelationshipController(service, userContext);
 	private final CommunityFeedController feedController = new CommunityFeedController(service, userContext, uploadSupport);
 	private final CommunityTipController tipController = new CommunityTipController(service, userContext, uploadSupport);
@@ -131,6 +133,7 @@ class CommunityControllerTest {
 		assertThat(profileController.getAccountInfo(AUTHORIZATION, 1L).getBody()).isSameAs(account);
 		assertThat(profileController.updateNickname(AUTHORIZATION, 1L, Map.of("nickname", "neo2")).getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
 		assertThat(profileController.deleteAccount(AUTHORIZATION, 1L).getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
+		verify(accountLifecyclePort).deleteAccount(1L);
 	}
 
 	@Test

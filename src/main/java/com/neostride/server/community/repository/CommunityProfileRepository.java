@@ -36,7 +36,7 @@ final class CommunityProfileRepository {
 			       (SELECT COUNT(DISTINCT ci.content_id) FROM community_interactions ci WHERE ci.user_id = u.user_id AND ci.interaction_type = 'COMMENT') AS commented_feed_count,
 			       (SELECT COUNT(*) FROM community_interactions ci WHERE ci.user_id = u.user_id AND ci.interaction_type = 'LIKE') AS liked_feed_count,
 			       (SELECT COUNT(*) FROM community_interactions ci WHERE ci.user_id = u.user_id AND ci.interaction_type = 'BOOKMARK') AS bookmarked_feed_count
-			FROM users u LEFT JOIN community_users cu ON cu.user_id = u.user_id WHERE u.user_id = ?
+			FROM users u LEFT JOIN community_users cu ON cu.user_id = u.user_id WHERE u.user_id = ? AND u.deleted_at IS NULL
 			""", (rs, n) -> new UserProfileResponse(rs.getString("nickname"), rs.getString("profile_photo"), rs.getString("status_message"), rs.getBoolean("is_friend"), rs.getBoolean("is_blocked"), rs.getBoolean("is_sent"), rs.getInt("friend_count"), rs.getInt("post_count"), rs.getInt("tagged_count"), rs.getInt("commented_feed_count"), rs.getInt("liked_feed_count"), rs.getInt("bookmarked_feed_count")), viewerUserId, viewerUserId, viewerUserId, viewerUserId, userId);
 		return rows.isEmpty() ? new UserProfileResponse(null, null, null, false, false, false, 0, 0, 0, 0, 0, 0) : rows.getFirst();
 	}
@@ -45,7 +45,7 @@ final class CommunityProfileRepository {
 		List<AccountInfoResponse> rows = jdbcTemplate.query("""
 			SELECT email, COALESCE(cu.community_profile_name, u.community_profile_name, u.name) AS nickname,
 			       COALESCE(cu.profile_photo, u.profile_photo) AS profile_photo
-			FROM users u LEFT JOIN community_users cu ON cu.user_id = u.user_id WHERE u.user_id = ?
+			FROM users u LEFT JOIN community_users cu ON cu.user_id = u.user_id WHERE u.user_id = ? AND u.deleted_at IS NULL
 			""", (rs, n) -> new AccountInfoResponse(rs.getString("email"), rs.getString("nickname"), rs.getString("profile_photo")), userId);
 		return rows.isEmpty() ? new AccountInfoResponse(null, null, null) : rows.getFirst();
 	}
@@ -53,16 +53,16 @@ final class CommunityProfileRepository {
 	void updateStatusMessage(long userId, String statusMessage) {
 		jdbcTemplate.update("""
 			INSERT INTO community_users (user_id, community_profile_name, profile_photo, status_message)
-			SELECT user_id, COALESCE(community_profile_name, name), profile_photo, ? FROM users WHERE user_id = ?
+			SELECT user_id, COALESCE(community_profile_name, name), profile_photo, ? FROM users WHERE user_id = ? AND deleted_at IS NULL
 			ON DUPLICATE KEY UPDATE status_message = VALUES(status_message)
 			""", statusMessage, userId);
 	}
 
 	void updateNickname(long userId, String nickname) {
-		jdbcTemplate.update("UPDATE users SET community_profile_name = ? WHERE user_id = ?", nickname, userId);
+		jdbcTemplate.update("UPDATE users SET community_profile_name = ? WHERE user_id = ? AND deleted_at IS NULL", nickname, userId);
 		jdbcTemplate.update("""
 			INSERT INTO community_users (user_id, community_profile_name, profile_photo, status_message)
-			SELECT user_id, COALESCE(?, community_profile_name, name), profile_photo, NULL FROM users WHERE user_id = ?
+			SELECT user_id, COALESCE(?, community_profile_name, name), profile_photo, NULL FROM users WHERE user_id = ? AND deleted_at IS NULL
 			ON DUPLICATE KEY UPDATE community_profile_name = VALUES(community_profile_name)
 			""", nickname, userId);
 	}
@@ -73,7 +73,7 @@ final class CommunityProfileRepository {
 				SELECT COUNT(*)
 				FROM users u
 				LEFT JOIN community_users cu ON cu.user_id = u.user_id
-				WHERE (u.community_profile_name = ? OR cu.community_profile_name = ?) AND u.user_id <> ?
+				WHERE u.deleted_at IS NULL AND (u.community_profile_name = ? OR cu.community_profile_name = ?) AND u.user_id <> ?
 				""",
 				Integer.class,
 				nickname,
@@ -83,22 +83,18 @@ final class CommunityProfileRepository {
 		return count != null && count > 0;
 	}
 
-	void deleteAccount(long userId) {
-		jdbcTemplate.update("DELETE FROM users WHERE user_id = ?", userId);
-	}
-
 	void updateProfileImage(long userId, String profileImageUrl) {
 		jdbcTemplate.update("""
 			INSERT INTO community_users (user_id, community_profile_name, profile_photo, status_message)
-			SELECT user_id, COALESCE(community_profile_name, name), ?, NULL FROM users WHERE user_id = ?
+			SELECT user_id, COALESCE(community_profile_name, name), ?, NULL FROM users WHERE user_id = ? AND deleted_at IS NULL
 			ON DUPLICATE KEY UPDATE profile_photo = VALUES(profile_photo)
 			""", profileImageUrl, userId);
-		jdbcTemplate.update("UPDATE users SET profile_photo = ? WHERE user_id = ?", profileImageUrl, userId);
+		jdbcTemplate.update("UPDATE users SET profile_photo = ? WHERE user_id = ? AND deleted_at IS NULL", profileImageUrl, userId);
 	}
 
 	void deleteProfileImage(long userId) {
 		jdbcTemplate.update("UPDATE community_users SET profile_photo = NULL WHERE user_id = ?", userId);
-		jdbcTemplate.update("UPDATE users SET profile_photo = NULL WHERE user_id = ?", userId);
+		jdbcTemplate.update("UPDATE users SET profile_photo = NULL WHERE user_id = ? AND deleted_at IS NULL", userId);
 	}
 
 	BadgeDetailResponse getBadgeDetail(long userId) {
@@ -108,7 +104,7 @@ final class CommunityProfileRepository {
 			LEFT JOIN running_records rr ON rr.user_id = u.user_id
 				AND rr.badge = COALESCE(cu.badge, 'NONE')
 				AND rr.badge <> 'NONE'
-			WHERE u.user_id = ?
+			WHERE u.user_id = ? AND u.deleted_at IS NULL
 			ORDER BY rr.total_distance DESC, rr.created_at DESC, rr.run_record_id DESC LIMIT 1
 			""", (rs, n) -> new BadgeDetailResponse(rs.getString("badge"), nullableLong(rs.getObject("run_record_id")), nullToZero(rs.getBigDecimal("total_distance")), rs.getObject("pace") == null ? null : String.valueOf(rs.getInt("pace")), rs.getTimestamp("created_at") == null ? null : rs.getTimestamp("created_at").toLocalDateTime().format(ISO)), userId);
 		return rows.isEmpty() ? new BadgeDetailResponse("NONE", null, BigDecimal.ZERO, null, null) : rows.getFirst();
