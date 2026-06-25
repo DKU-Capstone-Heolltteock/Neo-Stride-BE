@@ -57,4 +57,14 @@ class CommunityBadgeServiceTest {
 		verify(jdbcTemplate, never()).update(anyString(), any(Object.class), any(Object.class));
 		verify(eventPublisher, never()).publishEvent(any());
 	}
+
+	@Test
+	void improveBadgeIfHigherSkipsDeletedOrMissingUser() {
+		when(jdbcTemplate.query(anyString(), any(RowMapper.class), eq(7L))).thenReturn(List.of());
+
+		service.improveBadgeIfHigher(7L, "gold");
+
+		verify(jdbcTemplate, never()).update(anyString(), any(Object.class), any(Object.class));
+		verify(eventPublisher, never()).publishEvent(any());
+	}
 }

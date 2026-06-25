@@ -32,7 +32,7 @@ public class AdminUserAdministrationService implements UserAdministrationPort {
 		List<Object> args = new ArrayList<>();
 		StringBuilder sql = new StringBuilder("""
 				SELECT user_id, email, name, community_profile_name, profile_photo, account_status,
-				       suspended_at, suspended_until, suspended_reason, created_at, updated_at
+				       suspended_at, suspended_until, suspended_reason, deleted_at, created_at, updated_at
 				FROM users
 				WHERE 1 = 1
 				""");
@@ -43,9 +43,14 @@ public class AdminUserAdministrationService implements UserAdministrationPort {
 			args.add(like);
 			args.add(like);
 		}
-		if (status != null && !status.isBlank()) {
-			sql.append(" AND account_status = ?");
-			args.add(normalizeStatus(status));
+		String normalizedStatus = status == null || status.isBlank() ? null : normalizeStatus(status);
+		if (normalizedStatus == null) {
+			sql.append(" AND deleted_at IS NULL");
+		} else if ("DELETED".equals(normalizedStatus)) {
+			sql.append(" AND deleted_at IS NOT NULL");
+		} else {
+			sql.append(" AND deleted_at IS NULL AND account_status = ?");
+			args.add(normalizedStatus);
 		}
 		appendRangeAndCursor(sql, args, cursor, from, to);
 		sql.append(" ORDER BY created_at DESC, user_id DESC LIMIT ?");
@@ -60,7 +65,7 @@ public class AdminUserAdministrationService implements UserAdministrationPort {
 		}
 		List<AdminUserAccount> accounts = jdbcTemplate.query("""
 				SELECT user_id, email, name, community_profile_name, profile_photo, account_status,
-				       suspended_at, suspended_until, suspended_reason, created_at, updated_at
+				       suspended_at, suspended_until, suspended_reason, deleted_at, created_at, updated_at
 				FROM users
 				WHERE user_id = ?
 				""", this::mapAccount, userId);
@@ -80,7 +85,7 @@ public class AdminUserAdministrationService implements UserAdministrationPort {
 				    suspended_until = ?,
 				    suspended_reason = ?,
 				    suspended_by_operator_id = ?
-				WHERE user_id = ?
+				WHERE user_id = ? AND deleted_at IS NULL
 				""", suspendedUntil, reason.trim(), operatorAccountId, userId);
 		if (updated == 0) {
 			throw new IllegalArgumentException("사용자를 찾을 수 없습니다.");
@@ -98,7 +103,7 @@ public class AdminUserAdministrationService implements UserAdministrationPort {
 				    suspended_until = NULL,
 				    suspended_reason = NULL,
 				    suspended_by_operator_id = NULL
-				WHERE user_id = ?
+				WHERE user_id = ? AND deleted_at IS NULL
 				""", userId);
 		if (updated == 0) {
 			throw new IllegalArgumentException("사용자를 찾을 수 없습니다.");
@@ -112,7 +117,7 @@ public class AdminUserAdministrationService implements UserAdministrationPort {
 		return jdbcTemplate.query("""
 				SELECT user_id
 				FROM users
-				WHERE account_status = 'ACTIVE'
+				WHERE account_status = 'ACTIVE' AND deleted_at IS NULL
 				ORDER BY user_id
 				LIMIT ?
 				""", (rs, rowNum) -> rs.getLong("user_id"), cappedLimit);
@@ -121,24 +126,31 @@ public class AdminUserAdministrationService implements UserAdministrationPort {
 	@Override
 	public long countAccounts(String status) {
 		if (status == null || status.isBlank()) {
-			Long count = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM users", Long.class);
+			Long count = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM users WHERE deleted_at IS NULL", Long.class);
 			return count == null ? 0 : count;
 		}
-		Long count = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM users WHERE account_status = ?", Long.class, normalizeStatus(status));
+		String normalizedStatus = normalizeStatus(status);
+		if ("DELETED".equals(normalizedStatus)) {
+			Long count = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM users WHERE deleted_at IS NOT NULL", Long.class);
+			return count == null ? 0 : count;
+		}
+		Long count = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM users WHERE account_status = ? AND deleted_at IS NULL", Long.class, normalizedStatus);
 		return count == null ? 0 : count;
 	}
 
 	private AdminUserAccount mapAccount(ResultSet rs, int rowNum) throws SQLException {
+		LocalDateTime deletedAt = toLocalDateTime(rs, "deleted_at");
 		return new AdminUserAccount(
 				rs.getLong("user_id"),
 				rs.getString("email"),
 				rs.getString("name"),
 				rs.getString("community_profile_name"),
 				rs.getString("profile_photo"),
-				rs.getString("account_status"),
+				deletedAt == null ? rs.getString("account_status") : "DELETED",
 				toLocalDateTime(rs, "suspended_at"),
 				toLocalDateTime(rs, "suspended_until"),
 				rs.getString("suspended_reason"),
+				deletedAt,
 				toLocalDateTime(rs, "created_at"),
 				toLocalDateTime(rs, "updated_at")
 		);
@@ -151,8 +163,8 @@ public class AdminUserAdministrationService implements UserAdministrationPort {
 
 	private String normalizeStatus(String status) {
 		String normalized = status.trim().toUpperCase();
-		if (!"ACTIVE".equals(normalized) && !"SUSPENDED".equals(normalized)) {
-			throw new IllegalArgumentException("status는 ACTIVE 또는 SUSPENDED만 가능합니다.");
+		if (!"ACTIVE".equals(normalized) && !"SUSPENDED".equals(normalized) && !"DELETED".equals(normalized)) {
+			throw new IllegalArgumentException("status는 ACTIVE, SUSPENDED 또는 DELETED만 가능합니다.");
 		}
 		return normalized;
 	}

@@ -24,14 +24,14 @@ public class CommunityBadgeService implements BadgeProgressPort {
 			return;
 		}
 		String previousBadge = currentBadge(userId);
-		if (badgeRank(badge) <= badgeRank(previousBadge)) {
+		if (previousBadge == null || badgeRank(badge) <= badgeRank(previousBadge)) {
 			return;
 		}
 		jdbcTemplate.update("""
 			INSERT INTO community_users (user_id, community_profile_name, profile_photo, badge)
 			SELECT user_id, COALESCE(community_profile_name, name), profile_photo, ?
 			FROM users
-			WHERE user_id = ?
+			WHERE user_id = ? AND deleted_at IS NULL
 			ON DUPLICATE KEY UPDATE badge = VALUES(badge)
 			""", badge, userId);
 		eventPublisher.publishEvent(new NotificationRequestedEvent(
@@ -46,9 +46,9 @@ public class CommunityBadgeService implements BadgeProgressPort {
 		List<String> rows = jdbcTemplate.query("""
 			SELECT COALESCE(cu.badge, 'NONE') AS badge
 			FROM users u LEFT JOIN community_users cu ON cu.user_id = u.user_id
-			WHERE u.user_id = ?
+			WHERE u.user_id = ? AND u.deleted_at IS NULL
 			""", (rs, rowNum) -> rs.getString("badge"), userId);
-		return rows == null || rows.isEmpty() || rows.getFirst() == null ? "NONE" : rows.getFirst();
+		return rows == null || rows.isEmpty() || rows.getFirst() == null ? null : rows.getFirst();
 	}
 
 	private static String normalizeBadge(String value) {

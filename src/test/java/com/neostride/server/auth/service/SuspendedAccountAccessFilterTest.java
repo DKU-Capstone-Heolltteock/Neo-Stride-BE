@@ -64,6 +64,18 @@ class SuspendedAccountAccessFilterTest {
 	}
 
 	@Test
+	void deletedAccountBlocksApiAccess() throws Exception {
+		FilterChain chain = mock(FilterChain.class);
+		when(userAdministrationPort.findAccount(7L)).thenReturn(Optional.of(deletedAccount()));
+		MockHttpServletResponse response = new MockHttpServletResponse();
+
+		filter.doFilterInternal(request(), response, chain);
+
+		assertThat(response.getStatus()).isEqualTo(403);
+		verify(chain, never()).doFilter(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
+	}
+
+	@Test
 	void permanentSuspensionBlocksLegacyFeedUpload() throws Exception {
 		FilterChain chain = mock(FilterChain.class);
 		when(userAdministrationPort.findAccount(7L)).thenReturn(Optional.of(account(null)));
@@ -108,6 +120,24 @@ class SuspendedAccountAccessFilterTest {
 				NOW.minusDays(1),
 				suspendedUntil,
 				"policy",
+				null,
+				NOW.minusMonths(1),
+				NOW.minusDays(1)
+		);
+	}
+
+	private AdminUserAccount deletedAccount() {
+		return new AdminUserAccount(
+				7L,
+				"deleted+7@deleted.neostride.local",
+				"deleted-user-7",
+				"deleted-user-7",
+				null,
+				"DELETED",
+				null,
+				null,
+				null,
+				NOW.minusHours(1),
 				NOW.minusMonths(1),
 				NOW.minusDays(1)
 		);

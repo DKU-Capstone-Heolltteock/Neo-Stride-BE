@@ -60,6 +60,7 @@ final class CommunityRelationshipRepository {
 			JOIN users other_user ON other_user.user_id = CASE WHEN r.user1_id = ? THEN r.user2_id ELSE r.user1_id END
 			LEFT JOIN community_users cu ON cu.user_id = other_user.user_id
 			WHERE (r.user1_id = ? OR r.user2_id = ?) AND r.status = 'ACCEPTED'
+			  AND other_user.deleted_at IS NULL
 			ORDER BY other_user.user_id
 			""", (rs, n) -> new FriendResponse(rs.getLong("user_id"), rs.getString("nickname"), rs.getString("badge_tier"), rs.getInt("friend_count"), rs.getString("profile_image_url"), rs.getString("relationship_status")),
 				viewerUserId, viewerUserId, viewerUserId, viewerUserId, viewerUserId, userId, userId, userId);
@@ -73,13 +74,15 @@ final class CommunityRelationshipRepository {
 				int changed = jdbcTemplate.update("""
 					INSERT INTO relationships (user1_id, user2_id, status)
 					SELECT ?, ?, 'REQUESTED'
-					WHERE NOT EXISTS (
+					FROM users target
+					WHERE target.user_id = ? AND target.deleted_at IS NULL
+					  AND NOT EXISTS (
 						SELECT 1 FROM relationships
 						WHERE status = 'BLOCKED'
 						  AND ((user1_id = ? AND user2_id = ?) OR (user1_id = ? AND user2_id = ?))
 					)
 					ON DUPLICATE KEY UPDATE status = IF(status = 'BLOCKED', status, 'REQUESTED')
-					""", userId, request.targetId(), userId, request.targetId(), request.targetId(), userId);
+					""", userId, request.targetId(), request.targetId(), userId, request.targetId(), request.targetId(), userId);
 				if (changed > 0) {
 					notifyFriendRequest(userId, request.targetId());
 				}
@@ -118,7 +121,7 @@ final class CommunityRelationshipRepository {
 			JOIN users other_user ON other_user.user_id = CASE WHEN r.user1_id = ? THEN r.user2_id ELSE r.user1_id END
 			LEFT JOIN community_users cu ON cu.user_id = other_user.user_id
 			WHERE
-			""" + predicate + " ORDER BY other_user.user_id", (rs, n) -> new FriendResponse(rs.getLong("user_id"), rs.getString("nickname"), rs.getString("badge_tier"), rs.getInt("friend_count"), rs.getString("profile_image_url"), responseStatus), args);
+			""" + predicate + " AND other_user.deleted_at IS NULL ORDER BY other_user.user_id", (rs, n) -> new FriendResponse(rs.getLong("user_id"), rs.getString("nickname"), rs.getString("badge_tier"), rs.getInt("friend_count"), rs.getString("profile_image_url"), responseStatus), args);
 	}
 
 	private void notifyFriendRequest(long requesterUserId, long targetUserId) {
@@ -130,7 +133,7 @@ final class CommunityRelationshipRepository {
 		List<String> rows = jdbcTemplate.query("""
 			SELECT COALESCE(cu.community_profile_name, u.community_profile_name, u.name) AS nickname
 			FROM users u LEFT JOIN community_users cu ON cu.user_id = u.user_id
-			WHERE u.user_id = ?
+			WHERE u.user_id = ? AND u.deleted_at IS NULL
 			""", (rs, n) -> rs.getString("nickname"), userId);
 		return rows == null || rows.isEmpty() || rows.getFirst() == null || rows.getFirst().isBlank() ? "러너" : rows.getFirst();
 	}

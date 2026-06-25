@@ -53,8 +53,6 @@ public class CommunityService {
 		repository.updateNickname(userId, nickname);
 	}
 	@Transactional
-	public void deleteAccount(long userId) { validatePositive(userId, "user_id"); repository.deleteAccount(userId); }
-	@Transactional
 	public void updateProfileImage(long userId, String profileImageUrl) { validatePositive(userId, "user_id"); repository.updateProfileImage(userId, profileImageUrl); }
 	@Transactional
 	public void deleteProfileImage(long userId) { validatePositive(userId, "user_id"); repository.deleteProfileImage(userId); }

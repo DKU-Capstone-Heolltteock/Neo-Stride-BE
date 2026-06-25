@@ -1,5 +1,6 @@
 package com.neostride.server.community.controller;
 
+import com.neostride.server.auth.api.UserAccountLifecyclePort;
 import com.neostride.server.community.dto.AccountInfoResponse;
 import com.neostride.server.community.dto.BadgeDetailResponse;
 import com.neostride.server.community.dto.UserProfileResponse;
@@ -25,15 +26,18 @@ public class CommunityProfileController {
 	private final CommunityService service;
 	private final CommunityUserContext userContext;
 	private final CommunityMultipartSupport uploadSupport;
+	private final UserAccountLifecyclePort accountLifecyclePort;
 
 	public CommunityProfileController(
 			CommunityService service,
 			CommunityUserContext userContext,
-			CommunityMultipartSupport uploadSupport
+			CommunityMultipartSupport uploadSupport,
+			UserAccountLifecyclePort accountLifecyclePort
 	) {
 		this.service = service;
 		this.userContext = userContext;
 		this.uploadSupport = uploadSupport;
+		this.accountLifecyclePort = accountLifecyclePort;
 	}
 
 	@Operation(summary = "내 프로필 조회")
@@ -88,7 +92,7 @@ public class CommunityProfileController {
 			@RequestHeader(value = "Authorization", required = false) String authorization,
 			@RequestHeader(value = "X-User-Id", required = false) Long headerUserId
 	) {
-		service.deleteAccount(userContext.authenticatedUserId(authorization, headerUserId));
+		accountLifecyclePort.deleteAccount(userContext.authenticatedUserId(authorization, headerUserId));
 		return ResponseEntity.noContent().build();
 	}
 

@@ -515,7 +515,7 @@ class CommunityRepositoryTest {
 		repository.deleteProfileImage(1L);
 
 		verify(jdbcTemplate).update("UPDATE community_users SET profile_photo = NULL WHERE user_id = ?", 1L);
-		verify(jdbcTemplate).update("UPDATE users SET profile_photo = NULL WHERE user_id = ?", 1L);
+		verify(jdbcTemplate).update("UPDATE users SET profile_photo = NULL WHERE user_id = ? AND deleted_at IS NULL", 1L);
 	}
 
 	@Test
@@ -523,18 +523,20 @@ class CommunityRepositoryTest {
 		String requestSql = """
 					INSERT INTO relationships (user1_id, user2_id, status)
 					SELECT ?, ?, 'REQUESTED'
-					WHERE NOT EXISTS (
+					FROM users target
+					WHERE target.user_id = ? AND target.deleted_at IS NULL
+					  AND NOT EXISTS (
 						SELECT 1 FROM relationships
 						WHERE status = 'BLOCKED'
 						  AND ((user1_id = ? AND user2_id = ?) OR (user1_id = ? AND user2_id = ?))
 					)
 					ON DUPLICATE KEY UPDATE status = IF(status = 'BLOCKED', status, 'REQUESTED')
 					""";
-		when(jdbcTemplate.update(requestSql, 1L, 2L, 1L, 2L, 2L, 1L)).thenReturn(1);
+		when(jdbcTemplate.update(requestSql, 1L, 2L, 2L, 1L, 2L, 2L, 1L)).thenReturn(1);
 
 		repository.updateRelationship(1L, new com.neostride.server.community.dto.FriendRequest(2L, "request"));
 
-		verify(jdbcTemplate).update(requestSql, 1L, 2L, 1L, 2L, 2L, 1L);
+		verify(jdbcTemplate).update(requestSql, 1L, 2L, 2L, 1L, 2L, 2L, 1L);
 		ArgumentCaptor<Object> eventCaptor = ArgumentCaptor.forClass(Object.class);
 		verify(eventPublisher).publishEvent(eventCaptor.capture());
 		assertThat(eventCaptor.getValue()).isInstanceOf(NotificationRequestedEvent.class);

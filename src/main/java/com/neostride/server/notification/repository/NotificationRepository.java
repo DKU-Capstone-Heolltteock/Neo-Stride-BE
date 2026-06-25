@@ -41,8 +41,10 @@ public class NotificationRepository {
 		}
 		jdbcTemplate.update("""
 			INSERT INTO notifications (user_id, notification_type, message, endpoint, is_read, created_at)
-			VALUES (?, ?, ?, ?, FALSE, NOW())
-			""", userId, type, message, endpoint);
+			SELECT ?, ?, ?, ?, FALSE, NOW()
+			FROM users
+			WHERE user_id = ? AND deleted_at IS NULL
+			""", userId, type, message, endpoint, userId);
 	}
 
 	public void createNotificationIfAbsent(long userId, String type, String message, String endpoint) {
@@ -52,11 +54,13 @@ public class NotificationRepository {
 		jdbcTemplate.update("""
 			INSERT INTO notifications (user_id, notification_type, message, endpoint, is_read, created_at)
 			SELECT ?, ?, ?, ?, FALSE, NOW()
-			WHERE NOT EXISTS (
+			FROM users
+			WHERE user_id = ? AND deleted_at IS NULL
+			  AND NOT EXISTS (
 				SELECT 1 FROM notifications
 				WHERE user_id = ? AND notification_type = ? AND endpoint <=> ?
 			)
-			""", userId, type, message, endpoint, userId, type, endpoint);
+			""", userId, type, message, endpoint, userId, userId, type, endpoint);
 	}
 
 	public void markRead(long userId, long notificationId) {

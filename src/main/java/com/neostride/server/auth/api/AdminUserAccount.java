@@ -12,6 +12,7 @@ public record AdminUserAccount(
 		LocalDateTime suspendedAt,
 		LocalDateTime suspendedUntil,
 		String suspendedReason,
+		LocalDateTime deletedAt,
 		LocalDateTime createdAt,
 		LocalDateTime updatedAt
 ) {}

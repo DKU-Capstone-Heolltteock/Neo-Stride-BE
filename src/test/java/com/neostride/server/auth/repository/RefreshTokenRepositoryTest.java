@@ -34,4 +34,16 @@ class RefreshTokenRepositoryTest {
 		assertThat(repository.revokeIfActive(1L, "refresh-id")).isTrue();
 	}
 
+	@Test
+	void revokeAllForUserRevokesEveryActiveTokenForUser() {
+		repository.revokeAllForUser(7L);
+
+		ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
+		verify(jdbcTemplate).update(sql.capture(), eq(7L));
+		assertThat(sql.getValue())
+				.contains("UPDATE refresh_tokens")
+				.contains("revoked_at")
+				.contains("WHERE user_id = ? AND revoked_at IS NULL");
+	}
+
 }

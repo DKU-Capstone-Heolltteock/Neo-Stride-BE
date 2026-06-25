@@ -44,9 +44,9 @@ final class CommunityCommentActivityRepository {
 		return jdbcTemplate.query("""
 			SELECT ci.interaction_id AS comment_id, ci.comment_text, ci.created_at AS comment_created_at,
 			       cc.content_id, cc.content_type, cc.author_user_id,
-			       COALESCE(cu.community_profile_name, u.community_profile_name, u.name) AS nickname,
-			       COALESCE(cu.profile_photo, u.profile_photo) AS profile_image_url,
-			       COALESCE(cu.badge, 'NONE') AS badge,
+			       CASE WHEN u.deleted_at IS NULL THEN COALESCE(cu.community_profile_name, u.community_profile_name, u.name) ELSE '탈퇴한 사용자' END AS nickname,
+			       CASE WHEN u.deleted_at IS NULL THEN COALESCE(cu.profile_photo, u.profile_photo) ELSE NULL END AS profile_image_url,
+			       CASE WHEN u.deleted_at IS NULL THEN COALESCE(cu.badge, 'NONE') ELSE 'NONE' END AS badge,
 			       cc.tip_type, cc.content_text, cc.title, cc.body_text, cc.route_map_image_url,
 			       cc.course_address, cc.distance_km, cc.running_time_text, cc.pace_text,
 			       cc.include_route_detail,

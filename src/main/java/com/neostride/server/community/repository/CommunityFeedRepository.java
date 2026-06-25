@@ -149,9 +149,9 @@ final class CommunityFeedRepository {
 
 	FeedDetailResponse findFeedDetail(long userId, long feedId, Integer commentLimit) {
 		return jdbcTemplate.query("""
-			SELECT cc.content_id, cc.author_user_id, COALESCE(cu.profile_photo, u.profile_photo) AS profile_image_url,
-			       COALESCE(cu.community_profile_name, u.community_profile_name, u.name) AS nickname,
-			       COALESCE(cu.badge, 'NONE') AS badge, cc.created_at, cc.content_text, cc.title, cc.body_text, cc.route_map_image_url, cc.course_address, cc.distance_km, cc.running_time_text, cc.pace_text, cc.include_route_detail, COALESCE((SELECT GROUP_CONCAT(cci.image_url ORDER BY cci.image_order SEPARATOR '\n---NEOSTRIDE-IMAGE---\n') FROM community_content_images cci WHERE cci.content_id = cc.content_id), cc.image) AS image_urls,
+			SELECT cc.content_id, cc.author_user_id, CASE WHEN u.deleted_at IS NULL THEN COALESCE(cu.profile_photo, u.profile_photo) ELSE NULL END AS profile_image_url,
+			       CASE WHEN u.deleted_at IS NULL THEN COALESCE(cu.community_profile_name, u.community_profile_name, u.name) ELSE '탈퇴한 사용자' END AS nickname,
+			       CASE WHEN u.deleted_at IS NULL THEN COALESCE(cu.badge, 'NONE') ELSE 'NONE' END AS badge, cc.created_at, cc.content_text, cc.title, cc.body_text, cc.route_map_image_url, cc.course_address, cc.distance_km, cc.running_time_text, cc.pace_text, cc.include_route_detail, COALESCE((SELECT GROUP_CONCAT(cci.image_url ORDER BY cci.image_order SEPARATOR '\n---NEOSTRIDE-IMAGE---\n') FROM community_content_images cci WHERE cci.content_id = cc.content_id), cc.image) AS image_urls,
 			       rr.run_record_id AS joined_running_record_id, COALESCE(rr.total_distance, 0) AS total_distance, rr.duration, rr.pace,
 			       COALESCE(stats.tagged_count, 0) AS tagged_count,
 			       COALESCE(stats.like_count, 0) AS like_count,
@@ -196,15 +196,15 @@ final class CommunityFeedRepository {
 			args.add(viewerUserId);
 		}
 		return jdbcTemplate.query("""
-			SELECT u.user_id, COALESCE(cu.community_profile_name, u.community_profile_name, u.name) AS nickname,
-			       COALESCE(cu.badge, 'NONE') AS badge_tier,
+			SELECT u.user_id, CASE WHEN u.deleted_at IS NULL THEN COALESCE(cu.community_profile_name, u.community_profile_name, u.name) ELSE '탈퇴한 사용자' END AS nickname,
+			       CASE WHEN u.deleted_at IS NULL THEN COALESCE(cu.badge, 'NONE') ELSE 'NONE' END AS badge_tier,
 			       (SELECT COUNT(*) FROM relationships rf WHERE (rf.user1_id = u.user_id OR rf.user2_id = u.user_id) AND rf.status='ACCEPTED') AS friend_count,
-			       COALESCE(cu.profile_photo, u.profile_photo) AS profile_image_url
+			       CASE WHEN u.deleted_at IS NULL THEN COALESCE(cu.profile_photo, u.profile_photo) ELSE NULL END AS profile_image_url
 			FROM community_interactions ci
 			JOIN community_contents cc ON cc.content_id = ci.content_id
 			JOIN users u ON u.user_id=ci.tagged_user_id
 			LEFT JOIN community_users cu ON cu.user_id=u.user_id
-			WHERE ci.content_id=? AND ci.interaction_type='TAG' AND
+			WHERE ci.content_id=? AND ci.interaction_type='TAG' AND u.deleted_at IS NULL AND
 			""" + visibilityPredicate + " ORDER BY u.user_id", (rs, n) -> new FriendResponse(rs.getLong("user_id"), rs.getString("nickname"), rs.getString("badge_tier"), rs.getInt("friend_count"), rs.getString("profile_image_url"), "tagged"), args.toArray());
 	}
 
@@ -219,9 +219,9 @@ final class CommunityFeedRepository {
 		args.add(viewerUserId);
 		return jdbcTemplate.query("""
 			SELECT cc.content_id, cc.author_user_id AS user_id,
-			       COALESCE(cu.community_profile_name, u.community_profile_name, u.name) AS nickname,
-			       COALESCE(cu.profile_photo, u.profile_photo) AS profile_image_url,
-			       COALESCE(cu.badge, 'NONE') AS badge_tier,
+			       CASE WHEN u.deleted_at IS NULL THEN COALESCE(cu.community_profile_name, u.community_profile_name, u.name) ELSE '탈퇴한 사용자' END AS nickname,
+			       CASE WHEN u.deleted_at IS NULL THEN COALESCE(cu.profile_photo, u.profile_photo) ELSE NULL END AS profile_image_url,
+			       CASE WHEN u.deleted_at IS NULL THEN COALESCE(cu.badge, 'NONE') ELSE 'NONE' END AS badge_tier,
 			       cc.content_text, cc.title, cc.body_text, cc.route_map_image_url, cc.course_address, cc.distance_km, cc.running_time_text, cc.pace_text, cc.include_route_detail, COALESCE((SELECT GROUP_CONCAT(cci.image_url ORDER BY cci.image_order SEPARATOR '\n---NEOSTRIDE-IMAGE---\n') FROM community_content_images cci WHERE cci.content_id = cc.content_id), cc.image) AS image_urls,
 			       rr.run_record_id AS joined_running_record_id, COALESCE(rr.total_distance, 0) AS total_distance, rr.duration, rr.pace, cc.created_at,
 			       COALESCE(stats.tagged_count, 0) AS tagged_count,
@@ -266,9 +266,9 @@ final class CommunityFeedRepository {
 
 	private List<FeedUploadResponse> feedQuery(String predicate, Object... args) {
 		return jdbcTemplate.query("""
-			SELECT cc.content_id, cc.author_user_id, FALSE AS mine, COALESCE(cu.profile_photo, u.profile_photo) AS profile_image_url,
-			       COALESCE(cu.community_profile_name, u.community_profile_name, u.name) AS nickname,
-			       COALESCE(cu.badge, 'NONE') AS badge, cc.created_at,
+			SELECT cc.content_id, cc.author_user_id, FALSE AS mine, CASE WHEN u.deleted_at IS NULL THEN COALESCE(cu.profile_photo, u.profile_photo) ELSE NULL END AS profile_image_url,
+			       CASE WHEN u.deleted_at IS NULL THEN COALESCE(cu.community_profile_name, u.community_profile_name, u.name) ELSE '탈퇴한 사용자' END AS nickname,
+			       CASE WHEN u.deleted_at IS NULL THEN COALESCE(cu.badge, 'NONE') ELSE 'NONE' END AS badge, cc.created_at,
 			       cc.content_text, cc.title, cc.body_text, cc.route_map_image_url, cc.course_address, cc.distance_km, cc.running_time_text, cc.pace_text, cc.include_route_detail, COALESCE((SELECT GROUP_CONCAT(cci.image_url ORDER BY cci.image_order SEPARATOR '\n---NEOSTRIDE-IMAGE---\n') FROM community_content_images cci WHERE cci.content_id = cc.content_id), cc.image) AS image_urls,
 			       rr.run_record_id AS joined_running_record_id, COALESCE(rr.total_distance, 0) AS total_distance, rr.duration, rr.pace,
 			       COALESCE(stats.tagged_count, 0) AS tagged_count,
@@ -286,9 +286,9 @@ final class CommunityFeedRepository {
 
 	private List<FeedUploadResponse> feedQueryForViewer(String predicate, Object... args) {
 		return jdbcTemplate.query("""
-			SELECT cc.content_id, cc.author_user_id, (cc.author_user_id = ?) AS mine, COALESCE(cu.profile_photo, u.profile_photo) AS profile_image_url,
-			       COALESCE(cu.community_profile_name, u.community_profile_name, u.name) AS nickname,
-			       COALESCE(cu.badge, 'NONE') AS badge, cc.created_at,
+			SELECT cc.content_id, cc.author_user_id, (cc.author_user_id = ?) AS mine, CASE WHEN u.deleted_at IS NULL THEN COALESCE(cu.profile_photo, u.profile_photo) ELSE NULL END AS profile_image_url,
+			       CASE WHEN u.deleted_at IS NULL THEN COALESCE(cu.community_profile_name, u.community_profile_name, u.name) ELSE '탈퇴한 사용자' END AS nickname,
+			       CASE WHEN u.deleted_at IS NULL THEN COALESCE(cu.badge, 'NONE') ELSE 'NONE' END AS badge, cc.created_at,
 			       cc.content_text, cc.title, cc.body_text, cc.route_map_image_url, cc.course_address, cc.distance_km, cc.running_time_text, cc.pace_text, cc.include_route_detail, COALESCE((SELECT GROUP_CONCAT(cci.image_url ORDER BY cci.image_order SEPARATOR '\n---NEOSTRIDE-IMAGE---\n') FROM community_content_images cci WHERE cci.content_id = cc.content_id), cc.image) AS image_urls,
 			       rr.run_record_id AS joined_running_record_id, COALESCE(rr.total_distance, 0) AS total_distance, rr.duration, rr.pace,
 			       COALESCE(stats.tagged_count, 0) AS tagged_count,
@@ -309,9 +309,9 @@ final class CommunityFeedRepository {
 
 	private List<FeedUploadResponse> feedQueryLimited(String predicate, Object... args) {
 		return jdbcTemplate.query("""
-			SELECT cc.content_id, cc.author_user_id, FALSE AS mine, COALESCE(cu.profile_photo, u.profile_photo) AS profile_image_url,
-			       COALESCE(cu.community_profile_name, u.community_profile_name, u.name) AS nickname,
-			       COALESCE(cu.badge, 'NONE') AS badge, cc.created_at,
+			SELECT cc.content_id, cc.author_user_id, FALSE AS mine, CASE WHEN u.deleted_at IS NULL THEN COALESCE(cu.profile_photo, u.profile_photo) ELSE NULL END AS profile_image_url,
+			       CASE WHEN u.deleted_at IS NULL THEN COALESCE(cu.community_profile_name, u.community_profile_name, u.name) ELSE '탈퇴한 사용자' END AS nickname,
+			       CASE WHEN u.deleted_at IS NULL THEN COALESCE(cu.badge, 'NONE') ELSE 'NONE' END AS badge, cc.created_at,
 			       cc.content_text, cc.title, cc.body_text, cc.route_map_image_url, cc.course_address, cc.distance_km, cc.running_time_text, cc.pace_text, cc.include_route_detail, COALESCE((SELECT GROUP_CONCAT(cci.image_url ORDER BY cci.image_order SEPARATOR '\n---NEOSTRIDE-IMAGE---\n') FROM community_content_images cci WHERE cci.content_id = cc.content_id), cc.image) AS image_urls,
 			       rr.run_record_id AS joined_running_record_id, COALESCE(rr.total_distance, 0) AS total_distance, rr.duration, rr.pace,
 			       COALESCE(stats.tagged_count, 0) AS tagged_count,
@@ -329,9 +329,9 @@ final class CommunityFeedRepository {
 
 	private List<FeedUploadResponse> feedQueryForViewerLimited(String predicate, Object... args) {
 		return jdbcTemplate.query("""
-			SELECT cc.content_id, cc.author_user_id, (cc.author_user_id = ?) AS mine, COALESCE(cu.profile_photo, u.profile_photo) AS profile_image_url,
-			       COALESCE(cu.community_profile_name, u.community_profile_name, u.name) AS nickname,
-			       COALESCE(cu.badge, 'NONE') AS badge, cc.created_at,
+			SELECT cc.content_id, cc.author_user_id, (cc.author_user_id = ?) AS mine, CASE WHEN u.deleted_at IS NULL THEN COALESCE(cu.profile_photo, u.profile_photo) ELSE NULL END AS profile_image_url,
+			       CASE WHEN u.deleted_at IS NULL THEN COALESCE(cu.community_profile_name, u.community_profile_name, u.name) ELSE '탈퇴한 사용자' END AS nickname,
+			       CASE WHEN u.deleted_at IS NULL THEN COALESCE(cu.badge, 'NONE') ELSE 'NONE' END AS badge, cc.created_at,
 			       cc.content_text, cc.title, cc.body_text, cc.route_map_image_url, cc.course_address, cc.distance_km, cc.running_time_text, cc.pace_text, cc.include_route_detail, COALESCE((SELECT GROUP_CONCAT(cci.image_url ORDER BY cci.image_order SEPARATOR '\n---NEOSTRIDE-IMAGE---\n') FROM community_content_images cci WHERE cci.content_id = cc.content_id), cc.image) AS image_urls,
 			       rr.run_record_id AS joined_running_record_id, COALESCE(rr.total_distance, 0) AS total_distance, rr.duration, rr.pace,
 			       COALESCE(stats.tagged_count, 0) AS tagged_count,
@@ -368,9 +368,9 @@ final class CommunityFeedRepository {
 
 	private String notificationActorName(long userId) {
 		List<String> rows = jdbcTemplate.query("""
-			SELECT COALESCE(cu.community_profile_name, u.community_profile_name, u.name) AS nickname
+			SELECT CASE WHEN u.deleted_at IS NULL THEN COALESCE(cu.community_profile_name, u.community_profile_name, u.name) ELSE '탈퇴한 사용자' END AS nickname
 			FROM users u LEFT JOIN community_users cu ON cu.user_id = u.user_id
-			WHERE u.user_id = ?
+			WHERE u.user_id = ? AND u.deleted_at IS NULL
 			""", (rs, n) -> rs.getString("nickname"), userId);
 		return rows == null || rows.isEmpty() || rows.getFirst() == null || rows.getFirst().isBlank() ? "러너" : rows.getFirst();
 	}

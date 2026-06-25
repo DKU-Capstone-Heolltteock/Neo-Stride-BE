@@ -211,10 +211,38 @@ public class CrewRepository {
 				SET member_count = (
 					SELECT COUNT(*)
 					FROM crew_members cm
-					WHERE cm.crew_id = crews.crew_id AND cm.status = 'ACCEPTED'
+					JOIN users u ON u.user_id = cm.user_id
+					WHERE cm.crew_id = crews.crew_id AND cm.status = 'ACCEPTED' AND u.deleted_at IS NULL
 				)
 				WHERE crew_id = ?
 				""", crewId);
+	}
+
+	public List<Long> deactivateUserCrewState(long userId) {
+		List<Long> affectedCrewIds = jdbcTemplate.query("""
+				SELECT DISTINCT crew_id
+				FROM crew_members
+				WHERE user_id = ? AND status IN ('REQUESTED', 'ACCEPTED', 'INVITED')
+				""", (rs, rowNum) -> rs.getLong("crew_id"), userId);
+		jdbcTemplate.update("""
+				UPDATE crew_members
+				SET status = 'LEFT', responded_at = CURRENT_TIMESTAMP
+				WHERE user_id = ? AND status IN ('REQUESTED', 'ACCEPTED', 'INVITED')
+				""", userId);
+		jdbcTemplate.update("""
+				UPDATE crew_event_participants
+				SET status = 'CANCELLED', responded_at = CURRENT_TIMESTAMP
+				WHERE user_id = ? AND status IN ('REQUESTED', 'ACCEPTED')
+				""", userId);
+		jdbcTemplate.update("""
+				UPDATE instant_crew_participants
+				SET status = 'CANCELLED', responded_at = CURRENT_TIMESTAMP, joined_at = NULL
+				WHERE user_id = ? AND status IN ('REQUESTED', 'ACCEPTED')
+				""", userId);
+		for (Long crewId : affectedCrewIds) {
+			refreshMemberCount(crewId);
+		}
+		return affectedCrewIds;
 	}
 
 	public List<CrewMemberResponse> listAcceptedMembers(long crewId) {
@@ -223,7 +251,7 @@ public class CrewRepository {
 					u.profile_photo AS profile_image_url, cm.role, cm.status, cm.joined_at
 				FROM crew_members cm
 				JOIN users u ON u.user_id = cm.user_id
-				WHERE cm.crew_id = ? AND cm.status = 'ACCEPTED'
+				WHERE cm.crew_id = ? AND cm.status = 'ACCEPTED' AND u.deleted_at IS NULL
 				ORDER BY FIELD(cm.role, 'OWNER', 'ADMIN', 'MEMBER'), cm.joined_at ASC, cm.user_id ASC
 				""", (rs, rowNum) -> new CrewMemberResponse(
 				rs.getLong("crew_id"),
@@ -242,7 +270,7 @@ public class CrewRepository {
 					u.profile_photo AS profile_image_url, cm.role, cm.status, cm.requested_at
 				FROM crew_members cm
 				JOIN users u ON u.user_id = cm.user_id
-				WHERE cm.crew_id = ? AND cm.status = 'REQUESTED'
+				WHERE cm.crew_id = ? AND cm.status = 'REQUESTED' AND u.deleted_at IS NULL
 				ORDER BY cm.requested_at ASC, cm.user_id ASC
 				""", (rs, rowNum) -> new CrewMemberRequestResponse(
 			rs.getLong("crew_id"),
@@ -349,7 +377,8 @@ public class CrewRepository {
 				SELECT ce.crew_event_id, ce.crew_id, ce.host_user_id, ce.title, ce.description, ce.event_type,
 					ce.status, ce.starts_at, ce.ends_at, ce.location_label, ce.meeting_place, ce.capacity,
 					(SELECT COUNT(*) FROM crew_event_participants cep
-					 WHERE cep.crew_event_id = ce.crew_event_id AND cep.status IN ('ACCEPTED', 'ATTENDED')) AS participant_count
+					 JOIN users u ON u.user_id = cep.user_id
+					 WHERE cep.crew_event_id = ce.crew_event_id AND cep.status IN ('ACCEPTED', 'ATTENDED') AND u.deleted_at IS NULL) AS participant_count
 				FROM crew_events ce
 				WHERE ce.crew_id = ?
 				""" + extraPredicate + " ORDER BY ce.starts_at ASC, ce.crew_event_id ASC";
@@ -375,7 +404,7 @@ public class CrewRepository {
 	}
 
 	public int acceptedEventParticipantCountExcluding(long eventId, Long excludedUserId) {
-		String excludedPredicate = excludedUserId == null ? "" : " AND user_id <> ?";
+		String excludedPredicate = excludedUserId == null ? "" : " AND cep.user_id <> ?";
 		List<Object> args = new ArrayList<>();
 		args.add(eventId);
 		if (excludedUserId != null) {
@@ -383,8 +412,9 @@ public class CrewRepository {
 		}
 		Integer count = jdbcTemplate.queryForObject("""
 				SELECT COUNT(*)
-				FROM crew_event_participants
-				WHERE crew_event_id = ? AND status IN ('ACCEPTED', 'ATTENDED')
+				FROM crew_event_participants cep
+				JOIN users u ON u.user_id = cep.user_id
+				WHERE cep.crew_event_id = ? AND cep.status IN ('ACCEPTED', 'ATTENDED') AND u.deleted_at IS NULL
 				""" + excludedPredicate, Integer.class, args.toArray());
 		return count == null ? 0 : count;
 	}
@@ -475,7 +505,8 @@ public class CrewRepository {
 					ic.region, ic.location_label, ic.meeting_place_private, ic.starts_at, ic.recruit_until, ic.capacity,
 					ic.created_at, viewer.status AS viewer_status,
 					(SELECT COUNT(*) FROM instant_crew_participants p
-					 WHERE p.instant_crew_id = ic.instant_crew_id AND p.status = 'ACCEPTED') AS participant_count
+					 JOIN users u ON u.user_id = p.user_id
+					 WHERE p.instant_crew_id = ic.instant_crew_id AND p.status = 'ACCEPTED' AND u.deleted_at IS NULL) AS participant_count
 				FROM instant_crews ic
 				LEFT JOIN instant_crew_participants viewer ON viewer.instant_crew_id = ic.instant_crew_id AND viewer.user_id = ?
 				WHERE ic.status = 'OPEN' AND ic.recruit_until >= CURRENT_TIMESTAMP
@@ -497,7 +528,8 @@ public class CrewRepository {
 					ic.region, ic.location_label, ic.meeting_place_private, ic.starts_at, ic.recruit_until, ic.capacity,
 					ic.created_at, viewer.status AS viewer_status,
 					(SELECT COUNT(*) FROM instant_crew_participants p
-					 WHERE p.instant_crew_id = ic.instant_crew_id AND p.status = 'ACCEPTED') AS participant_count
+					 JOIN users u ON u.user_id = p.user_id
+					 WHERE p.instant_crew_id = ic.instant_crew_id AND p.status = 'ACCEPTED' AND u.deleted_at IS NULL) AS participant_count
 				FROM instant_crews ic
 				LEFT JOIN instant_crew_participants viewer ON viewer.instant_crew_id = ic.instant_crew_id AND viewer.user_id = ?
 				WHERE ic.instant_crew_id = ?
@@ -510,7 +542,8 @@ public class CrewRepository {
 					ic.region, ic.location_label, ic.meeting_place_private, ic.starts_at, ic.recruit_until, ic.capacity,
 					ic.created_at, viewer.status AS viewer_status,
 					(SELECT COUNT(*) FROM instant_crew_participants p
-					 WHERE p.instant_crew_id = ic.instant_crew_id AND p.status = 'ACCEPTED') AS participant_count
+					 JOIN users u ON u.user_id = p.user_id
+					 WHERE p.instant_crew_id = ic.instant_crew_id AND p.status = 'ACCEPTED' AND u.deleted_at IS NULL) AS participant_count
 				FROM instant_crews ic
 				LEFT JOIN instant_crew_participants viewer ON viewer.instant_crew_id = ic.instant_crew_id AND viewer.user_id = ?
 				WHERE ic.instant_crew_id = ?
@@ -576,7 +609,7 @@ public class CrewRepository {
 	}
 
 	public int acceptedInstantParticipantCountExcluding(long instantCrewId, Long excludedUserId) {
-		String excludedPredicate = excludedUserId == null ? "" : " AND user_id <> ?";
+		String excludedPredicate = excludedUserId == null ? "" : " AND p.user_id <> ?";
 		List<Object> args = new ArrayList<>();
 		args.add(instantCrewId);
 		if (excludedUserId != null) {
@@ -584,8 +617,9 @@ public class CrewRepository {
 		}
 		Integer count = jdbcTemplate.queryForObject("""
 				SELECT COUNT(*)
-				FROM instant_crew_participants
-				WHERE instant_crew_id = ? AND status = 'ACCEPTED'
+				FROM instant_crew_participants p
+				JOIN users u ON u.user_id = p.user_id
+				WHERE p.instant_crew_id = ? AND p.status = 'ACCEPTED' AND u.deleted_at IS NULL
 				""" + excludedPredicate, Integer.class, args.toArray());
 		return count == null ? 0 : count;
 	}
@@ -600,7 +634,7 @@ public class CrewRepository {
 					u.profile_photo AS profile_image_url, p.status, p.requested_at
 				FROM instant_crew_participants p
 				JOIN users u ON u.user_id = p.user_id
-				WHERE p.instant_crew_id = ? AND p.status = 'REQUESTED'
+				WHERE p.instant_crew_id = ? AND p.status = 'REQUESTED' AND u.deleted_at IS NULL
 				ORDER BY p.requested_at ASC, p.user_id ASC
 				""", (rs, rowNum) -> new InstantCrewParticipantRequestResponse(
 			rs.getLong("instant_crew_id"),
@@ -618,7 +652,7 @@ public class CrewRepository {
 					u.profile_photo AS profile_image_url, p.status, p.joined_at
 				FROM instant_crew_participants p
 				JOIN users u ON u.user_id = p.user_id
-				WHERE p.instant_crew_id = ? AND p.status = 'ACCEPTED'
+				WHERE p.instant_crew_id = ? AND p.status = 'ACCEPTED' AND u.deleted_at IS NULL
 				ORDER BY p.joined_at ASC, p.user_id ASC
 				""", (rs, rowNum) -> new InstantCrewParticipantResponse(
 			rs.getLong("user_id"),
@@ -693,8 +727,8 @@ public class CrewRepository {
 	private String chatMessageSelect() {
 		return """
 				SELECT m.message_id, m.crew_id, m.instant_crew_id, m.sender_user_id,
-					COALESCE(NULLIF(u.community_profile_name, ''), u.name) AS nickname,
-					u.profile_photo AS profile_image_url, m.message_type, m.message_text, m.created_at
+					CASE WHEN u.deleted_at IS NULL THEN COALESCE(NULLIF(u.community_profile_name, ''), u.name) ELSE '탈퇴한 사용자' END AS nickname,
+					CASE WHEN u.deleted_at IS NULL THEN u.profile_photo ELSE NULL END AS profile_image_url, m.message_type, m.message_text, m.created_at
 				FROM crew_chat_messages m
 				JOIN users u ON u.user_id = m.sender_user_id
 				""";
